@@ -27,9 +27,14 @@ import (
 )
 
 // ProposalReconciler reconciles Proposal objects.
+//
+// The Content field must be set before calling SetupWithManager.
+// The lightspeed-operator passes a PostgreSQL-backed ContentStore
+// via NewPostgresContentStore().
 type ProposalReconciler struct {
 	client.Client
-	Log logr.Logger
+	Log     logr.Logger
+	Content ContentStore
 }
 
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals,verbs=get;list;watch;create;update;patch;delete

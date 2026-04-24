@@ -146,15 +146,14 @@ type PreviousAttempt struct {
 // +kubebuilder:validation:XValidation:rule="self.workflowRef.name != ''",message="workflowRef.name must not be empty"
 // +kubebuilder:validation:XValidation:rule="!has(self.parentRef) || self.parentRef.name != ''",message="parentRef.name must not be empty when set"
 type ProposalSpec struct {
-	// request is the user's original request, alert description, or a
-	// description of what triggered this proposal. This text is passed to
-	// the analysis agent as the primary input. For adapter-created proposals,
-	// this typically contains the alert summary and relevant details.
-	// Must be 1-32768 characters.
+	// request references a content resource containing the user's original
+	// request, alert description, or a description of what triggered this
+	// proposal. The content is served by the aggregated content API and
+	// passed to the analysis agent as the primary input. For adapter-created
+	// proposals, the adapter creates the content resource with the alert
+	// summary and relevant details, then references it here.
 	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=32768
-	Request string `json:"request,omitempty"`
+	Request ContentReference `json:"request,omitzero"`
 
 	// workflowRef references a Workflow CR that defines
 	// which agents handle each step (analysis, execution, verification)
@@ -276,10 +275,8 @@ type ProposalStatus struct {
 //	metadata:
 //	  name: fix-crashloop
 //	spec:
-//	  request: |
-//	    Pod web-frontend-5d4b8c6f-x9k2m in namespace production is in
-//	    CrashLoopBackOff. Last restart reason: OOMKilled. Container memory
-//	    limit is 256Mi.
+//	  request:
+//	    name: fix-crashloop-request
 //	  workflowRef:
 //	    name: remediation
 //	  targetNamespaces:
@@ -292,7 +289,8 @@ type ProposalStatus struct {
 //	metadata:
 //	  name: acs-fix
 //	spec:
-//	  request: "ACS violation: nginx:1.21 has known CVEs"
+//	  request:
+//	    name: acs-fix-request
 //	  workflowRef:
 //	    name: remediation
 //	  targetNamespaces:
@@ -308,7 +306,8 @@ type ProposalStatus struct {
 //	metadata:
 //	  name: upgrade-4-22
 //	spec:
-//	  request: "Analyze and plan upgrade from OpenShift 4.21 to 4.22"
+//	  request:
+//	    name: upgrade-4-22-request
 //	  workflowRef:
 //	    name: upgrade
 //	  maxAttempts: 2

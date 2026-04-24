@@ -173,9 +173,23 @@ type SkillsSource struct {
 	Paths []string `json:"paths,omitempty"`
 }
 
+// ContentReference points to content served by the platform's aggregated
+// content API. The storage backend (etcd, object storage, PVC) is
+// configured by the cluster admin independently. API consumers reference
+// content by name without knowledge of where it is physically stored.
+// The operator resolves these references at reconcile time via the
+// aggregated API server.
+type ContentReference struct {
+	// name of the content resource.
+	// Must be 1-253 characters.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name,omitempty"`
+}
+
 // AgentSpec defines the desired state of Agent.
 // +kubebuilder:validation:XValidation:rule="self.llmRef.name != ''",message="llmRef.name must not be empty"
-// +kubebuilder:validation:XValidation:rule="!has(self.systemPromptRef) || self.systemPromptRef.name != ''",message="systemPromptRef.name must not be empty when set"
 type AgentSpec struct {
 	// image optionally overrides the agent container image used in the
 	// sandbox pod. When omitted, the operator uses the default agent image
@@ -235,13 +249,13 @@ type AgentSpec struct {
 	// +kubebuilder:validation:MaxItems=20
 	MCPServers []MCPServerConfig `json:"mcpServers,omitempty"`
 
-	// systemPromptRef references a ConfigMap containing the system prompt.
-	// The ConfigMap must have a key named "prompt" with the prompt text.
-	// The system prompt shapes the agent's behavior for its role (analysis,
-	// execution, or verification). When omitted, the agent uses a default
-	// prompt appropriate for its workflow step.
+	// systemPrompt is the system prompt text that shapes the agent's
+	// behavior for its role (analysis, execution, or verification).
+	// When omitted, the agent uses a default prompt appropriate for
+	// its workflow step. Maximum 32768 characters.
 	// +optional
-	SystemPromptRef *corev1.LocalObjectReference `json:"systemPromptRef,omitempty"`
+	// +kubebuilder:validation:MaxLength=32768
+	SystemPrompt *string `json:"systemPrompt,omitempty"`
 
 	// outputSchema is a JSON Schema object that defines additional structured
 	// output fields beyond the base schema that every agent produces (diagnosis,
@@ -285,8 +299,9 @@ type AgentSpec struct {
 //	        - /skills/prometheus
 //	        - /skills/cluster-ops
 //	        - /skills/rbac-security
-//	  systemPromptRef:
-//	    name: analysis-prompt
+//	  systemPrompt: |
+//	    You are an SRE analyst. Examine cluster state, identify root
+//	    causes, and propose remediation options with RBAC requirements.
 //
 // Example — an execution agent with a fast model:
 //
@@ -301,8 +316,8 @@ type AgentSpec struct {
 //	    - image: registry.ci.openshift.org/ocp/5.0:agentic-skills
 //	      paths:
 //	        - /skills/cluster-ops
-//	  systemPromptRef:
-//	    name: execution-prompt
+//	  systemPrompt: |
+//	    You are an execution agent. Apply the approved remediation plan.
 //
 // Example — an agent with MCP servers for extended tooling:
 //
@@ -331,8 +346,8 @@ type AgentSpec struct {
 //	            type: Secret
 //	            secretRef:
 //	              name: pagerduty-api-key
-//	  systemPromptRef:
-//	    name: analysis-prompt
+//	  systemPrompt: |
+//	    You are an SRE analyst with access to MCP tools...
 type Agent struct {
 	metav1.TypeMeta `json:",inline"`
 

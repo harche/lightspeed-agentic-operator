@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -123,9 +122,9 @@ type SandboxInfo struct {
 }
 
 // AnalysisStepStatus is the observed state of the analysis step.
-// All fields are populated by the operator based on the analysis agent's
-// output. The options field is the most important -- it contains the
-// remediation options the user chooses from after analysis.
+// The full analysis output (remediation options, components) is stored
+// via the aggregated content API and referenced by result. The Proposal
+// status holds only conditions, timing, and the user's selection.
 type AnalysisStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -143,33 +142,23 @@ type AnalysisStepStatus struct {
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
-	// options contains one or more remediation options returned by the
-	// analysis agent. Each option has its own diagnosis, plan, verification
-	// strategy, and RBAC requirements. The user reviews these in the
-	// analysis and selects one to approve. Maximum 10 items.
+	// result references the full analysis output (remediation options,
+	// components) stored via the aggregated content API. The operator
+	// populates this after a successful analysis step.
 	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=10
-	Options []RemediationOption `json:"options,omitempty"`
-	// selectedOption is the 0-based index into the options array that the
-	// user approved. Set when the user approves the proposal. The operator
-	// uses this to determine which option's RBAC and plan to use for
-	// execution. Minimum value: 0.
+	Result *ContentReference `json:"result,omitempty"`
+	// selectedOption is the 0-based index into the result's options array
+	// that the user approved. Set when the user approves the proposal.
+	// The operator uses this to determine which option's RBAC and plan
+	// to use for execution. Minimum value: 0.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	SelectedOption *int32 `json:"selectedOption,omitempty"`
-	// components contains optional adapter-specific UI components that
-	// apply to the analysis step as a whole (not to a specific option).
-	// Maximum 20 items.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=20
-	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 }
 
 // ExecutionStepStatus is the observed state of the execution step.
-// Populated by the operator from the execution agent's output. Contains
-// an audit trail of every action the agent took and whether each succeeded.
+// The full execution output (actions taken, inline verification) is
+// stored via the aggregated content API and referenced by result.
 type ExecutionStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -187,25 +176,16 @@ type ExecutionStepStatus struct {
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
-	// actionsTaken lists what the agent did. Maximum 100 items.
+	// result references the full execution output (actions taken,
+	// inline verification, components) stored via the aggregated
+	// content API. The operator populates this after execution completes.
 	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=100
-	ActionsTaken []ExecutionAction `json:"actionsTaken,omitempty"`
-	// verification is the inline verification from the execution agent.
-	// +optional
-	Verification *ExecutionVerification `json:"verification,omitempty"`
-	// components contains optional adapter-defined structured data.
-	// Maximum 20 items.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=20
-	Components []apiextensionsv1.JSON `json:"components,omitempty"`
+	Result *ContentReference `json:"result,omitempty"`
 }
 
 // VerificationStepStatus is the observed state of the verification step.
-// Populated by the operator from the verification agent's output. Contains
-// individual check results and an overall assessment via conditions.
+// The full verification output (checks, summary) is stored via the
+// aggregated content API and referenced by result.
 type VerificationStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -223,23 +203,11 @@ type VerificationStepStatus struct {
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
-	// checks contains individual verification check results.
-	// Maximum 20 items.
+	// result references the full verification output (checks, summary,
+	// components) stored via the aggregated content API. The operator
+	// populates this after verification completes.
 	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=20
-	Checks []VerifyCheck `json:"checks,omitempty"`
-	// summary is a Markdown-formatted verification summary.
-	// Maximum 8192 characters.
-	// +optional
-	// +kubebuilder:validation:MaxLength=8192
-	Summary *string `json:"summary,omitempty"`
-	// components contains optional adapter-defined structured data.
-	// Maximum 20 items.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=20
-	Components []apiextensionsv1.JSON `json:"components,omitempty"`
+	Result *ContentReference `json:"result,omitempty"`
 }
 
 // StepsStatus contains the per-step observed state for all three workflow
