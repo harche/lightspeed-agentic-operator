@@ -1,0 +1,13 @@
+Escalation for failed proposal: {{.Name}}
+
+Original request: {{.RequestName}}
+Failed after {{.AttemptCount}} attempt(s).
+{{range .PreviousAttempts}}
+Attempt {{.Attempt}}:
+{{- if .FailedStep}}
+  Failed step: {{.FailedStep}}
+{{- end}}
+{{- if .FailureReason}}
+  Reason: {{.FailureReason}}
+{{- end}}
+{{end}}

@@ -367,6 +367,7 @@ func TestEscalationWithContentStore(t *testing.T) {
 	t.Logf("escalation request: %s", fetched.Content)
 }
 
-func strPtr(s string) *string                                { return &s }
-func int32Ptr(i int32) *int32                                 { return &i }
+func boolPtr(b bool) *bool                                       { return &b }
+func strPtr(s string) *string                                     { return &s }
+func int32Ptr(i int32) *int32                                     { return &i }
 func sandboxStepPtr(s v1alpha1.SandboxStep) *v1alpha1.SandboxStep { return &s }

@@ -1,40 +1,27 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package proposal
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	agenticv1alpha1 "github.com/harche/lightspeed-agentic-operator/api/v1alpha1"
 )
 
 // ProposalReconciler reconciles Proposal objects.
 //
-// The Content field must be set before calling SetupWithManager.
-// The lightspeed-operator passes a PostgreSQL-backed ContentStore
-// via NewPostgresContentStore().
+// Content and Agent must be set before calling SetupWithManager.
 type ProposalReconciler struct {
 	client.Client
 	Log     logr.Logger
 	Content ContentStore
+	Agent   AgentCaller
 }
 
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals,verbs=get;list;watch;create;update;patch;delete
@@ -43,6 +30,8 @@ type ProposalReconciler struct {
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=workflows,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=agents,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=llmproviders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;create;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;create;delete
 
 func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("proposal", req.NamespacedName)
@@ -52,9 +41,108 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log.Info("Reconciling proposal", "name", proposal.Name)
+	// --- Deletion ---
+	if !proposal.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(&proposal, proposalFinalizer) {
+			if err := cleanupExecutionRBAC(ctx, r.Client, &proposal); err != nil {
+				log.Error(err, "RBAC cleanup failed, retrying")
+				return ctrl.Result{}, err
+			}
+			original := proposal.DeepCopy()
+			controllerutil.RemoveFinalizer(&proposal, proposalFinalizer)
+			if err := r.Patch(ctx, &proposal, client.MergeFrom(original)); err != nil {
+				return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
 
-	return ctrl.Result{}, nil
+	// --- Initialize status on first reconcile ---
+	needsInit := proposal.Status == nil || proposal.Status.Phase == "" || proposal.Status.Attempt == nil || proposal.Status.Steps == nil
+	if needsInit {
+		base := proposal.DeepCopy()
+		if proposal.Status == nil {
+			proposal.Status = &agenticv1alpha1.ProposalStatus{}
+		}
+		if proposal.Status.Phase == "" {
+			proposal.Status.Phase = agenticv1alpha1.ProposalPhasePending
+		}
+		if proposal.Status.Attempt == nil {
+			one := int32(1)
+			proposal.Status.Attempt = &one
+		}
+		if proposal.Status.Steps == nil {
+			proposal.Status.Steps = &agenticv1alpha1.StepsStatus{}
+		}
+		if err := r.Status().Patch(ctx, &proposal, client.MergeFrom(base)); err != nil {
+			return ctrl.Result{}, fmt.Errorf("initialize status: %w", err)
+		}
+	}
+
+	// --- Finalizer ---
+	if !controllerutil.ContainsFinalizer(&proposal, proposalFinalizer) {
+		if !isTerminal(proposal.Status.Phase) {
+			original := proposal.DeepCopy()
+			controllerutil.AddFinalizer(&proposal, proposalFinalizer)
+			if err := r.Patch(ctx, &proposal, client.MergeFrom(original)); err != nil {
+				return ctrl.Result{}, fmt.Errorf("add finalizer: %w", err)
+			}
+			// Re-read after metadata patch to get consistent state
+			if err := r.Get(ctx, req.NamespacedName, &proposal); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+		}
+	}
+
+	log.Info("reconciling", "phase", proposal.Status.Phase, "attempt", *proposal.Status.Attempt)
+
+	// --- Phase routing ---
+	switch proposal.Status.Phase {
+	case agenticv1alpha1.ProposalPhaseCompleted,
+		agenticv1alpha1.ProposalPhaseDenied,
+		agenticv1alpha1.ProposalPhaseProposed,
+		agenticv1alpha1.ProposalPhaseAwaitingSync:
+		return ctrl.Result{}, nil
+
+	case agenticv1alpha1.ProposalPhaseFailed:
+		return r.handleFailed(ctx, log, &proposal)
+
+	case agenticv1alpha1.ProposalPhaseEscalated:
+		return r.handleEscalated(ctx, log, &proposal)
+	}
+
+	// Active phases need the workflow resolved.
+	resolved, err := resolveWorkflow(ctx, r.Client, &proposal)
+	if err != nil {
+		log.Error(err, "workflow resolution failed")
+		base := proposal.DeepCopy()
+		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseFailed
+		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+			Type:    agenticv1alpha1.ProposalConditionAnalyzed,
+			Status:  metav1.ConditionFalse,
+			Reason:  reasonWorkflowFailed,
+			Message: err.Error(),
+		})
+		if statusErr := r.statusPatch(ctx, &proposal, base); statusErr != nil {
+			log.Error(statusErr, "failed to patch status after workflow resolution failure")
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	switch proposal.Status.Phase {
+	case agenticv1alpha1.ProposalPhasePending, agenticv1alpha1.ProposalPhaseAnalyzing:
+		return r.handlePending(ctx, log, &proposal, resolved)
+
+	case agenticv1alpha1.ProposalPhaseApproved, agenticv1alpha1.ProposalPhaseExecuting:
+		return r.handleApproved(ctx, log, &proposal, resolved)
+
+	case agenticv1alpha1.ProposalPhaseVerifying:
+		return r.handleVerifying(ctx, log, &proposal, resolved)
+
+	default:
+		log.Info("unhandled phase, no-op", "phase", proposal.Status.Phase)
+		return ctrl.Result{}, nil
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

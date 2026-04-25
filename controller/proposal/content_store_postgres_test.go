@@ -1,19 +1,3 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package proposal
 
 import (
@@ -69,56 +53,62 @@ func newTestStore(t *testing.T) ContentStore {
 	return store
 }
 
-func TestPostgres_RequestContentTextRoundTrip(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
+func TestPostgres_RequestContentRoundTrip(t *testing.T) {
+	binaryData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
 
-	spec := v1alpha1.RequestContentSpec{
-		ContentPayload: v1alpha1.ContentPayload{MediaType: "text/plain", Content: "Pod is crashing"},
-	}
-	if err := store.CreateRequestContent(ctx, "test-request", spec); err != nil {
-		t.Fatalf("create: %v", err)
-	}
-
-	got, err := store.GetRequestContent(ctx, "test-request")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if got.Content != "Pod is crashing" {
-		t.Errorf("content = %q", got.Content)
-	}
-	if got.MediaType != "text/plain" {
-		t.Errorf("mediaType = %q", got.MediaType)
-	}
-}
-
-func TestPostgres_RequestContentBinaryRoundTrip(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	binaryData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A} // PNG header
-	spec := v1alpha1.RequestContentSpec{
-		ContentPayload: v1alpha1.ContentPayload{MediaType: "image/png", Data: binaryData},
-	}
-	if err := store.CreateRequestContent(ctx, "screenshot", spec); err != nil {
-		t.Fatalf("create: %v", err)
+	tests := []struct {
+		name      string
+		spec      v1alpha1.RequestContentSpec
+		checkText string
+		checkData []byte
+	}{
+		{
+			name: "text",
+			spec: v1alpha1.RequestContentSpec{
+				ContentPayload: v1alpha1.ContentPayload{MediaType: "text/plain", Content: "Pod is crashing"},
+			},
+			checkText: "Pod is crashing",
+		},
+		{
+			name: "binary",
+			spec: v1alpha1.RequestContentSpec{
+				ContentPayload: v1alpha1.ContentPayload{MediaType: "image/png", Data: binaryData},
+			},
+			checkData: binaryData,
+		},
 	}
 
-	got, err := store.GetRequestContent(ctx, "screenshot")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if got.MediaType != "image/png" {
-		t.Errorf("mediaType = %q", got.MediaType)
-	}
-	if len(got.Data) != len(binaryData) {
-		t.Fatalf("data length = %d, want %d", len(got.Data), len(binaryData))
-	}
-	for i, b := range got.Data {
-		if b != binaryData[i] {
-			t.Errorf("data[%d] = %x, want %x", i, b, binaryData[i])
-			break
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newTestStore(t)
+			ctx := context.Background()
+			name := "test-" + tt.name
+
+			if err := store.CreateRequestContent(ctx, name, tt.spec); err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			got, err := store.GetRequestContent(ctx, name)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			if got.MediaType != tt.spec.MediaType {
+				t.Errorf("mediaType = %q, want %q", got.MediaType, tt.spec.MediaType)
+			}
+			if tt.checkText != "" && got.Content != tt.checkText {
+				t.Errorf("content = %q, want %q", got.Content, tt.checkText)
+			}
+			if tt.checkData != nil {
+				if len(got.Data) != len(tt.checkData) {
+					t.Fatalf("data length = %d, want %d", len(got.Data), len(tt.checkData))
+				}
+				for i, b := range got.Data {
+					if b != tt.checkData[i] {
+						t.Errorf("data[%d] = %x, want %x", i, b, tt.checkData[i])
+						break
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -145,137 +135,126 @@ func TestPostgres_RequestContentUpsert(t *testing.T) {
 	}
 }
 
-func TestPostgres_AnalysisResultJSONBRoundTrip(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	reversible := true
-	spec := v1alpha1.AnalysisResultSpec{
-		Options: []v1alpha1.RemediationOption{{
-			Title: "Increase memory limit",
-			Diagnosis: v1alpha1.DiagnosisResult{
-				Summary:    "OOMKilled due to 256Mi limit",
-				Confidence: "High",
-				RootCause:  "Memory limit too low",
+func TestPostgres_ResultJSONBRoundTrip(t *testing.T) {
+	tests := []struct {
+		name   string
+		create func(ContentStore, context.Context) error
+		verify func(ContentStore, context.Context, *testing.T)
+	}{
+		{
+			name: "analysis",
+			create: func(s ContentStore, ctx context.Context) error {
+				return s.CreateAnalysisResult(ctx, "test-analysis", v1alpha1.AnalysisResultSpec{
+					Options: []v1alpha1.RemediationOption{{
+						Title: "Increase memory limit",
+						Diagnosis: v1alpha1.DiagnosisResult{
+							Summary: "OOMKilled due to 256Mi limit", Confidence: "High", RootCause: "Memory limit too low",
+						},
+						Proposal: v1alpha1.ProposalResult{
+							Description: "Increase memory from 256Mi to 512Mi",
+							Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment"}},
+							Risk:        "Low",
+							Reversible:  boolPtr(true),
+						},
+						RBAC: &v1alpha1.RBACResult{
+							NamespaceScoped: []v1alpha1.RBACRule{{
+								APIGroups: []string{"apps"}, Resources: []string{"deployments"},
+								Verbs: []string{"get", "patch"}, Justification: "Patch deployment memory limit",
+							}},
+						},
+						Verification: &v1alpha1.VerificationPlan{
+							Description: "Verify pod is running",
+							Steps:       []v1alpha1.VerificationStep{{Name: "pod-running", Command: "oc get pod", Expected: "Running", Type: "command"}},
+						},
+					}},
+				})
 			},
-			Proposal: v1alpha1.ProposalResult{
-				Description: "Increase memory from 256Mi to 512Mi",
-				Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment"}},
-				Risk:        "Low",
-				Reversible:  &reversible,
+			verify: func(s ContentStore, ctx context.Context, t *testing.T) {
+				got, err := s.GetAnalysisResult(ctx, "test-analysis")
+				if err != nil {
+					t.Fatalf("get: %v", err)
+				}
+				if len(got.Options) != 1 {
+					t.Fatalf("options = %d, want 1", len(got.Options))
+				}
+				opt := got.Options[0]
+				if opt.Title != "Increase memory limit" {
+					t.Errorf("title = %q", opt.Title)
+				}
+				if opt.Diagnosis.Confidence != "High" {
+					t.Errorf("confidence = %q", opt.Diagnosis.Confidence)
+				}
+				if *opt.Proposal.Reversible != true {
+					t.Error("reversible lost")
+				}
+				if opt.RBAC == nil || len(opt.RBAC.NamespaceScoped) != 1 {
+					t.Fatal("RBAC lost")
+				}
+				if opt.RBAC.NamespaceScoped[0].Verbs[1] != "patch" {
+					t.Errorf("RBAC verb = %q", opt.RBAC.NamespaceScoped[0].Verbs[1])
+				}
+				if opt.Verification == nil || len(opt.Verification.Steps) != 1 {
+					t.Fatal("verification plan lost")
+				}
 			},
-			RBAC: &v1alpha1.RBACResult{
-				NamespaceScoped: []v1alpha1.RBACRule{{
-					APIGroups:     []string{"apps"},
-					Resources:     []string{"deployments"},
-					Verbs:         []string{"get", "patch"},
-					Justification: "Patch deployment memory limit",
-				}},
+		},
+		{
+			name: "execution",
+			create: func(s ContentStore, ctx context.Context) error {
+				return s.CreateExecutionResult(ctx, "test-exec", v1alpha1.ExecutionResultSpec{
+					ActionsTaken: []v1alpha1.ExecutionAction{
+						{Type: "patch", Description: "Patched memory to 512Mi", Success: boolPtr(true)},
+					},
+					Verification: &v1alpha1.ExecutionVerification{
+						ConditionImproved: boolPtr(true), Summary: "Pod running stable",
+					},
+				})
 			},
-			Verification: &v1alpha1.VerificationPlan{
-				Description: "Verify pod is running",
-				Steps: []v1alpha1.VerificationStep{{
-					Name: "pod-running", Command: "oc get pod", Expected: "Running", Type: "command",
-				}},
+			verify: func(s ContentStore, ctx context.Context, t *testing.T) {
+				got, err := s.GetExecutionResult(ctx, "test-exec")
+				if err != nil {
+					t.Fatalf("get: %v", err)
+				}
+				if !*got.ActionsTaken[0].Success {
+					t.Error("action success lost")
+				}
+				if !*got.Verification.ConditionImproved {
+					t.Error("condition improved lost")
+				}
 			},
-		}},
+		},
+		{
+			name: "verification",
+			create: func(s ContentStore, ctx context.Context) error {
+				return s.CreateVerificationResult(ctx, "test-verify", v1alpha1.VerificationResultSpec{
+					Checks:  []v1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "Running", Passed: boolPtr(true)}},
+					Summary: "All checks passed",
+				})
+			},
+			verify: func(s ContentStore, ctx context.Context, t *testing.T) {
+				got, err := s.GetVerificationResult(ctx, "test-verify")
+				if err != nil {
+					t.Fatalf("get: %v", err)
+				}
+				if !*got.Checks[0].Passed {
+					t.Error("check passed lost")
+				}
+				if got.Summary != "All checks passed" {
+					t.Errorf("summary = %q", got.Summary)
+				}
+			},
+		},
 	}
 
-	if err := store.CreateAnalysisResult(ctx, "test-analysis", spec); err != nil {
-		t.Fatalf("create: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newTestStore(t)
+			ctx := context.Background()
 
-	got, err := store.GetAnalysisResult(ctx, "test-analysis")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-
-	if len(got.Options) != 1 {
-		t.Fatalf("options = %d, want 1", len(got.Options))
-	}
-	opt := got.Options[0]
-	if opt.Title != "Increase memory limit" {
-		t.Errorf("title = %q", opt.Title)
-	}
-	if opt.Diagnosis.Confidence != "High" {
-		t.Errorf("confidence = %q", opt.Diagnosis.Confidence)
-	}
-	if opt.Proposal.Risk != "Low" {
-		t.Errorf("risk = %q", opt.Proposal.Risk)
-	}
-	if *opt.Proposal.Reversible != true {
-		t.Error("reversible lost in JSONB round-trip")
-	}
-	if opt.RBAC == nil || len(opt.RBAC.NamespaceScoped) != 1 {
-		t.Fatal("RBAC lost in JSONB round-trip")
-	}
-	if opt.RBAC.NamespaceScoped[0].Verbs[1] != "patch" {
-		t.Errorf("RBAC verb = %q", opt.RBAC.NamespaceScoped[0].Verbs[1])
-	}
-	if opt.Verification == nil || len(opt.Verification.Steps) != 1 {
-		t.Fatal("verification plan lost in JSONB round-trip")
+			if err := tt.create(store, ctx); err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			tt.verify(store, ctx, t)
+		})
 	}
 }
-
-func TestPostgres_ExecutionResultJSONBRoundTrip(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	success := true
-	improved := true
-	spec := v1alpha1.ExecutionResultSpec{
-		ActionsTaken: []v1alpha1.ExecutionAction{
-			{Type: "patch", Description: "Patched memory to 512Mi", Success: &success},
-		},
-		Verification: &v1alpha1.ExecutionVerification{
-			ConditionImproved: &improved,
-			Summary:           "Pod running stable",
-		},
-	}
-
-	if err := store.CreateExecutionResult(ctx, "test-exec", spec); err != nil {
-		t.Fatalf("create: %v", err)
-	}
-
-	got, err := store.GetExecutionResult(ctx, "test-exec")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-
-	if !*got.ActionsTaken[0].Success {
-		t.Error("action success lost")
-	}
-	if !*got.Verification.ConditionImproved {
-		t.Error("condition improved lost")
-	}
-}
-
-func TestPostgres_VerificationResultJSONBRoundTrip(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	passed := true
-	spec := v1alpha1.VerificationResultSpec{
-		Checks: []v1alpha1.VerifyCheck{
-			{Name: "pod-running", Source: "oc", Value: "Running", Passed: &passed},
-		},
-		Summary: "All checks passed",
-	}
-
-	if err := store.CreateVerificationResult(ctx, "test-verify", spec); err != nil {
-		t.Fatalf("create: %v", err)
-	}
-
-	got, err := store.GetVerificationResult(ctx, "test-verify")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-
-	if !*got.Checks[0].Passed {
-		t.Error("check passed lost")
-	}
-	if got.Summary != "All checks passed" {
-		t.Errorf("summary = %q", got.Summary)
-	}
-}
-
