@@ -46,11 +46,12 @@ const (
 	reasonVerificationSkipped    = "VerificationSkipped"
 	reasonUserApproved           = "UserApproved"
 	reasonWorkflowFailed         = "WorkflowResolutionFailed"
-	reasonMaxAttemptsReached     = "MaxAttemptsReached"
 	reasonAwaitingSync           = "AwaitingSync"
 	defaultSandboxSA             = "lightspeed-agent"
 	reasonRevisionAnalyzing      = "RevisionAnalyzing"
 	reasonRevisionComplete       = "RevisionComplete"
+	reasonRetryingExecution      = "RetryingExecution"
+	reasonRetriesExhausted       = "RetriesExhausted"
 )
 
 var stepFailReasons = map[string]string{

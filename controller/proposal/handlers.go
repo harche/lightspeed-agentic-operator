@@ -332,18 +332,46 @@ func (r *ProposalReconciler) handleVerifying(
 	}
 
 	if !allPassed {
-		log.Info("verification checks failed", "summary", verifyResult.Summary)
-		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseFailed
+		retryCount := int32(0)
+		if proposal.Status.Steps.Execution != nil && proposal.Status.Steps.Execution.RetryCount != nil {
+			retryCount = *proposal.Status.Steps.Execution.RetryCount
+		}
+		maxRetries := r.maxAttempts(proposal)
+
+		if int(retryCount) < maxRetries {
+			next := retryCount + 1
+			log.Info("verification failed, retrying execution", "retryCount", next, "maxRetries", maxRetries, "summary", verifyResult.Summary)
+			proposal.Status.Steps.Execution.RetryCount = &next
+			proposal.Status.Steps.Execution.StartTime = nil
+			proposal.Status.Steps.Execution.CompletionTime = nil
+			proposal.Status.Steps.Execution.Result = nil
+			proposal.Status.Steps.Verification = nil
+			proposal.Status.Phase = agenticv1alpha1.ProposalPhaseApproved
+			meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+				Type:    agenticv1alpha1.ProposalConditionVerified,
+				Status:  metav1.ConditionFalse,
+				Reason:  reasonRetryingExecution,
+				Message: fmt.Sprintf("Verification failed (attempt %d/%d): %s", next, maxRetries, verifyResult.Summary),
+			})
+			if err := r.statusPatch(ctx, proposal, base); err != nil {
+				return ctrl.Result{}, fmt.Errorf("update for execution retry: %w", err)
+			}
+			return ctrl.Result{Requeue: true}, nil
+		}
+
+		log.Info("verification retries exhausted, returning to Proposed", "retryCount", retryCount, "summary", verifyResult.Summary)
+		proposal.Status.Steps.Analysis.SelectedOption = nil
+		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseProposed
 		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 			Type:    agenticv1alpha1.ProposalConditionVerified,
 			Status:  metav1.ConditionFalse,
-			Reason:  reasonVerificationFailed,
-			Message: verifyResult.Summary,
+			Reason:  reasonRetriesExhausted,
+			Message: fmt.Sprintf("Verification failed after %d attempt(s): %s", retryCount, verifyResult.Summary),
 		})
 		if err := r.statusPatch(ctx, proposal, base); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("update to Proposed (retries exhausted): %w", err)
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
 	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseCompleted
@@ -361,58 +389,40 @@ func (r *ProposalReconciler) handleVerifying(
 	return ctrl.Result{}, nil
 }
 
-// handleFailed captures the failure, then retries or escalates.
+// handleFailed performs cleanup for system failures. Failed is a terminal
+// phase — system failures (agent errors, sandbox crashes, network issues)
+// are not retryable. Objective failures (verification checks not passed)
+// are handled inline in handleVerifying with their own retry loop.
 func (r *ProposalReconciler) handleFailed(
 	ctx context.Context,
 	log logr.Logger,
 	proposal *agenticv1alpha1.Proposal,
 ) (ctrl.Result, error) {
+	log.Info("handling system failure (terminal)")
+
 	if proposal.Annotations[rbacNamespacesAnnotation] != "" {
 		if err := cleanupExecutionRBAC(ctx, r.Client, proposal); err != nil {
 			log.Error(err, "RBAC cleanup on failure")
 		}
 	}
+	if err := cleanupContentReadRBAC(ctx, r.Client, proposal); err != nil {
+		log.Error(err, "content-read RBAC cleanup on failure")
+	}
 
-	maxAttempts := r.maxAttempts(proposal)
-	log.Info("handling failure", "attempt", *proposal.Status.Attempt, "maxAttempts", maxAttempts)
-
-	base := proposal.DeepCopy()
 	currentAttempt := *proposal.Status.Attempt
 	if !attemptAlreadyRecorded(proposal.Status.PreviousAttempts, currentAttempt) {
+		base := proposal.DeepCopy()
 		failedStep, failureReason := determineFailure(proposal)
 		proposal.Status.PreviousAttempts = append(proposal.Status.PreviousAttempts, agenticv1alpha1.PreviousAttempt{
 			Attempt:       currentAttempt,
 			FailedStep:    failedStep,
 			FailureReason: failureReason,
 		})
-	}
-
-	if int(currentAttempt) >= maxAttempts {
-		log.Info("max attempts reached, escalating")
-		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseEscalated
-		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
-			Type:    agenticv1alpha1.ProposalConditionEscalated,
-			Status:  metav1.ConditionTrue,
-			Reason:  reasonMaxAttemptsReached,
-			Message: fmt.Sprintf("Failed after %d attempt(s)", currentAttempt),
-		})
 		if err := r.statusPatch(ctx, proposal, base); err != nil {
-			return ctrl.Result{}, fmt.Errorf("update to Escalated: %w", err)
+			return ctrl.Result{}, fmt.Errorf("record system failure: %w", err)
 		}
-		return ctrl.Result{Requeue: true}, nil
 	}
-
-	nextAttempt := currentAttempt + 1
-	proposal.Status.Attempt = &nextAttempt
-	proposal.Status.Phase = agenticv1alpha1.ProposalPhasePending
-	proposal.Status.Steps = &agenticv1alpha1.StepsStatus{}
-	proposal.Status.Conditions = nil
-	log.Info("retrying", "nextAttempt", nextAttempt)
-
-	if err := r.statusPatch(ctx, proposal, base); err != nil {
-		return ctrl.Result{}, fmt.Errorf("update for retry: %w", err)
-	}
-	return ctrl.Result{Requeue: true}, nil
+	return ctrl.Result{}, nil
 }
 
 // handleEscalated creates a child escalation proposal.

@@ -644,6 +644,289 @@ func TestRevisionLifecycleWithContentStore(t *testing.T) {
 	})
 }
 
+// TestObjectiveFailureLifecycleWithContentStore simulates the objective
+// failure retry flow using the PostgreSQL-backed ContentStore. Traces:
+//  1. Adapter creates request, operator runs analysis
+//  2. Execution succeeds, verification fails (objective failure)
+//  3. Retry: second execution, second verification (also fails)
+//  4. Retries exhausted → back to Proposed
+//  5. Admin picks a different option, execution succeeds, verification passes
+//  6. All prior results (both attempts) remain accessible
+//  7. Proposal CR stays small
+func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
+	ctx := context.Background()
+	var store ContentStore = newTestStore(t)
+
+	reversible := true
+
+	// --- Setup: adapter creates request content ---
+	if err := store.CreateRequestContent(ctx, "fix-oom-request", v1alpha1.RequestContentSpec{
+		ContentPayload: v1alpha1.ContentPayload{
+			MediaType: "text/plain",
+			Content:   "Pod app-server OOMKilled in namespace production. Memory limit 500Mi. 3 restarts.",
+		},
+	}); err != nil {
+		t.Fatalf("create request content: %v", err)
+	}
+
+	proposal := &v1alpha1.Proposal{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-oom", Namespace: "openshift-lightspeed"},
+		Spec: v1alpha1.ProposalSpec{
+			Request:          v1alpha1.ContentReference{Name: "fix-oom-request"},
+			WorkflowRef:      corev1.LocalObjectReference{Name: "remediation"},
+			TargetNamespaces: []string{"production"},
+		},
+		Status: &v1alpha1.ProposalStatus{
+			Phase:   v1alpha1.ProposalPhasePending,
+			Attempt: int32Ptr(1),
+			Steps:   &v1alpha1.StepsStatus{},
+		},
+	}
+
+	// --- Step 1: Analysis with two options ---
+	t.Run("initial_analysis_two_options", func(t *testing.T) {
+		spec := v1alpha1.AnalysisResultSpec{
+			Options: []v1alpha1.RemediationOption{
+				{
+					Title: "Increase to 768MB",
+					Diagnosis: v1alpha1.DiagnosisResult{
+						Summary: "OOMKilled due to JVM heap at 480MB against 500Mi limit", Confidence: "High", RootCause: "Memory limit too low",
+					},
+					Proposal: v1alpha1.ProposalResult{
+						Description: "Patch to 768Mi",
+						Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment memory to 768Mi"}},
+						Risk:        "Low",
+						Reversible:  &reversible,
+					},
+				},
+				{
+					Title: "Increase to 1024MB",
+					Diagnosis: v1alpha1.DiagnosisResult{
+						Summary: "OOMKilled due to JVM heap at 480MB against 500Mi limit", Confidence: "High", RootCause: "Memory limit too low",
+					},
+					Proposal: v1alpha1.ProposalResult{
+						Description: "Patch to 1024Mi",
+						Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment memory to 1024Mi"}},
+						Risk:        "Medium",
+						Reversible:  &reversible,
+					},
+				},
+			},
+		}
+		if err := store.CreateAnalysisResult(ctx, "fix-oom-analysis-1", spec); err != nil {
+			t.Fatalf("store analysis: %v", err)
+		}
+
+		proposal.Status.Steps.Analysis = &v1alpha1.AnalysisStepStatus{
+			Result: &v1alpha1.ContentReference{Name: "fix-oom-analysis-1"},
+		}
+		proposal.Status.Phase = v1alpha1.ProposalPhaseProposed
+
+		fetched, err := store.GetAnalysisResult(ctx, "fix-oom-analysis-1")
+		if err != nil {
+			t.Fatalf("read analysis: %v", err)
+		}
+		if len(fetched.Options) != 2 {
+			t.Fatalf("expected 2 options, got %d", len(fetched.Options))
+		}
+	})
+
+	// --- Step 2: User picks option 0 (768MB), first execution ---
+	t.Run("first_execution_option_0", func(t *testing.T) {
+		selected := int32(0)
+		proposal.Status.Steps.Analysis.SelectedOption = &selected
+
+		success := true
+		spec := v1alpha1.ExecutionResultSpec{
+			ActionsTaken: []v1alpha1.ExecutionAction{
+				{Type: "patch", Description: "Patched deployment/app-server memory to 768Mi", Success: &success},
+			},
+			Verification: &v1alpha1.ExecutionVerification{
+				ConditionImproved: boolPtr(false),
+				Summary:           "Pod restarted but still OOMing",
+			},
+		}
+		if err := store.CreateExecutionResult(ctx, "fix-oom-execution-1", spec); err != nil {
+			t.Fatalf("store execution: %v", err)
+		}
+
+		proposal.Status.Steps.Execution = &v1alpha1.ExecutionStepStatus{
+			Result: &v1alpha1.ContentReference{Name: "fix-oom-execution-1"},
+		}
+
+		fetched, err := store.GetExecutionResult(ctx, "fix-oom-execution-1")
+		if err != nil {
+			t.Fatalf("read execution: %v", err)
+		}
+		if len(fetched.ActionsTaken) != 1 {
+			t.Fatalf("expected 1 action, got %d", len(fetched.ActionsTaken))
+		}
+		if !*fetched.ActionsTaken[0].Success {
+			t.Error("action should be successful")
+		}
+		if *fetched.Verification.ConditionImproved {
+			t.Error("inline verification should show no improvement")
+		}
+	})
+
+	// --- Step 3: First verification (objective failure) ---
+	t.Run("first_verification_fails", func(t *testing.T) {
+		spec := v1alpha1.VerificationResultSpec{
+			Checks: []v1alpha1.VerifyCheck{
+				{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Passed: boolPtr(false)},
+				{Name: "memory-usage", Source: "promql", Value: "740Mi peak", Passed: boolPtr(true)},
+			},
+			Summary: "Pod still crashing after increase to 768Mi — batch workload peaks above 768Mi",
+		}
+		if err := store.CreateVerificationResult(ctx, "fix-oom-verification-1", spec); err != nil {
+			t.Fatalf("store verification: %v", err)
+		}
+
+		proposal.Status.Steps.Verification = &v1alpha1.VerificationStepStatus{
+			Result: &v1alpha1.ContentReference{Name: "fix-oom-verification-1"},
+		}
+
+		fetched, err := store.GetVerificationResult(ctx, "fix-oom-verification-1")
+		if err != nil {
+			t.Fatalf("read verification: %v", err)
+		}
+		if len(fetched.Checks) != 2 {
+			t.Fatalf("expected 2 checks, got %d", len(fetched.Checks))
+		}
+		if *fetched.Checks[0].Passed {
+			t.Error("pod-running check should have failed")
+		}
+		if !*fetched.Checks[1].Passed {
+			t.Error("memory-usage check should have passed")
+		}
+		if fetched.Summary != "Pod still crashing after increase to 768Mi — batch workload peaks above 768Mi" {
+			t.Errorf("summary corrupted: %q", fetched.Summary)
+		}
+	})
+
+	// --- Step 4: Retry execution (retryCount=1) ---
+	t.Run("second_execution_retry", func(t *testing.T) {
+		retryCount := int32(1)
+		proposal.Status.Steps.Execution.RetryCount = &retryCount
+		proposal.Status.Steps.Execution.Result = nil
+		proposal.Status.Steps.Verification = nil
+
+		success := true
+		spec := v1alpha1.ExecutionResultSpec{
+			ActionsTaken: []v1alpha1.ExecutionAction{
+				{Type: "patch", Description: "Re-patched deployment/app-server memory to 768Mi (retry)", Success: &success},
+			},
+		}
+		if err := store.CreateExecutionResult(ctx, "fix-oom-execution-2", spec); err != nil {
+			t.Fatalf("store execution retry: %v", err)
+		}
+
+		proposal.Status.Steps.Execution.Result = &v1alpha1.ContentReference{Name: "fix-oom-execution-2"}
+
+		fetched, err := store.GetExecutionResult(ctx, "fix-oom-execution-2")
+		if err != nil {
+			t.Fatalf("read execution retry: %v", err)
+		}
+		if fetched.ActionsTaken[0].Description != "Re-patched deployment/app-server memory to 768Mi (retry)" {
+			t.Error("execution retry description corrupted")
+		}
+	})
+
+	// --- Step 5: Second verification (still fails) ---
+	t.Run("second_verification_still_fails", func(t *testing.T) {
+		spec := v1alpha1.VerificationResultSpec{
+			Checks: []v1alpha1.VerifyCheck{
+				{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Passed: boolPtr(false)},
+			},
+			Summary: "Pod still crashing after second attempt — 768Mi insufficient for batch peak",
+		}
+		if err := store.CreateVerificationResult(ctx, "fix-oom-verification-2", spec); err != nil {
+			t.Fatalf("store verification retry: %v", err)
+		}
+
+		proposal.Status.Steps.Verification = &v1alpha1.VerificationStepStatus{
+			Result: &v1alpha1.ContentReference{Name: "fix-oom-verification-2"},
+		}
+
+		fetched, err := store.GetVerificationResult(ctx, "fix-oom-verification-2")
+		if err != nil {
+			t.Fatalf("read verification retry: %v", err)
+		}
+		if *fetched.Checks[0].Passed {
+			t.Error("should still be failing")
+		}
+	})
+
+	// --- Step 6: Retries exhausted, back to Proposed ---
+	t.Run("retries_exhausted_back_to_proposed", func(t *testing.T) {
+		proposal.Status.Phase = v1alpha1.ProposalPhaseProposed
+		proposal.Status.Steps.Analysis.SelectedOption = nil
+
+		// Analysis result still has both options
+		fetched, err := store.GetAnalysisResult(ctx, proposal.Status.Steps.Analysis.Result.Name)
+		if err != nil {
+			t.Fatalf("analysis result lost: %v", err)
+		}
+		if len(fetched.Options) != 2 {
+			t.Fatalf("expected 2 options still available, got %d", len(fetched.Options))
+		}
+	})
+
+	// --- Step 7: Admin picks option 1 (1024MB), succeeds ---
+	t.Run("pick_different_option_succeeds", func(t *testing.T) {
+		selected := int32(1)
+		proposal.Status.Steps.Analysis.SelectedOption = &selected
+
+		result, err := store.GetAnalysisResult(ctx, proposal.Status.Steps.Analysis.Result.Name)
+		if err != nil {
+			t.Fatalf("read analysis for new option: %v", err)
+		}
+		option := result.Options[*proposal.Status.Steps.Analysis.SelectedOption]
+		if option.Title != "Increase to 1024MB" {
+			t.Errorf("wrong option: %q", option.Title)
+		}
+		if option.Proposal.Risk != "Medium" {
+			t.Errorf("wrong risk: %q", option.Proposal.Risk)
+		}
+	})
+
+	// --- Step 8: All prior results remain accessible ---
+	t.Run("all_results_accessible_after_retry", func(t *testing.T) {
+		// Original request
+		if _, err := store.GetRequestContent(ctx, "fix-oom-request"); err != nil {
+			t.Errorf("original request: %v", err)
+		}
+		// Analysis
+		if _, err := store.GetAnalysisResult(ctx, "fix-oom-analysis-1"); err != nil {
+			t.Errorf("analysis: %v", err)
+		}
+		// Both executions
+		for _, name := range []string{"fix-oom-execution-1", "fix-oom-execution-2"} {
+			if _, err := store.GetExecutionResult(ctx, name); err != nil {
+				t.Errorf("execution %q: %v", name, err)
+			}
+		}
+		// Both verifications
+		for _, name := range []string{"fix-oom-verification-1", "fix-oom-verification-2"} {
+			if _, err := store.GetVerificationResult(ctx, name); err != nil {
+				t.Errorf("verification %q: %v", name, err)
+			}
+		}
+	})
+
+	// --- Step 9: Proposal CR stays small ---
+	t.Run("proposal_stays_small_after_retries", func(t *testing.T) {
+		data, err := json.Marshal(proposal)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		t.Logf("proposal JSON size after retry cycle: %d bytes", len(data))
+		if len(data) > 2048 {
+			t.Errorf("proposal too large: %d bytes (retry results should not bloat the CR)", len(data))
+		}
+	})
+}
+
 func boolPtr(b bool) *bool                                       { return &b }
 func strPtr(s string) *string                                     { return &s }
 func int32Ptr(i int32) *int32                                     { return &i }

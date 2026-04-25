@@ -187,6 +187,13 @@ type ExecutionStepStatus struct {
 	// content API. The operator populates this after execution completes.
 	// +optional
 	Result *ContentReference `json:"result,omitempty"`
+	// retryCount tracks how many times execution+verification has been
+	// retried for the current analysis option. Reset when a new analysis
+	// is run (initial or revision). The operator increments this on each
+	// objective verification failure before retrying execution.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RetryCount *int32 `json:"retryCount,omitempty"`
 }
 
 // VerificationStepStatus is the observed state of the verification step.

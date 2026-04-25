@@ -216,12 +216,51 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	}
 }
 
-func TestReconcile_AnalysisFailure_RetryAndEscalate(t *testing.T) {
+func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
 	store := newTestStore(t)
 	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
 
 	agent := newTestAgentCaller()
 	agent.analyzeErr = fmt.Errorf("LLM timeout")
+	scheme := testScheme()
+
+	proposal := testProposal("remediation")
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
+		testLLM("smart"), testLLM("fast"),
+	).WithStatusSubresource(proposal).Build()
+
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+
+	// Reconcile 1: Pending → Failed (system failure)
+	result, err := reconcileOnce(r, "fix-crash")
+	if err != nil {
+		t.Fatalf("reconcile 1: %v", err)
+	}
+	if !result.Requeue {
+		t.Error("should requeue to enter handleFailed")
+	}
+	p, _ := getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed, got %s", p.Status.Phase)
+	}
+
+	// Reconcile 2: Failed stays Failed (terminal, no retry)
+	reconcileOnce(r, "fix-crash")
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed (terminal), got %s", p.Status.Phase)
+	}
+	if len(p.Status.PreviousAttempts) != 1 {
+		t.Fatalf("expected 1 previous attempt recorded, got %d", len(p.Status.PreviousAttempts))
+	}
+}
+
+func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
+	store := newTestStore(t)
+	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
+
+	agent := newTestAgentCaller()
 	scheme := testScheme()
 
 	maxAttempts := int32(2)
@@ -235,10 +274,88 @@ func TestReconcile_AnalysisFailure_RetryAndEscalate(t *testing.T) {
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
 
-	// Reconcile 1: Pending → Failed
+	// Analysis → approve → execution → verifying
+	reconcileOnce(r, "fix-crash")
+	approveProposal(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+
+	// Make verification fail (objective failure, not system error)
+	failed := false
+	agent.verifyResult = &agenticv1alpha1.VerificationResultSpec{
+		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Passed: &failed}},
+		Summary: "Pod still crashing",
+	}
+
+	// Verification fails → back to Approved for retry (retryCount=1)
 	result, err := reconcileOnce(r, "fix-crash")
 	if err != nil {
-		t.Fatalf("reconcile 1: %v", err)
+		t.Fatalf("verification reconcile: %v", err)
+	}
+	if !result.Requeue {
+		t.Error("should requeue to re-execute")
+	}
+	p, _ := getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseApproved {
+		t.Fatalf("expected Approved (retry), got %s", p.Status.Phase)
+	}
+	if p.Status.Steps.Execution.RetryCount == nil || *p.Status.Steps.Execution.RetryCount != 1 {
+		t.Fatal("retryCount should be 1")
+	}
+
+	// Re-execute → Verifying
+	reconcileOnce(r, "fix-crash")
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying (re-execution), got %s", p.Status.Phase)
+	}
+
+	// Re-verify → fails again → Approved (retryCount=2, requeue)
+	reconcileOnce(r, "fix-crash")
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseApproved {
+		t.Fatalf("expected Approved (retry 2), got %s", p.Status.Phase)
+	}
+	if *p.Status.Steps.Execution.RetryCount != 2 {
+		t.Fatalf("expected retryCount 2, got %d", *p.Status.Steps.Execution.RetryCount)
+	}
+
+	// Re-execute again → Verifying
+	reconcileOnce(r, "fix-crash")
+	// Re-verify → retryCount=2 >= maxAttempts=2 → Proposed (exhausted)
+	reconcileOnce(r, "fix-crash")
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed (retries exhausted), got %s", p.Status.Phase)
+	}
+	if p.Status.Steps.Analysis.SelectedOption != nil {
+		t.Fatal("selectedOption should be cleared after retries exhausted")
+	}
+}
+
+func TestReconcile_SystemFailure_Execution_Terminal(t *testing.T) {
+	store := newTestStore(t)
+	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
+
+	agent := newTestAgentCaller()
+	scheme := testScheme()
+
+	proposal := testProposal("remediation")
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
+		testLLM("smart"), testLLM("fast"),
+	).WithStatusSubresource(proposal).Build()
+
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+
+	// Analysis → approve
+	reconcileOnce(r, "fix-crash")
+	approveProposal(t, fc, "fix-crash")
+
+	// Execution system failure
+	agent.executeErr = fmt.Errorf("sandbox pod crashed")
+	result, err := reconcileOnce(r, "fix-crash")
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
 	}
 	if !result.Requeue {
 		t.Error("should requeue to enter handleFailed")
@@ -248,89 +365,15 @@ func TestReconcile_AnalysisFailure_RetryAndEscalate(t *testing.T) {
 		t.Fatalf("expected Failed, got %s", p.Status.Phase)
 	}
 
-	// Reconcile 2: Failed → Pending (retry, attempt 2)
-	reconcileOnce(r, "fix-crash")
-	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhasePending {
-		t.Fatalf("expected Pending (retry), got %s", p.Status.Phase)
-	}
-	if *p.Status.Attempt != 2 {
-		t.Fatalf("expected attempt 2, got %d", *p.Status.Attempt)
-	}
-	if len(p.Status.PreviousAttempts) != 1 {
-		t.Fatalf("expected 1 previous attempt, got %d", len(p.Status.PreviousAttempts))
-	}
-
-	// Reconcile 3: Pending → Failed (attempt 2)
+	// Terminal — stays Failed
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
 	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed, got %s", p.Status.Phase)
-	}
-
-	// Reconcile 4: Failed → Escalated
-	reconcileOnce(r, "fix-crash")
-	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseEscalated {
-		t.Fatalf("expected Escalated, got %s", p.Status.Phase)
-	}
-	if len(p.Status.PreviousAttempts) != 2 {
-		t.Fatalf("expected 2 previous attempts, got %d", len(p.Status.PreviousAttempts))
-	}
-
-	// Reconcile 5: Escalated → creates child proposal
-	reconcileOnce(r, "fix-crash")
-	var child agenticv1alpha1.Proposal
-	if err := fc.Get(context.Background(), types.NamespacedName{Name: "fix-crash-escalation", Namespace: "default"}, &child); err != nil {
-		t.Fatalf("child proposal not found: %v", err)
-	}
-	if child.Spec.ParentRef == nil || child.Spec.ParentRef.Name != "fix-crash" {
-		t.Error("child parentRef not set correctly")
-	}
-
-	// Verify escalation request content persisted to postgres
-	escalationReq, err := store.GetRequestContent(context.Background(), "fix-crash-escalation-request")
-	if err != nil {
-		t.Fatalf("escalation request not in store: %v", err)
-	}
-	if escalationReq.Content == "" {
-		t.Fatal("escalation request content is empty")
+		t.Fatalf("expected Failed (terminal), got %s", p.Status.Phase)
 	}
 }
 
-func TestReconcile_RetryIdempotent(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
-	agent := newTestAgentCaller()
-	agent.analyzeErr = fmt.Errorf("LLM timeout")
-	scheme := testScheme()
-
-	proposal := testProposal("remediation")
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
-
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
-
-	// Pending → Failed, then Failed → Pending (retry)
-	reconcileOnce(r, "fix-crash")
-	reconcileOnce(r, "fix-crash")
-
-	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhasePending {
-		t.Fatalf("expected Pending after retry, got %s", p.Status.Phase)
-	}
-	if *p.Status.Attempt != 2 {
-		t.Fatalf("expected attempt 2, got %d", *p.Status.Attempt)
-	}
-	if len(p.Status.PreviousAttempts) != 1 {
-		t.Fatal("expected exactly 1 previous attempt")
-	}
-}
-
-func TestReconcile_VerificationFailure_Retries(t *testing.T) {
+func TestReconcile_SystemFailure_Verification_Terminal(t *testing.T) {
 	store := newTestStore(t)
 	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
 
@@ -345,39 +388,99 @@ func TestReconcile_VerificationFailure_Retries(t *testing.T) {
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
 
-	// Analysis → approve → execution
+	// Analysis → approve → execution → verifying
 	reconcileOnce(r, "fix-crash")
 	approveProposal(t, fc, "fix-crash")
 	reconcileOnce(r, "fix-crash")
 
-	// Make verification fail
+	// Verification system failure
+	agent.verifyErr = fmt.Errorf("network unreachable")
+	result, err := reconcileOnce(r, "fix-crash")
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !result.Requeue {
+		t.Error("should requeue to enter handleFailed")
+	}
+	p, _ := getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed, got %s", p.Status.Phase)
+	}
+
+	// Terminal — stays Failed
+	reconcileOnce(r, "fix-crash")
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed (terminal), got %s", p.Status.Phase)
+	}
+}
+
+func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
+	store := newTestStore(t)
+	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
+
+	agent := newTestAgentCaller()
+	scheme := testScheme()
+
+	maxAttempts := int32(1)
+	proposal := testProposal("remediation")
+	proposal.Spec.MaxAttempts = &maxAttempts
+
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
+		testLLM("smart"), testLLM("fast"),
+	).WithStatusSubresource(proposal).Build()
+
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+
+	// Full lifecycle to verification failure, retries exhausted → Proposed
+	reconcileOnce(r, "fix-crash")
+	approveProposal(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+
 	failed := false
 	agent.verifyResult = &agenticv1alpha1.VerificationResultSpec{
 		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Passed: &failed}},
 		Summary: "Pod still crashing",
 	}
+	// Verification fails → Approved (retry, retryCount=1)
+	reconcileOnce(r, "fix-crash")
+	// Re-execute → Verifying
+	reconcileOnce(r, "fix-crash")
+	// Re-verify → retryCount=1 >= maxAttempts=1 → Proposed
+	reconcileOnce(r, "fix-crash")
 
-	// Verification → Failed
-	result, err := reconcileOnce(r, "fix-crash")
-	if err != nil {
-		t.Fatalf("verification reconcile: %v", err)
-	}
-	if !result.Requeue {
-		t.Error("should requeue from Failed")
-	}
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed, got %s", p.Status.Phase)
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
 	}
 
-	// Failed → retry → Pending
+	// Admin submits revision
+	passed := true
+	agent.verifyResult = &agenticv1alpha1.VerificationResultSpec{
+		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "Running", Passed: &passed}},
+		Summary: "Pod running",
+	}
+	reviseProposal(t, fc, store, "fix-crash", 1, "Try a different approach")
+	reconcileOnce(r, "fix-crash") // revision re-analysis
+
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed after revision, got %s", p.Status.Phase)
+	}
+
+	// Approve and complete
+	approveProposal(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash") // execution + verification
+	p, _ = getProposal(r, "fix-crash")
+	// Should reach Verifying (full workflow) then complete on next reconcile
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
+	}
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhasePending {
-		t.Fatalf("expected Pending after retry, got %s", p.Status.Phase)
-	}
-	if *p.Status.Attempt != 2 {
-		t.Fatalf("expected attempt 2, got %d", *p.Status.Attempt)
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseCompleted {
+		t.Fatalf("expected Completed, got %s", p.Status.Phase)
 	}
 }
 
@@ -624,11 +727,11 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 		t.Fatalf("expected Failed, got %s", p.Status.Phase)
 	}
 
-	// Retry works: Failed → Pending
+	// Failed is terminal for system failures — stays Failed
 	agent.analyzeErr = nil
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhasePending {
-		t.Fatalf("expected Pending after retry, got %s", p.Status.Phase)
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed (terminal), got %s", p.Status.Phase)
 	}
 }
