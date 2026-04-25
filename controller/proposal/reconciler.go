@@ -48,6 +48,10 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				log.Error(err, "RBAC cleanup failed, retrying")
 				return ctrl.Result{}, err
 			}
+			if err := cleanupContentReadRBAC(ctx, r.Client, &proposal); err != nil {
+				log.Error(err, "content-read RBAC cleanup failed, retrying")
+				return ctrl.Result{}, err
+			}
 			original := proposal.DeepCopy()
 			controllerutil.RemoveFinalizer(&proposal, proposalFinalizer)
 			if err := r.Patch(ctx, &proposal, client.MergeFrom(original)); err != nil {
@@ -100,9 +104,13 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	switch proposal.Status.Phase {
 	case agenticv1alpha1.ProposalPhaseCompleted,
 		agenticv1alpha1.ProposalPhaseDenied,
-		agenticv1alpha1.ProposalPhaseProposed,
 		agenticv1alpha1.ProposalPhaseAwaitingSync:
 		return ctrl.Result{}, nil
+
+	case agenticv1alpha1.ProposalPhaseProposed:
+		if !needsRevision(&proposal) {
+			return ctrl.Result{}, nil
+		}
 
 	case agenticv1alpha1.ProposalPhaseFailed:
 		return r.handleFailed(ctx, log, &proposal)
@@ -132,6 +140,9 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	switch proposal.Status.Phase {
 	case agenticv1alpha1.ProposalPhasePending, agenticv1alpha1.ProposalPhaseAnalyzing:
 		return r.handlePending(ctx, log, &proposal, resolved)
+
+	case agenticv1alpha1.ProposalPhaseProposed:
+		return r.handleRevision(ctx, log, &proposal, resolved)
 
 	case agenticv1alpha1.ProposalPhaseApproved, agenticv1alpha1.ProposalPhaseExecuting:
 		return r.handleApproved(ctx, log, &proposal, resolved)

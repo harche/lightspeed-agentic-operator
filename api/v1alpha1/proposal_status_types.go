@@ -154,6 +154,12 @@ type AnalysisStepStatus struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	SelectedOption *int32 `json:"selectedOption,omitempty"`
+	// observedRevision is the revision number from spec.revision that this
+	// analysis was produced for. When spec.revision > observedRevision,
+	// the operator re-runs analysis with revision context.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ObservedRevision *int32 `json:"observedRevision,omitempty"`
 }
 
 // ExecutionStepStatus is the observed state of the execution step.

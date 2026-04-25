@@ -72,6 +72,84 @@ func (r *ProposalReconciler) handlePending(
 	return ctrl.Result{}, nil
 }
 
+// handleRevision re-runs analysis with revision context appended to the
+// agent's system prompt. The agent pulls previous analysis and user feedback
+// via oc get, keeping the system prompt O(1) regardless of revision count.
+func (r *ProposalReconciler) handleRevision(
+	ctx context.Context,
+	log logr.Logger,
+	proposal *agenticv1alpha1.Proposal,
+	resolved *resolvedWorkflow,
+) (ctrl.Result, error) {
+	revision := *proposal.Spec.Revision
+	log.Info("handling revision", "revision", revision)
+
+	base := proposal.DeepCopy()
+	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseAnalyzing
+	now := metav1.Now()
+	ensureAnalysisStep(proposal)
+	proposal.Status.Steps.Analysis.StartTime = &now
+	proposal.Status.Steps.Analysis.CompletionTime = nil
+	proposal.Status.Steps.Analysis.SelectedOption = nil
+	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
+		Status:  metav1.ConditionUnknown,
+		Reason:  reasonRevisionAnalyzing,
+		Message: fmt.Sprintf("Re-analyzing for revision %d", revision),
+	})
+	if err := r.statusPatch(ctx, proposal, base); err != nil {
+		return ctrl.Result{}, fmt.Errorf("update to Analyzing (revision): %w", err)
+	}
+
+	reqContent, err := r.Content.GetRequestContent(ctx, proposal.Spec.Request.Name)
+	if err != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("read request content %q: %w", proposal.Spec.Request.Name, err))
+	}
+
+	if err := ensureContentReadRBAC(ctx, r.Client, proposal, defaultSandboxSA, proposal.Namespace); err != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("ensure content-read RBAC: %w", err))
+	}
+
+	agentCopy := resolved.Analysis.Agent.DeepCopy()
+	revisionSuffix := buildRevisionContext(proposal)
+	if agentCopy.Spec.SystemPrompt != nil {
+		combined := *agentCopy.Spec.SystemPrompt + "\n\n" + revisionSuffix
+		agentCopy.Spec.SystemPrompt = &combined
+	} else {
+		agentCopy.Spec.SystemPrompt = &revisionSuffix
+	}
+	revisionStep := resolvedStep{Agent: agentCopy, LLM: resolved.Analysis.LLM}
+
+	analysisResult, err := r.Agent.Analyze(ctx, proposal, revisionStep, reqContent)
+	if err != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, err)
+	}
+
+	rName := revisionResultName(proposal)
+	if err := r.Content.CreateAnalysisResult(ctx, rName, *analysisResult); err != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("store revision analysis result: %w", err))
+	}
+
+	base = proposal.DeepCopy()
+	completedAt := metav1.Now()
+	proposal.Status.Steps.Analysis.CompletionTime = &completedAt
+	proposal.Status.Steps.Analysis.Result = &agenticv1alpha1.ContentReference{Name: rName}
+	proposal.Status.Steps.Analysis.ObservedRevision = &revision
+	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseProposed
+	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
+		Status:  metav1.ConditionTrue,
+		Reason:  reasonRevisionComplete,
+		Message: fmt.Sprintf("Revision %d complete with %d option(s)", revision, len(analysisResult.Options)),
+	})
+	if err := r.statusPatch(ctx, proposal, base); err != nil {
+		return ctrl.Result{}, fmt.Errorf("update to Proposed (revision): %w", err)
+	}
+
+	log.Info("revision analysis complete", "revision", revision, "options", len(analysisResult.Options))
+	return ctrl.Result{}, nil
+}
+
 // handleApproved runs execution (or skips to AwaitingSync/Completed).
 func (r *ProposalReconciler) handleApproved(
 	ctx context.Context,
@@ -128,9 +206,7 @@ func (r *ProposalReconciler) handleApproved(
 
 	if selectedOption != nil && selectedOption.RBAC != nil {
 		// TODO: resolve sandbox SA from template when sandbox infra is wired
-		sandboxSA := "lightspeed-agent"
-		operatorNS := proposal.Namespace
-		if err := ensureExecutionRBAC(ctx, r.Client, proposal, selectedOption.RBAC, sandboxSA, operatorNS); err != nil {
+		if err := ensureExecutionRBAC(ctx, r.Client, proposal, selectedOption.RBAC, defaultSandboxSA, proposal.Namespace); err != nil {
 			return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, fmt.Errorf("ensure execution RBAC: %w", err))
 		}
 	}

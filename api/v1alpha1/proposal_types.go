@@ -195,6 +195,15 @@ type ProposalSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=20
 	MaxAttempts *int32 `json:"maxAttempts,omitempty"`
+
+	// revision is incremented by the user (or console UI) each time they
+	// submit revision feedback for the analysis. The operator compares this
+	// to status.steps.analysis.observedRevision to detect new revisions.
+	// The revision feedback content is stored as a RequestContent resource
+	// with a conventional name: {proposal.name}-revision-{revision}.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Revision *int32 `json:"revision,omitempty"`
 }
 
 // ProposalStatus defines the observed state of Proposal. All fields are

@@ -48,6 +48,9 @@ const (
 	reasonWorkflowFailed         = "WorkflowResolutionFailed"
 	reasonMaxAttemptsReached     = "MaxAttemptsReached"
 	reasonAwaitingSync           = "AwaitingSync"
+	defaultSandboxSA             = "lightspeed-agent"
+	reasonRevisionAnalyzing      = "RevisionAnalyzing"
+	reasonRevisionComplete       = "RevisionComplete"
 )
 
 var stepFailReasons = map[string]string{
@@ -213,4 +216,47 @@ func buildEscalationRequest(proposal *agenticv1alpha1.Proposal) string {
 		data.PreviousAttempts = append(data.PreviousAttempts, a)
 	}
 	return renderTemplate("escalation_request.tmpl", data)
+}
+
+func needsRevision(proposal *agenticv1alpha1.Proposal) bool {
+	if proposal.Spec.Revision == nil || *proposal.Spec.Revision <= 0 {
+		return false
+	}
+	analysis := proposal.Status.Steps.Analysis
+	if analysis == nil {
+		return true
+	}
+	if analysis.ObservedRevision == nil {
+		return true
+	}
+	return *proposal.Spec.Revision > *analysis.ObservedRevision
+}
+
+func revisionResultName(proposal *agenticv1alpha1.Proposal) string {
+	return fmt.Sprintf("%s-analysis-%d-rev%d", proposal.Name, *proposal.Status.Attempt, *proposal.Spec.Revision)
+}
+
+func revisionRequestName(proposal *agenticv1alpha1.Proposal) string {
+	return fmt.Sprintf("%s-revision-%d", proposal.Name, *proposal.Spec.Revision)
+}
+
+type revisionData struct {
+	Revision            int32
+	ProposalName        string
+	Namespace           string
+	PreviousResultName  string
+	RevisionRequestName string
+}
+
+func buildRevisionContext(proposal *agenticv1alpha1.Proposal) string {
+	data := revisionData{
+		Revision:            *proposal.Spec.Revision,
+		ProposalName:        proposal.Name,
+		Namespace:           proposal.Namespace,
+		RevisionRequestName: revisionRequestName(proposal),
+	}
+	if proposal.Status.Steps.Analysis != nil && proposal.Status.Steps.Analysis.Result != nil {
+		data.PreviousResultName = proposal.Status.Steps.Analysis.Result.Name
+	}
+	return renderTemplate("revision_context.tmpl", data)
 }
