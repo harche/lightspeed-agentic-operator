@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	rbacv1 "k8s.io/api/rbac/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -733,5 +734,186 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 	p, _ = getProposal(r, "fix-crash")
 	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
 		t.Fatalf("expected Failed (terminal), got %s", p.Status.Phase)
+	}
+}
+
+func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
+	store := newTestStore(t)
+	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
+
+	agent := newTestAgentCaller()
+	// Inject RBAC into analysis result so ensureExecutionRBAC is exercised
+	reversible := true
+	agent.analyzeResult = &agenticv1alpha1.AnalysisResultSpec{
+		Options: []agenticv1alpha1.RemediationOption{{
+			Title: "Increase memory",
+			Diagnosis: agenticv1alpha1.DiagnosisResult{
+				Summary: "OOM", Confidence: "High", RootCause: "Low limit",
+			},
+			Proposal: agenticv1alpha1.ProposalResult{
+				Description: "Increase to 512Mi",
+				Actions:     []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "Patch deploy"}},
+				Risk:        "Low",
+				Reversible:  &reversible,
+			},
+			RBAC: &agenticv1alpha1.RBACResult{
+				NamespaceScoped: []agenticv1alpha1.RBACRule{{
+					APIGroups:     []string{"apps"},
+					Resources:     []string{"deployments"},
+					Verbs:         []string{"get", "patch"},
+					Justification: "Patch deployment memory",
+				}},
+				ClusterScoped: []agenticv1alpha1.RBACRule{{
+					APIGroups:     []string{""},
+					Resources:     []string{"nodes"},
+					Verbs:         []string{"get", "list"},
+					Justification: "Check node capacity",
+				}},
+			},
+		}},
+	}
+
+	scheme := testScheme()
+	proposal := testProposal("remediation")
+
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
+		testLLM("smart"), testLLM("fast"),
+	).WithStatusSubresource(proposal).Build()
+
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+
+	// Pending → Proposed
+	reconcileOnce(r, "fix-crash")
+	p, _ := getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
+	}
+
+	// Approve
+	approveProposal(t, fc, "fix-crash")
+
+	// Approved → Executing → Verifying
+	reconcileOnce(r, "fix-crash")
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
+	}
+
+	// Verify namespace-scoped Role+RoleBinding were created
+	roleName := executionRoleName("fix-crash")
+	var role rbacv1.Role
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: roleName, Namespace: "production"}, &role); err != nil {
+		t.Fatalf("execution Role not created in production: %v", err)
+	}
+	if role.Rules[0].Resources[0] != "deployments" {
+		t.Fatalf("unexpected Role rule: %+v", role.Rules)
+	}
+	var binding rbacv1.RoleBinding
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: roleName, Namespace: "production"}, &binding); err != nil {
+		t.Fatalf("execution RoleBinding not created: %v", err)
+	}
+
+	// Verify cluster-scoped ClusterRole+ClusterRoleBinding were created
+	crName := clusterRoleName("fix-crash")
+	var cr rbacv1.ClusterRole
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: crName}, &cr); err != nil {
+		t.Fatalf("execution ClusterRole not created: %v", err)
+	}
+	if cr.Rules[0].Resources[0] != "nodes" {
+		t.Fatalf("unexpected ClusterRole rule: %+v", cr.Rules)
+	}
+	var crb rbacv1.ClusterRoleBinding
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: crName}, &crb); err != nil {
+		t.Fatalf("execution ClusterRoleBinding not created: %v", err)
+	}
+
+	// Verify rbac-namespaces annotation was set
+	p, _ = getProposal(r, "fix-crash")
+	if p.Annotations[rbacNamespacesAnnotation] != "production" {
+		t.Fatalf("expected rbac-namespaces annotation 'production', got %q", p.Annotations[rbacNamespacesAnnotation])
+	}
+
+	// Complete lifecycle
+	reconcileOnce(r, "fix-crash")
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseCompleted {
+		t.Fatalf("expected Completed, got %s", p.Status.Phase)
+	}
+}
+
+func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
+	store := newTestStore(t)
+	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
+
+	agent := newTestAgentCaller()
+	reversible := true
+	agent.analyzeResult = &agenticv1alpha1.AnalysisResultSpec{
+		Options: []agenticv1alpha1.RemediationOption{{
+			Title: "Fix it",
+			Diagnosis: agenticv1alpha1.DiagnosisResult{
+				Summary: "Broken", Confidence: "High", RootCause: "Bug",
+			},
+			Proposal: agenticv1alpha1.ProposalResult{
+				Description: "Apply fix",
+				Actions:     []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "Patch"}},
+				Risk:        "Low",
+				Reversible:  &reversible,
+			},
+			RBAC: &agenticv1alpha1.RBACResult{
+				NamespaceScoped: []agenticv1alpha1.RBACRule{{
+					APIGroups: []string{"apps"}, Resources: []string{"deployments"},
+					Verbs: []string{"get", "patch"}, Justification: "Fix deploy",
+				}},
+			},
+		}},
+	}
+
+	scheme := testScheme()
+	proposal := testProposal("remediation")
+
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
+		testLLM("smart"), testLLM("fast"),
+	).WithStatusSubresource(proposal).Build()
+
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+
+	// Analysis → approve
+	reconcileOnce(r, "fix-crash")
+	approveProposal(t, fc, "fix-crash")
+
+	// Execution succeeds, creates RBAC, but verification will fail with system error
+	reconcileOnce(r, "fix-crash")
+	p, _ := getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
+	}
+
+	// Verify RBAC exists before failure
+	roleName := executionRoleName("fix-crash")
+	var role rbacv1.Role
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: roleName, Namespace: "production"}, &role); err != nil {
+		t.Fatalf("Role should exist before failure: %v", err)
+	}
+
+	// System failure during verification
+	agent.verifyErr = fmt.Errorf("sandbox pod crashed")
+	reconcileOnce(r, "fix-crash")
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed, got %s", p.Status.Phase)
+	}
+
+	// handleFailed should clean up RBAC
+	reconcileOnce(r, "fix-crash")
+
+	// Verify RBAC was cleaned up
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: roleName, Namespace: "production"}, &role); err == nil {
+		t.Fatal("Role should be cleaned up after failure")
+	}
+	var binding rbacv1.RoleBinding
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: roleName, Namespace: "production"}, &binding); err == nil {
+		t.Fatal("RoleBinding should be cleaned up after failure")
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	agenticv1alpha1 "github.com/harche/lightspeed-agentic-operator/api/v1alpha1"
 )
@@ -209,6 +210,12 @@ func (r *ProposalReconciler) handleApproved(
 		if err := ensureExecutionRBAC(ctx, r.Client, proposal, selectedOption.RBAC, defaultSandboxSA, proposal.Namespace); err != nil {
 			return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, fmt.Errorf("ensure execution RBAC: %w", err))
 		}
+		// Persist the rbac-namespaces annotation so cleanup can find
+		// target namespaces after the proposal is re-fetched.
+		if err := r.Patch(ctx, proposal, client.MergeFrom(base)); err != nil {
+			return ctrl.Result{}, fmt.Errorf("persist RBAC annotation: %w", err)
+		}
+		base = proposal.DeepCopy()
 	}
 
 	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseExecuting

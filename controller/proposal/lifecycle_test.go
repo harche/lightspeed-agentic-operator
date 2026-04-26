@@ -22,8 +22,11 @@ import (
 	"fmt"
 	"testing"
 
+	rbacv1 "k8s.io/api/rbac/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1alpha1 "github.com/harche/lightspeed-agentic-operator/api/v1alpha1"
 )
@@ -923,6 +926,334 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 		t.Logf("proposal JSON size after retry cycle: %d bytes", len(data))
 		if len(data) > 2048 {
 			t.Errorf("proposal too large: %d bytes (retry results should not bloat the CR)", len(data))
+		}
+	})
+}
+
+// TestRBACLifecycleWithContentStore exercises the full RBAC lifecycle
+// through the PostgreSQL content store: store analysis with RBAC → read
+// it back → create K8s RBAC resources → verify they exist → cleanup →
+// verify they're gone. This is the actual code path the reconciler takes.
+func TestRBACLifecycleWithContentStore(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+
+	proposal := &v1alpha1.Proposal{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-crashloop", Namespace: "openshift-lightspeed"},
+		Spec: v1alpha1.ProposalSpec{
+			Request:          v1alpha1.ContentReference{Name: "fix-crashloop-request"},
+			WorkflowRef:      corev1.LocalObjectReference{Name: "remediation"},
+			TargetNamespaces: []string{"production", "staging"},
+		},
+		Status: &v1alpha1.ProposalStatus{
+			Phase:   v1alpha1.ProposalPhasePending,
+			Attempt: int32Ptr(1),
+			Steps:   &v1alpha1.StepsStatus{},
+		},
+	}
+
+	// --- Step 1: Store analysis with both namespace and cluster RBAC ---
+	t.Run("store_analysis_with_rbac", func(t *testing.T) {
+		spec := v1alpha1.AnalysisResultSpec{
+			Options: []v1alpha1.RemediationOption{{
+				Title: "Increase memory and check nodes",
+				Diagnosis: v1alpha1.DiagnosisResult{
+					Summary: "OOMKilled", Confidence: "High", RootCause: "Memory limit too low",
+				},
+				Proposal: v1alpha1.ProposalResult{
+					Description: "Increase memory, verify node capacity",
+					Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment"}},
+					Risk:        "Low", Reversible: boolPtr(true),
+				},
+				RBAC: &v1alpha1.RBACResult{
+					NamespaceScoped: []v1alpha1.RBACRule{
+						{
+							APIGroups:     []string{"apps"},
+							Resources:     []string{"deployments"},
+							ResourceNames: []string{"web-frontend"},
+							Verbs:         []string{"get", "patch"},
+							Justification: "Patch deployment memory limit",
+						},
+						{
+							APIGroups:     []string{""},
+							Resources:     []string{"pods"},
+							Verbs:         []string{"get", "list", "delete"},
+							Justification: "Restart pods after memory increase",
+						},
+					},
+					ClusterScoped: []v1alpha1.RBACRule{{
+						APIGroups:     []string{""},
+						Resources:     []string{"nodes"},
+						Verbs:         []string{"get", "list"},
+						Justification: "Check node capacity before scaling",
+					}},
+				},
+			}},
+		}
+
+		resultName := "fix-crashloop-analysis-1"
+		if err := store.CreateAnalysisResult(ctx, resultName, spec); err != nil {
+			t.Fatalf("CreateAnalysisResult: %v", err)
+		}
+		proposal.Status.Steps.Analysis = &v1alpha1.AnalysisStepStatus{
+			Result: &v1alpha1.ContentReference{Name: resultName},
+		}
+	})
+
+	// --- Step 2: Read RBAC back from PostgreSQL, verify all fields survive ---
+	t.Run("read_rbac_from_store", func(t *testing.T) {
+		result, err := store.GetAnalysisResult(ctx, proposal.Status.Steps.Analysis.Result.Name)
+		if err != nil {
+			t.Fatalf("GetAnalysisResult: %v", err)
+		}
+		rbac := result.Options[0].RBAC
+		if rbac == nil {
+			t.Fatal("RBAC lost during PostgreSQL round-trip")
+		}
+		if len(rbac.NamespaceScoped) != 2 {
+			t.Fatalf("expected 2 namespace-scoped rules, got %d", len(rbac.NamespaceScoped))
+		}
+		if len(rbac.ClusterScoped) != 1 {
+			t.Fatalf("expected 1 cluster-scoped rule, got %d", len(rbac.ClusterScoped))
+		}
+		// Verify field preservation
+		r := rbac.NamespaceScoped[0]
+		if len(r.ResourceNames) != 1 || r.ResourceNames[0] != "web-frontend" {
+			t.Fatalf("ResourceNames not preserved: %v", r.ResourceNames)
+		}
+		if r.Justification != "Patch deployment memory limit" {
+			t.Fatalf("Justification not preserved: %q", r.Justification)
+		}
+		if rbac.ClusterScoped[0].Resources[0] != "nodes" {
+			t.Fatalf("ClusterScoped resource not preserved: %v", rbac.ClusterScoped[0].Resources)
+		}
+	})
+
+	// --- Step 3: Create K8s RBAC resources from stored data ---
+	t.Run("create_k8s_rbac_from_stored_analysis", func(t *testing.T) {
+		result, err := store.GetAnalysisResult(ctx, proposal.Status.Steps.Analysis.Result.Name)
+		if err != nil {
+			t.Fatalf("GetAnalysisResult: %v", err)
+		}
+		option := result.Options[0]
+
+		if err := ensureExecutionRBAC(ctx, fc, proposal, option.RBAC, "lightspeed-agent", "openshift-lightspeed"); err != nil {
+			t.Fatalf("ensureExecutionRBAC: %v", err)
+		}
+
+		// Verify namespace-scoped resources in both target namespaces
+		roleName := executionRoleName("fix-crashloop")
+		for _, ns := range []string{"production", "staging"} {
+			var role rbacv1.Role
+			if err := fc.Get(ctx, types.NamespacedName{Name: roleName, Namespace: ns}, &role); err != nil {
+				t.Fatalf("Role not found in %s: %v", ns, err)
+			}
+			if len(role.Rules) != 2 {
+				t.Fatalf("expected 2 rules in %s, got %d", ns, len(role.Rules))
+			}
+			// First rule: apps/deployments with resourceNames
+			if role.Rules[0].ResourceNames[0] != "web-frontend" {
+				t.Fatalf("ResourceNames not in Role: %v", role.Rules[0].ResourceNames)
+			}
+			// Second rule: core/pods
+			if role.Rules[1].Resources[0] != "pods" {
+				t.Fatalf("pods rule missing: %v", role.Rules[1])
+			}
+
+			var binding rbacv1.RoleBinding
+			if err := fc.Get(ctx, types.NamespacedName{Name: roleName, Namespace: ns}, &binding); err != nil {
+				t.Fatalf("RoleBinding not found in %s: %v", ns, err)
+			}
+			if binding.Subjects[0].Name != "lightspeed-agent" {
+				t.Fatalf("wrong subject in %s: %s", ns, binding.Subjects[0].Name)
+			}
+			if binding.Subjects[0].Namespace != "openshift-lightspeed" {
+				t.Fatalf("wrong subject namespace in %s: %s", ns, binding.Subjects[0].Namespace)
+			}
+		}
+
+		// Verify cluster-scoped resources
+		crName := clusterRoleName("fix-crashloop")
+		var cr rbacv1.ClusterRole
+		if err := fc.Get(ctx, types.NamespacedName{Name: crName}, &cr); err != nil {
+			t.Fatalf("ClusterRole not found: %v", err)
+		}
+		if cr.Rules[0].Resources[0] != "nodes" {
+			t.Fatalf("ClusterRole rules wrong: %v", cr.Rules)
+		}
+		var crb rbacv1.ClusterRoleBinding
+		if err := fc.Get(ctx, types.NamespacedName{Name: crName}, &crb); err != nil {
+			t.Fatalf("ClusterRoleBinding not found: %v", err)
+		}
+
+		// Verify annotation was set
+		if proposal.Annotations[rbacNamespacesAnnotation] != "production,staging" {
+			t.Fatalf("rbac-namespaces annotation: %q", proposal.Annotations[rbacNamespacesAnnotation])
+		}
+	})
+
+	// --- Step 4: Idempotent — second call with same data succeeds ---
+	t.Run("idempotent_rbac_creation", func(t *testing.T) {
+		result, err := store.GetAnalysisResult(ctx, proposal.Status.Steps.Analysis.Result.Name)
+		if err != nil {
+			t.Fatalf("GetAnalysisResult: %v", err)
+		}
+		if err := ensureExecutionRBAC(ctx, fc, proposal, result.Options[0].RBAC, "lightspeed-agent", "openshift-lightspeed"); err != nil {
+			t.Fatalf("idempotent call should not error: %v", err)
+		}
+	})
+
+	// --- Step 5: Cleanup removes all RBAC resources ---
+	t.Run("cleanup_rbac", func(t *testing.T) {
+		if err := cleanupExecutionRBAC(ctx, fc, proposal); err != nil {
+			t.Fatalf("cleanupExecutionRBAC: %v", err)
+		}
+
+		roleName := executionRoleName("fix-crashloop")
+		crName := clusterRoleName("fix-crashloop")
+
+		// Namespace-scoped should be gone
+		for _, ns := range []string{"production", "staging"} {
+			var role rbacv1.Role
+			if err := fc.Get(ctx, types.NamespacedName{Name: roleName, Namespace: ns}, &role); err == nil {
+				t.Fatalf("Role should be deleted from %s", ns)
+			}
+			var binding rbacv1.RoleBinding
+			if err := fc.Get(ctx, types.NamespacedName{Name: roleName, Namespace: ns}, &binding); err == nil {
+				t.Fatalf("RoleBinding should be deleted from %s", ns)
+			}
+		}
+
+		// Cluster-scoped should be gone
+		var cr rbacv1.ClusterRole
+		if err := fc.Get(ctx, types.NamespacedName{Name: crName}, &cr); err == nil {
+			t.Fatal("ClusterRole should be deleted")
+		}
+		var crb rbacv1.ClusterRoleBinding
+		if err := fc.Get(ctx, types.NamespacedName{Name: crName}, &crb); err == nil {
+			t.Fatal("ClusterRoleBinding should be deleted")
+		}
+	})
+
+	// --- Step 6: Cleanup is idempotent (no error on already-deleted resources) ---
+	t.Run("cleanup_idempotent", func(t *testing.T) {
+		if err := cleanupExecutionRBAC(ctx, fc, proposal); err != nil {
+			t.Fatalf("double cleanup should not error: %v", err)
+		}
+	})
+
+	// --- Step 7: Analysis data still intact in PostgreSQL after RBAC cleanup ---
+	t.Run("analysis_survives_rbac_cleanup", func(t *testing.T) {
+		result, err := store.GetAnalysisResult(ctx, proposal.Status.Steps.Analysis.Result.Name)
+		if err != nil {
+			t.Fatalf("analysis result should survive RBAC cleanup: %v", err)
+		}
+		if result.Options[0].RBAC == nil || len(result.Options[0].RBAC.NamespaceScoped) != 2 {
+			t.Fatal("RBAC data in PostgreSQL should not be affected by K8s cleanup")
+		}
+	})
+}
+
+// TestRBACRetryLifecycleWithContentStore verifies that RBAC resources are
+// correctly re-created across retry attempts when stored analysis data is
+// read from PostgreSQL on each attempt.
+func TestRBACRetryLifecycleWithContentStore(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+
+	proposal := &v1alpha1.Proposal{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-retry", Namespace: "default"},
+		Spec: v1alpha1.ProposalSpec{
+			Request:          v1alpha1.ContentReference{Name: "fix-retry-request"},
+			WorkflowRef:      corev1.LocalObjectReference{Name: "remediation"},
+			TargetNamespaces: []string{"prod"},
+		},
+		Status: &v1alpha1.ProposalStatus{
+			Phase:   v1alpha1.ProposalPhasePending,
+			Attempt: int32Ptr(1),
+			Steps:   &v1alpha1.StepsStatus{},
+		},
+	}
+
+	// Store analysis with RBAC
+	spec := v1alpha1.AnalysisResultSpec{
+		Options: []v1alpha1.RemediationOption{{
+			Title: "Fix it",
+			Diagnosis: v1alpha1.DiagnosisResult{
+				Summary: "Broken", Confidence: "High", RootCause: "Bug",
+			},
+			Proposal: v1alpha1.ProposalResult{
+				Description: "Apply fix", Risk: "Low", Reversible: boolPtr(true),
+				Actions: []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch"}},
+			},
+			RBAC: &v1alpha1.RBACResult{
+				NamespaceScoped: []v1alpha1.RBACRule{{
+					APIGroups: []string{"apps"}, Resources: []string{"deployments"},
+					Verbs: []string{"get", "patch"}, Justification: "Fix deploy",
+				}},
+			},
+		}},
+	}
+	if err := store.CreateAnalysisResult(ctx, "fix-retry-analysis-1", spec); err != nil {
+		t.Fatalf("CreateAnalysisResult: %v", err)
+	}
+	proposal.Status.Steps.Analysis = &v1alpha1.AnalysisStepStatus{
+		Result: &v1alpha1.ContentReference{Name: "fix-retry-analysis-1"},
+	}
+
+	// --- Attempt 1: Create RBAC from stored analysis ---
+	t.Run("attempt_1_create_rbac", func(t *testing.T) {
+		result, err := store.GetAnalysisResult(ctx, "fix-retry-analysis-1")
+		if err != nil {
+			t.Fatalf("GetAnalysisResult: %v", err)
+		}
+		if err := ensureExecutionRBAC(ctx, fc, proposal, result.Options[0].RBAC, "lightspeed-agent", "default"); err != nil {
+			t.Fatalf("ensureExecutionRBAC attempt 1: %v", err)
+		}
+
+		roleName := executionRoleName("fix-retry")
+		var role rbacv1.Role
+		if err := fc.Get(ctx, types.NamespacedName{Name: roleName, Namespace: "prod"}, &role); err != nil {
+			t.Fatalf("Role not created on attempt 1: %v", err)
+		}
+	})
+
+	// --- Execution fails, cleanup RBAC ---
+	t.Run("attempt_1_cleanup_after_failure", func(t *testing.T) {
+		if err := cleanupExecutionRBAC(ctx, fc, proposal); err != nil {
+			t.Fatalf("cleanup attempt 1: %v", err)
+		}
+
+		roleName := executionRoleName("fix-retry")
+		var role rbacv1.Role
+		if err := fc.Get(ctx, types.NamespacedName{Name: roleName, Namespace: "prod"}, &role); err == nil {
+			t.Fatal("Role should be deleted after attempt 1 cleanup")
+		}
+	})
+
+	// --- Attempt 2: Re-create RBAC from same stored analysis ---
+	t.Run("attempt_2_recreate_rbac", func(t *testing.T) {
+		result, err := store.GetAnalysisResult(ctx, "fix-retry-analysis-1")
+		if err != nil {
+			t.Fatalf("GetAnalysisResult: %v", err)
+		}
+		if err := ensureExecutionRBAC(ctx, fc, proposal, result.Options[0].RBAC, "lightspeed-agent", "default"); err != nil {
+			t.Fatalf("ensureExecutionRBAC attempt 2: %v", err)
+		}
+
+		roleName := executionRoleName("fix-retry")
+		var role rbacv1.Role
+		if err := fc.Get(ctx, types.NamespacedName{Name: roleName, Namespace: "prod"}, &role); err != nil {
+			t.Fatalf("Role not re-created on attempt 2: %v", err)
+		}
+	})
+
+	// --- Final cleanup ---
+	t.Run("final_cleanup", func(t *testing.T) {
+		if err := cleanupExecutionRBAC(ctx, fc, proposal); err != nil {
+			t.Fatalf("final cleanup: %v", err)
 		}
 	})
 }
