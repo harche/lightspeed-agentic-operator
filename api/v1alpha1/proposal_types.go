@@ -133,7 +133,8 @@ type PreviousAttempt struct {
 	// +optional
 	FailedStep *SandboxStep `json:"failedStep,omitempty"`
 	// failureReason is the error message or explanation from the failed step.
-	// Maximum 8192 characters.
+	// Omit when no failure has occurred; an empty string is treated the same
+	// as omitted (no failure). Maximum 8192 characters.
 	// +optional
 	// +kubebuilder:validation:MaxLength=8192
 	FailureReason *string `json:"failureReason,omitempty"`
@@ -162,11 +163,13 @@ type ProposalSpec struct {
 	// operates on. The operator uses these to scope RBAC (creating Roles
 	// and RoleBindings only in these namespaces) and to pass context to
 	// the analysis agent. When empty, the proposal operates at the
-	// cluster level only. Maximum 50 items.
+	// cluster level only. Each entry must be a valid RFC 1123 DNS label.
+	// Maximum 50 items.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
+	// +kubebuilder:validation:XValidation:rule="self.all(ns, !format.dns1123Label().validate(ns).hasValue())",message="each namespace must be a valid DNS label: lowercase alphanumeric characters and hyphens, starting with an alphabetic character and ending with an alphanumeric character"
 	TargetNamespaces []string `json:"targetNamespaces,omitempty"`
 
 	// workflowOverride allows per-proposal overrides of the referenced

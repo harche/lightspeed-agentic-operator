@@ -139,7 +139,9 @@ type ProposalResult struct {
 	Reversible Reversibility `json:"reversible,omitempty"`
 	// estimatedImpact is a Markdown-formatted description of the expected
 	// impact of the remediation on the system
-	// (e.g., "Brief pod restart, ~30s downtime"). Maximum 1024 characters.
+	// (e.g., "Brief pod restart, ~30s downtime"). Omit when impact is
+	// unknown; an empty string is treated the same as omitted.
+	// Maximum 1024 characters.
 	// +optional
 	// +kubebuilder:validation:MaxLength=1024
 	EstimatedImpact *string `json:"estimatedImpact,omitempty"`
@@ -226,9 +228,10 @@ type RBACRule struct {
 	// namespace is the target namespace for namespace-scoped rules.
 	// Must match one of the proposal's targetNamespaces. Ignored for
 	// cluster-scoped rules. Validation is deferred to the operator's
-	// policy engine at runtime. Maximum 253 characters.
+	// policy engine at runtime. Must be a valid RFC 1123 DNS label.
 	// +optional
-	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:XValidation:rule="!format.dns1123Label().validate(self).hasValue()",message="must be a valid DNS label: lowercase alphanumeric characters and hyphens, starting with an alphabetic character and ending with an alphanumeric character"
 	Namespace *string `json:"namespace,omitempty"`
 	// apiGroups are the API groups for this rule (e.g., "", "apps", "batch").
 	// Maximum 20 items.

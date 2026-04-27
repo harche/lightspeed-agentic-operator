@@ -48,7 +48,13 @@ const (
 // +kubebuilder:validation:XValidation:rule="self.type == 'Secret' ? has(self.secret) : true",message="secret is required when type is 'Secret'"
 // +kubebuilder:validation:XValidation:rule="self.type != 'Secret' ? !has(self.secret) : true",message="secret must not be set when type is 'Kubernetes' or 'Client'"
 type MCPHeaderValueSource struct {
-	// type specifies the source type for the header value.
+	// type specifies the source type for the header value. Allowed values:
+	//   - "Secret"     — reads the value from a Kubernetes Secret (use for
+	//     API keys and tokens). Requires the secret field to be set.
+	//   - "Kubernetes" — auto-injects a Kubernetes service account token
+	//     (for MCP servers that accept K8s auth).
+	//   - "Client"     — the value is provided by the calling client at
+	//     runtime (e.g., forwarded from a user session).
 	// +required
 	Type MCPHeaderSourceType `json:"type,omitempty"`
 
@@ -65,6 +71,7 @@ type MCPHeader struct {
 	// Must be at least 1 character, containing only letters, digits, and hyphens.
 	// +required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:XValidation:rule="self.matches('^[A-Za-z][A-Za-z0-9-]*$')",message="name must start with a letter and contain only letters, digits, and hyphens"
 	Name string `json:"name,omitempty"`
 
@@ -154,10 +161,20 @@ type MCPServerConfig struct {
 type SkillsSource struct {
 	// image is the OCI image reference containing skills.
 	// The operator mounts this as a Kubernetes image volume (requires K8s 1.34+).
+	// Must be a valid OCI image pullspec: a domain, followed by a repository path,
+	// ending with either a tag (:tag) or a digest (@algorithm:hex).
 	// Must be 1-512 characters.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:XValidation:rule="self.matches('^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])((\\\\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))+)?(:[0-9]+)?\\\\b')",message="must start with a valid domain. valid domains must be alphanumeric characters (lowercase and uppercase) separated by the '.' character."
+	// +kubebuilder:validation:XValidation:rule="self.find('(\\/[a-z0-9]+((([._]|__|[-]*)[a-z0-9]+)+)?((\\/[a-z0-9]+((([._]|__|[-]*)[a-z0-9]+)+)?)+)?)') != ''",message="a valid name is required. valid names must contain lowercase alphanumeric characters separated only by the '.', '_', '__', '-' characters."
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' || self.find(':.*$') != ''",message="must end with a digest or a tag"
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') == '' ? (self.find(':.*$') != '' ? self.find(':.*$').substring(1).size() <= 127 : true) : true",message="tag must not be more than 127 characters"
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') == '' ? (self.find(':.*$') != '' ? self.find(':.*$').matches(':[\\\\w][\\\\w.-]*$') : true) : true",message="tag is invalid. valid tags must begin with a word character followed by word characters, '.', or '-'"
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' ? self.find('(@.*:)').matches('(@[A-Za-z][A-Za-z0-9]*([_+.][A-Za-z][A-Za-z0-9]*)*[:])') : true",message="digest algorithm is not valid. valid algorithms must start with an alpha character followed by alphanumeric characters and may contain '-', '_', '+', and '.' characters."
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' ? self.find(':.*$').substring(1).size() >= 32 : true",message="digest must be at least 32 characters"
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' ? self.find(':.*$').matches(':[0-9A-Fa-f]*$') : true",message="digest must only contain hex characters (A-F, a-f, 0-9)"
 	Image string `json:"image,omitempty"`
 
 	// paths restricts which directories from the image are mounted.
@@ -219,6 +236,14 @@ type AgentSpec struct {
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:XValidation:rule="self.matches('^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])((\\\\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))+)?(:[0-9]+)?\\\\b')",message="must start with a valid domain. valid domains must be alphanumeric characters (lowercase and uppercase) separated by the '.' character."
+	// +kubebuilder:validation:XValidation:rule="self.find('(\\/[a-z0-9]+((([._]|__|[-]*)[a-z0-9]+)+)?((\\/[a-z0-9]+((([._]|__|[-]*)[a-z0-9]+)+)?)+)?)') != ''",message="a valid name is required. valid names must contain lowercase alphanumeric characters separated only by the '.', '_', '__', '-' characters."
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' || self.find(':.*$') != ''",message="must end with a digest or a tag"
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') == '' ? (self.find(':.*$') != '' ? self.find(':.*$').substring(1).size() <= 127 : true) : true",message="tag must not be more than 127 characters"
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') == '' ? (self.find(':.*$') != '' ? self.find(':.*$').matches(':[\\\\w][\\\\w.-]*$') : true) : true",message="tag is invalid. valid tags must begin with a word character followed by word characters, '.', or '-'"
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' ? self.find('(@.*:)').matches('(@[A-Za-z][A-Za-z0-9]*([_+.][A-Za-z][A-Za-z0-9]*)*[:])') : true",message="digest algorithm is not valid. valid algorithms must start with an alpha character followed by alphanumeric characters and may contain '-', '_', '+', and '.' characters."
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' ? self.find(':.*$').substring(1).size() >= 32 : true",message="digest must be at least 32 characters"
+	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' ? self.find(':.*$').matches(':[0-9A-Fa-f]*$') : true",message="digest must only contain hex characters (A-F, a-f, 0-9)"
 	Image *string `json:"image,omitempty"`
 
 	// llmProvider references an LLMProvider CR that supplies the

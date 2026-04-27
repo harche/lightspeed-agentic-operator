@@ -50,8 +50,15 @@ const (
 
 // LLMProviderSpec defines the desired state of LLMProvider.
 type LLMProviderSpec struct {
-	// type is the LLM provider backend (e.g., "vertex", "anthropic", "bedrock").
-	// See LLMProviderType for the authentication requirements of each backend.
+	// type is the LLM provider backend. Allowed values:
+	//   - "Anthropic"   — Direct Anthropic API (secret needs ANTHROPIC_API_KEY).
+	//   - "Vertex"      — Google Cloud Vertex AI (secret needs service account JSON,
+	//     GCP_PROJECT, and GCP_REGION).
+	//   - "OpenAI"      — OpenAI-compatible API (secret needs OPENAI_API_KEY).
+	//   - "AzureOpenAI" — Azure OpenAI Service (secret needs AZURE_OPENAI_API_KEY,
+	//     AZURE_OPENAI_ENDPOINT, and optionally AZURE_OPENAI_API_VERSION).
+	//   - "Bedrock"     — AWS Bedrock (secret needs AWS_ACCESS_KEY_ID,
+	//     AWS_SECRET_ACCESS_KEY, and AWS_REGION).
 	// +required
 	Type LLMProviderType `json:"type,omitempty"`
 

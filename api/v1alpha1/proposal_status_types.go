@@ -134,14 +134,16 @@ type VerifyCheck struct {
 // console UI to stream sandbox pod logs in real time.
 type SandboxInfo struct {
 	// claimName is the name of the SandboxClaim resource that owns the
-	// sandbox pod. Maximum 253 characters.
+	// sandbox pod. Omit when no sandbox has been claimed; an empty string
+	// is treated the same as omitted. Maximum 253 characters.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	ClaimName *string `json:"claimName,omitempty"`
 	// namespace is the namespace where the SandboxClaim and its pod live.
-	// Maximum 253 characters.
+	// Must be a valid RFC 1123 DNS label.
 	// +optional
-	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:XValidation:rule="!format.dns1123Label().validate(self).hasValue()",message="must be a valid DNS label: lowercase alphanumeric characters and hyphens, starting with an alphabetic character and ending with an alphanumeric character"
 	Namespace *string `json:"namespace,omitempty"`
 	// startTime is when the sandbox pod was created.
 	// +optional
