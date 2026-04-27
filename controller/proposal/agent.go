@@ -22,7 +22,6 @@ type AgentCaller interface {
 type StubAgentCaller struct{}
 
 func (s *StubAgentCaller) Analyze(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RequestContentSpec) (*agenticv1alpha1.AnalysisResultSpec, error) {
-	reversible := true
 	return &agenticv1alpha1.AnalysisResultSpec{
 		Options: []agenticv1alpha1.RemediationOption{{
 			Title: "Stub remediation",
@@ -35,36 +34,33 @@ func (s *StubAgentCaller) Analyze(_ context.Context, _ *agenticv1alpha1.Proposal
 				Description: "Stub proposal",
 				Actions:     []agenticv1alpha1.ProposedAction{{Type: "stub", Description: "Stub action"}},
 				Risk:        "Low",
-				Reversible:  &reversible,
+				Reversible:  agenticv1alpha1.ReversibilityReversible,
 			},
 		}},
 	}, nil
 }
 
 func (s *StubAgentCaller) Execute(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption) (*agenticv1alpha1.ExecutionResultSpec, error) {
-	success := true
-	improved := true
 	return &agenticv1alpha1.ExecutionResultSpec{
 		ActionsTaken: []agenticv1alpha1.ExecutionAction{{
 			Type:        "stub",
 			Description: "Stub execution action",
-			Success:     &success,
+			Outcome:     agenticv1alpha1.ActionOutcomeSucceeded,
 		}},
 		Verification: &agenticv1alpha1.ExecutionVerification{
-			ConditionImproved: &improved,
-			Summary:           "Stub inline verification passed",
+			ConditionOutcome: agenticv1alpha1.ConditionOutcomeImproved,
+			Summary:          "Stub inline verification passed",
 		},
 	}, nil
 }
 
 func (s *StubAgentCaller) Verify(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption, _ *agenticv1alpha1.ExecutionResultSpec) (*agenticv1alpha1.VerificationResultSpec, error) {
-	passed := true
 	return &agenticv1alpha1.VerificationResultSpec{
 		Checks: []agenticv1alpha1.VerifyCheck{{
 			Name:   "stub-check",
 			Source: "stub",
 			Value:  "ok",
-			Passed: &passed,
+			Result: agenticv1alpha1.CheckResultPassed,
 		}},
 		Summary: "Stub verification passed",
 	}, nil

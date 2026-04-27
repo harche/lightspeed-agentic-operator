@@ -154,7 +154,7 @@ func TestPostgres_ResultJSONBRoundTrip(t *testing.T) {
 							Description: "Increase memory from 256Mi to 512Mi",
 							Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment"}},
 							Risk:        "Low",
-							Reversible:  boolPtr(true),
+							Reversible:  v1alpha1.ReversibilityReversible,
 						},
 						RBAC: &v1alpha1.RBACResult{
 							NamespaceScoped: []v1alpha1.RBACRule{{
@@ -184,7 +184,7 @@ func TestPostgres_ResultJSONBRoundTrip(t *testing.T) {
 				if opt.Diagnosis.Confidence != "High" {
 					t.Errorf("confidence = %q", opt.Diagnosis.Confidence)
 				}
-				if *opt.Proposal.Reversible != true {
+				if opt.Proposal.Reversible != v1alpha1.ReversibilityReversible {
 					t.Error("reversible lost")
 				}
 				if opt.RBAC == nil || len(opt.RBAC.NamespaceScoped) != 1 {
@@ -203,10 +203,10 @@ func TestPostgres_ResultJSONBRoundTrip(t *testing.T) {
 			create: func(s ContentStore, ctx context.Context) error {
 				return s.CreateExecutionResult(ctx, "test-exec", v1alpha1.ExecutionResultSpec{
 					ActionsTaken: []v1alpha1.ExecutionAction{
-						{Type: "patch", Description: "Patched memory to 512Mi", Success: boolPtr(true)},
+						{Type: "patch", Description: "Patched memory to 512Mi", Outcome: v1alpha1.ActionOutcomeSucceeded},
 					},
 					Verification: &v1alpha1.ExecutionVerification{
-						ConditionImproved: boolPtr(true), Summary: "Pod running stable",
+						ConditionOutcome: v1alpha1.ConditionOutcomeImproved, Summary: "Pod running stable",
 					},
 				})
 			},
@@ -215,11 +215,11 @@ func TestPostgres_ResultJSONBRoundTrip(t *testing.T) {
 				if err != nil {
 					t.Fatalf("get: %v", err)
 				}
-				if !*got.ActionsTaken[0].Success {
-					t.Error("action success lost")
+				if got.ActionsTaken[0].Outcome != v1alpha1.ActionOutcomeSucceeded {
+					t.Error("action outcome lost")
 				}
-				if !*got.Verification.ConditionImproved {
-					t.Error("condition improved lost")
+				if got.Verification.ConditionOutcome != v1alpha1.ConditionOutcomeImproved {
+					t.Error("condition outcome lost")
 				}
 			},
 		},
@@ -227,7 +227,7 @@ func TestPostgres_ResultJSONBRoundTrip(t *testing.T) {
 			name: "verification",
 			create: func(s ContentStore, ctx context.Context) error {
 				return s.CreateVerificationResult(ctx, "test-verify", v1alpha1.VerificationResultSpec{
-					Checks:  []v1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "Running", Passed: boolPtr(true)}},
+					Checks:  []v1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "Running", Result: v1alpha1.CheckResultPassed}},
 					Summary: "All checks passed",
 				})
 			},
@@ -236,8 +236,8 @@ func TestPostgres_ResultJSONBRoundTrip(t *testing.T) {
 				if err != nil {
 					t.Fatalf("get: %v", err)
 				}
-				if !*got.Checks[0].Passed {
-					t.Error("check passed lost")
+				if got.Checks[0].Result != v1alpha1.CheckResultPassed {
+					t.Error("check result lost")
 				}
 				if got.Summary != "All checks passed" {
 					t.Errorf("summary = %q", got.Summary)

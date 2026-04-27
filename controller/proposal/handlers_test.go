@@ -280,9 +280,8 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 
 	// Make verification fail (objective failure, not system error)
-	failed := false
 	agent.verifyResult = &agenticv1alpha1.VerificationResultSpec{
-		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Passed: &failed}},
+		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Result: agenticv1alpha1.CheckResultFailed}},
 		Summary: "Pod still crashing",
 	}
 
@@ -438,9 +437,8 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	approveProposal(t, fc, "fix-crash")
 	reconcileOnce(r, "fix-crash")
 
-	failed := false
 	agent.verifyResult = &agenticv1alpha1.VerificationResultSpec{
-		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Passed: &failed}},
+		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Result: agenticv1alpha1.CheckResultFailed}},
 		Summary: "Pod still crashing",
 	}
 	// Verification fails → Approved (retry, retryCount=1)
@@ -456,9 +454,8 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	}
 
 	// Admin submits revision
-	passed := true
 	agent.verifyResult = &agenticv1alpha1.VerificationResultSpec{
-		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "Running", Passed: &passed}},
+		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "Running", Result: agenticv1alpha1.CheckResultPassed}},
 		Summary: "Pod running",
 	}
 	reviseProposal(t, fc, store, "fix-crash", 1, "Try a different approach")
@@ -742,7 +739,6 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 
 	agent := newTestAgentCaller()
 	// Inject RBAC into analysis result so ensureExecutionRBAC is exercised
-	reversible := true
 	agent.analyzeResult = &agenticv1alpha1.AnalysisResultSpec{
 		Options: []agenticv1alpha1.RemediationOption{{
 			Title: "Increase memory",
@@ -753,7 +749,7 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 				Description: "Increase to 512Mi",
 				Actions:     []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "Patch deploy"}},
 				Risk:        "Low",
-				Reversible:  &reversible,
+				Reversible:  agenticv1alpha1.ReversibilityReversible,
 			},
 			RBAC: &agenticv1alpha1.RBACResult{
 				NamespaceScoped: []agenticv1alpha1.RBACRule{{
@@ -846,7 +842,6 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
 
 	agent := newTestAgentCaller()
-	reversible := true
 	agent.analyzeResult = &agenticv1alpha1.AnalysisResultSpec{
 		Options: []agenticv1alpha1.RemediationOption{{
 			Title: "Fix it",
@@ -857,7 +852,7 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 				Description: "Apply fix",
 				Actions:     []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "Patch"}},
 				Risk:        "Low",
-				Reversible:  &reversible,
+				Reversible:  agenticv1alpha1.ReversibilityReversible,
 			},
 			RBAC: &agenticv1alpha1.RBACResult{
 				NamespaceScoped: []agenticv1alpha1.RBACRule{{

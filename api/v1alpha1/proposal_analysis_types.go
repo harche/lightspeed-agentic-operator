@@ -66,6 +66,16 @@ type ProposedAction struct {
 	Description string `json:"description,omitempty"`
 }
 
+// Reversibility indicates whether a remediation can be rolled back.
+// +kubebuilder:validation:Enum=Reversible;Irreversible;Partial
+type Reversibility string
+
+const (
+	ReversibilityReversible   Reversibility = "Reversible"
+	ReversibilityIrreversible Reversibility = "Irreversible"
+	ReversibilityPartial      Reversibility = "Partial"
+)
+
 // ProposalResult contains the remediation plan from the analysis agent.
 // This is part of a RemediationOption and is presented to the user after
 // analysis, before approval. The risk and reversibility assessments help
@@ -91,8 +101,9 @@ type ProposalResult struct {
 	Risk string `json:"risk,omitempty"`
 	// reversible indicates whether the remediation can be rolled back
 	// if something goes wrong. See rollbackPlan for details.
+	// Must be one of: Reversible, Irreversible, Partial.
 	// +optional
-	Reversible *bool `json:"reversible,omitempty"`
+	Reversible Reversibility `json:"reversible,omitempty"`
 	// estimatedImpact is a Markdown-formatted description of the expected
 	// impact of the remediation on the system
 	// (e.g., "Brief pod restart, ~30s downtime"). Maximum 1024 characters.

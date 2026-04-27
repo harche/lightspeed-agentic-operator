@@ -84,7 +84,6 @@ func TestProposalLifecycleWithContentStore(t *testing.T) {
 
 	// --- Step 2: Analysis agent returns result, operator stores it ---
 	t.Run("store_and_read_analysis_result", func(t *testing.T) {
-		reversible := true
 		spec := v1alpha1.AnalysisResultSpec{
 			Options: []v1alpha1.RemediationOption{{
 				Title: "Increase memory limit",
@@ -97,7 +96,7 @@ func TestProposalLifecycleWithContentStore(t *testing.T) {
 					Description: "Increase memory from 256Mi to 512Mi",
 					Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment"}},
 					Risk:        "Low",
-					Reversible:  &reversible,
+					Reversible:  v1alpha1.ReversibilityReversible,
 				},
 				RBAC: &v1alpha1.RBACResult{
 					NamespaceScoped: []v1alpha1.RBACRule{{
@@ -163,15 +162,13 @@ func TestProposalLifecycleWithContentStore(t *testing.T) {
 
 	// --- Step 4: Execution agent returns result, operator stores it ---
 	t.Run("store_and_read_execution_result", func(t *testing.T) {
-		success := true
-		improved := true
 		spec := v1alpha1.ExecutionResultSpec{
 			ActionsTaken: []v1alpha1.ExecutionAction{
-				{Type: "patch", Description: "Patched deployment/web memory to 512Mi", Success: &success},
+				{Type: "patch", Description: "Patched deployment/web memory to 512Mi", Outcome: v1alpha1.ActionOutcomeSucceeded},
 			},
 			Verification: &v1alpha1.ExecutionVerification{
-				ConditionImproved: &improved,
-				Summary:           "Pod running with new limit",
+				ConditionOutcome: v1alpha1.ConditionOutcomeImproved,
+				Summary:          "Pod running with new limit",
 			},
 		}
 
@@ -188,20 +185,19 @@ func TestProposalLifecycleWithContentStore(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetExecutionResult: %v", err)
 		}
-		if !*fetched.ActionsTaken[0].Success {
-			t.Error("action success lost")
+		if fetched.ActionsTaken[0].Outcome != v1alpha1.ActionOutcomeSucceeded {
+			t.Error("action outcome lost")
 		}
-		if !*fetched.Verification.ConditionImproved {
-			t.Error("condition improved lost")
+		if fetched.Verification.ConditionOutcome != v1alpha1.ConditionOutcomeImproved {
+			t.Error("condition outcome lost")
 		}
 	})
 
 	// --- Step 5: Verification agent returns result, operator stores it ---
 	t.Run("store_and_read_verification_result", func(t *testing.T) {
-		passed := true
 		spec := v1alpha1.VerificationResultSpec{
 			Checks: []v1alpha1.VerifyCheck{
-				{Name: "pod-running", Source: "oc", Value: "Running", Passed: &passed},
+				{Name: "pod-running", Source: "oc", Value: "Running", Result: v1alpha1.CheckResultPassed},
 			},
 			Summary: "All checks passed",
 		}
@@ -220,8 +216,8 @@ func TestProposalLifecycleWithContentStore(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetVerificationResult: %v", err)
 		}
-		if !*fetched.Checks[0].Passed {
-			t.Error("check passed lost")
+		if fetched.Checks[0].Result != v1alpha1.CheckResultPassed {
+			t.Error("check result lost")
 		}
 		if fetched.Summary != "All checks passed" {
 			t.Errorf("summary = %q", fetched.Summary)
@@ -392,7 +388,6 @@ func TestRevisionLifecycleWithContentStore(t *testing.T) {
 		t.Fatalf("create request content: %v", err)
 	}
 
-	reversible := true
 	proposal := &v1alpha1.Proposal{
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-jvm-oom", Namespace: "openshift-lightspeed"},
 		Spec: v1alpha1.ProposalSpec{
@@ -421,7 +416,7 @@ func TestRevisionLifecycleWithContentStore(t *testing.T) {
 					Description: "Increase memory from 500Mi to 768Mi",
 					Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment memory limit to 768Mi"}},
 					Risk:        "Low",
-					Reversible:  &reversible,
+					Reversible:  v1alpha1.ReversibilityReversible,
 				},
 				RBAC: &v1alpha1.RBACResult{
 					NamespaceScoped: []v1alpha1.RBACRule{{
@@ -491,7 +486,7 @@ func TestRevisionLifecycleWithContentStore(t *testing.T) {
 						Description:     "Increase memory from 500Mi to 1024Mi",
 						Actions:         []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment memory limit to 1024Mi"}},
 						Risk:            "Medium",
-						Reversible:      &reversible,
+						Reversible:      v1alpha1.ReversibilityReversible,
 						EstimatedImpact: strPtr("Exceeds typical node headroom by 15%, may trigger eviction under peak"),
 					},
 					RBAC: &v1alpha1.RBACResult{
@@ -514,7 +509,7 @@ func TestRevisionLifecycleWithContentStore(t *testing.T) {
 						Description: "Increase memory from 500Mi to 768Mi",
 						Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment memory limit to 768Mi"}},
 						Risk:        "Low",
-						Reversible:  &reversible,
+						Reversible:  v1alpha1.ReversibilityReversible,
 					},
 					RBAC: &v1alpha1.RBACResult{
 						NamespaceScoped: []v1alpha1.RBACRule{{
@@ -574,7 +569,7 @@ func TestRevisionLifecycleWithContentStore(t *testing.T) {
 					Description: "Increase memory from 500Mi to 896Mi",
 					Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment memory limit to 896Mi"}},
 					Risk:        "Low",
-					Reversible:  &reversible,
+					Reversible:  v1alpha1.ReversibilityReversible,
 				},
 			}},
 		}
@@ -659,8 +654,6 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 	ctx := context.Background()
 	var store ContentStore = newTestStore(t)
 
-	reversible := true
-
 	// --- Setup: adapter creates request content ---
 	if err := store.CreateRequestContent(ctx, "fix-oom-request", v1alpha1.RequestContentSpec{
 		ContentPayload: v1alpha1.ContentPayload{
@@ -698,7 +691,7 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 						Description: "Patch to 768Mi",
 						Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment memory to 768Mi"}},
 						Risk:        "Low",
-						Reversible:  &reversible,
+						Reversible:  v1alpha1.ReversibilityReversible,
 					},
 				},
 				{
@@ -710,7 +703,7 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 						Description: "Patch to 1024Mi",
 						Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment memory to 1024Mi"}},
 						Risk:        "Medium",
-						Reversible:  &reversible,
+						Reversible:  v1alpha1.ReversibilityReversible,
 					},
 				},
 			},
@@ -738,14 +731,13 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 		selected := int32(0)
 		proposal.Status.Steps.Analysis.SelectedOption = &selected
 
-		success := true
 		spec := v1alpha1.ExecutionResultSpec{
 			ActionsTaken: []v1alpha1.ExecutionAction{
-				{Type: "patch", Description: "Patched deployment/app-server memory to 768Mi", Success: &success},
+				{Type: "patch", Description: "Patched deployment/app-server memory to 768Mi", Outcome: v1alpha1.ActionOutcomeSucceeded},
 			},
 			Verification: &v1alpha1.ExecutionVerification{
-				ConditionImproved: boolPtr(false),
-				Summary:           "Pod restarted but still OOMing",
+				ConditionOutcome: v1alpha1.ConditionOutcomeDegraded,
+				Summary:          "Pod restarted but still OOMing",
 			},
 		}
 		if err := store.CreateExecutionResult(ctx, "fix-oom-execution-1", spec); err != nil {
@@ -763,10 +755,10 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 		if len(fetched.ActionsTaken) != 1 {
 			t.Fatalf("expected 1 action, got %d", len(fetched.ActionsTaken))
 		}
-		if !*fetched.ActionsTaken[0].Success {
+		if fetched.ActionsTaken[0].Outcome != v1alpha1.ActionOutcomeSucceeded {
 			t.Error("action should be successful")
 		}
-		if *fetched.Verification.ConditionImproved {
+		if fetched.Verification.ConditionOutcome != v1alpha1.ConditionOutcomeDegraded {
 			t.Error("inline verification should show no improvement")
 		}
 	})
@@ -775,8 +767,8 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 	t.Run("first_verification_fails", func(t *testing.T) {
 		spec := v1alpha1.VerificationResultSpec{
 			Checks: []v1alpha1.VerifyCheck{
-				{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Passed: boolPtr(false)},
-				{Name: "memory-usage", Source: "promql", Value: "740Mi peak", Passed: boolPtr(true)},
+				{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Result: v1alpha1.CheckResultFailed},
+				{Name: "memory-usage", Source: "promql", Value: "740Mi peak", Result: v1alpha1.CheckResultPassed},
 			},
 			Summary: "Pod still crashing after increase to 768Mi — batch workload peaks above 768Mi",
 		}
@@ -795,10 +787,10 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 		if len(fetched.Checks) != 2 {
 			t.Fatalf("expected 2 checks, got %d", len(fetched.Checks))
 		}
-		if *fetched.Checks[0].Passed {
+		if fetched.Checks[0].Result != v1alpha1.CheckResultFailed {
 			t.Error("pod-running check should have failed")
 		}
-		if !*fetched.Checks[1].Passed {
+		if fetched.Checks[1].Result != v1alpha1.CheckResultPassed {
 			t.Error("memory-usage check should have passed")
 		}
 		if fetched.Summary != "Pod still crashing after increase to 768Mi — batch workload peaks above 768Mi" {
@@ -813,10 +805,9 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 		proposal.Status.Steps.Execution.Result = nil
 		proposal.Status.Steps.Verification = nil
 
-		success := true
 		spec := v1alpha1.ExecutionResultSpec{
 			ActionsTaken: []v1alpha1.ExecutionAction{
-				{Type: "patch", Description: "Re-patched deployment/app-server memory to 768Mi (retry)", Success: &success},
+				{Type: "patch", Description: "Re-patched deployment/app-server memory to 768Mi (retry)", Outcome: v1alpha1.ActionOutcomeSucceeded},
 			},
 		}
 		if err := store.CreateExecutionResult(ctx, "fix-oom-execution-2", spec); err != nil {
@@ -838,7 +829,7 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 	t.Run("second_verification_still_fails", func(t *testing.T) {
 		spec := v1alpha1.VerificationResultSpec{
 			Checks: []v1alpha1.VerifyCheck{
-				{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Passed: boolPtr(false)},
+				{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Result: v1alpha1.CheckResultFailed},
 			},
 			Summary: "Pod still crashing after second attempt — 768Mi insufficient for batch peak",
 		}
@@ -854,7 +845,7 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read verification retry: %v", err)
 		}
-		if *fetched.Checks[0].Passed {
+		if fetched.Checks[0].Result != v1alpha1.CheckResultFailed {
 			t.Error("should still be failing")
 		}
 	})
@@ -963,7 +954,7 @@ func TestRBACLifecycleWithContentStore(t *testing.T) {
 				Proposal: v1alpha1.ProposalResult{
 					Description: "Increase memory, verify node capacity",
 					Actions:     []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment"}},
-					Risk:        "Low", Reversible: boolPtr(true),
+					Risk:        "Low", Reversible: v1alpha1.ReversibilityReversible,
 				},
 				RBAC: &v1alpha1.RBACResult{
 					NamespaceScoped: []v1alpha1.RBACRule{
@@ -1184,7 +1175,7 @@ func TestRBACRetryLifecycleWithContentStore(t *testing.T) {
 				Summary: "Broken", Confidence: "High", RootCause: "Bug",
 			},
 			Proposal: v1alpha1.ProposalResult{
-				Description: "Apply fix", Risk: "Low", Reversible: boolPtr(true),
+				Description: "Apply fix", Risk: "Low", Reversible: v1alpha1.ReversibilityReversible,
 				Actions: []v1alpha1.ProposedAction{{Type: "patch", Description: "Patch"}},
 			},
 			RBAC: &v1alpha1.RBACResult{
@@ -1257,7 +1248,6 @@ func TestRBACRetryLifecycleWithContentStore(t *testing.T) {
 	})
 }
 
-func boolPtr(b bool) *bool                                       { return &b }
 func strPtr(s string) *string                                     { return &s }
 func int32Ptr(i int32) *int32                                     { return &i }
 func sandboxStepPtr(s v1alpha1.SandboxStep) *v1alpha1.SandboxStep { return &s }

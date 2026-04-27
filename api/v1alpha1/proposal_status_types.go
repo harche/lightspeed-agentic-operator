@@ -20,6 +20,34 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ActionOutcome indicates whether an individual execution action succeeded.
+// +kubebuilder:validation:Enum=Succeeded;Failed
+type ActionOutcome string
+
+const (
+	ActionOutcomeSucceeded ActionOutcome = "Succeeded"
+	ActionOutcomeFailed    ActionOutcome = "Failed"
+)
+
+// ConditionOutcome indicates whether the target condition improved after remediation.
+// +kubebuilder:validation:Enum=Improved;Unchanged;Degraded
+type ConditionOutcome string
+
+const (
+	ConditionOutcomeImproved  ConditionOutcome = "Improved"
+	ConditionOutcomeUnchanged ConditionOutcome = "Unchanged"
+	ConditionOutcomeDegraded  ConditionOutcome = "Degraded"
+)
+
+// CheckResult indicates whether a verification check passed.
+// +kubebuilder:validation:Enum=Passed;Failed
+type CheckResult string
+
+const (
+	CheckResultPassed CheckResult = "Passed"
+	CheckResultFailed CheckResult = "Failed"
+)
+
 // ExecutionAction describes a single action taken by the execution agent
 // during the execution step. These are recorded in ExecutionStepStatus
 // to provide an audit trail of what the agent actually did.
@@ -37,9 +65,10 @@ type ExecutionAction struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=4096
 	Description string `json:"description,omitempty"`
-	// success indicates whether this individual action succeeded.
+	// outcome indicates whether this individual action succeeded.
+	// Must be one of: Succeeded, Failed.
 	// +optional
-	Success *bool `json:"success,omitempty"`
+	Outcome ActionOutcome `json:"outcome,omitempty"`
 	// output is the command output or API response from the action.
 	// Maximum 32768 characters.
 	// +optional
@@ -58,10 +87,11 @@ type ExecutionAction struct {
 // the remediation worked. In trust-mode workflows (verification skipped),
 // this is the only verification that occurs.
 type ExecutionVerification struct {
-	// conditionImproved indicates whether the target condition improved
+	// conditionOutcome indicates whether the target condition improved
 	// after the remediation (e.g., pod is no longer CrashLoopBackOff).
+	// Must be one of: Improved, Unchanged, Degraded.
 	// +optional
-	ConditionImproved *bool `json:"conditionImproved,omitempty"`
+	ConditionOutcome ConditionOutcome `json:"conditionOutcome,omitempty"`
 	// summary is a Markdown-formatted summary of the inline verification.
 	// Maximum 4096 characters.
 	// +required
@@ -92,10 +122,10 @@ type VerifyCheck struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=4096
 	Value string `json:"value,omitempty"`
-	// passed indicates whether the check's observed value matches
-	// the expected value.
+	// result indicates whether the check's observed value matches
+	// the expected value. Must be one of: Passed, Failed.
 	// +optional
-	Passed *bool `json:"passed,omitempty"`
+	Result CheckResult `json:"result,omitempty"`
 }
 
 // SandboxInfo tracks the sandbox pod used for a workflow step. The operator

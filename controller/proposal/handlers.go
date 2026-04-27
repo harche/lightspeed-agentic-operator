@@ -331,7 +331,7 @@ func (r *ProposalReconciler) handleVerifying(
 
 	allPassed := true
 	for _, check := range verifyResult.Checks {
-		if check.Passed == nil || !*check.Passed {
+		if check.Result != agenticv1alpha1.CheckResultPassed {
 			allPassed = false
 			break
 		}
