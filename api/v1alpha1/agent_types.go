@@ -21,54 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// SecretReference references a Kubernetes Secret by name within the same
-// namespace. Used for credentials and authentication tokens.
-type SecretReference struct {
-	// name of the Secret.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name,omitempty"`
-}
-
-// AgentReference references an Agent CR by name within the same namespace.
-type AgentReference struct {
-	// name of the Agent.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name,omitempty"`
-}
-
-// LLMProviderReference references an LLMProvider CR by name within the same
-// namespace.
-type LLMProviderReference struct {
-	// name of the LLMProvider.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name,omitempty"`
-}
-
-// WorkflowReference references a Workflow CR by name within the same namespace.
-type WorkflowReference struct {
-	// name of the Workflow.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name,omitempty"`
-}
-
-// ProposalReference references a Proposal CR by name within the same
-// namespace. Used for escalation parent linkage.
-type ProposalReference struct {
-	// name of the parent Proposal.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name,omitempty"`
-}
-
 // MCPHeaderSourceType defines how a header value is sourced when the
 // operator configures MCP server connections for an agent.
 //
