@@ -82,7 +82,7 @@ type LLMProviderSpec struct {
 	// HTTPS URL, maximum 2048 characters.
 	// +optional
 	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:Pattern=`^https?://.*$`
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="url must be a valid HTTP or HTTPS URL"
 	URL *string `json:"url,omitempty"`
 }
 

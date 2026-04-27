@@ -65,7 +65,7 @@ type MCPHeader struct {
 	// Must be at least 1 character, containing only letters, digits, and hyphens.
 	// +required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9-]+$`
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[A-Za-z][A-Za-z0-9-]*$')",message="name must start with a letter and contain only letters, digits, and hyphens"
 	Name string `json:"name,omitempty"`
 
 	// valueFrom is the source of the header value.
@@ -111,7 +111,7 @@ type MCPServerConfig struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:Pattern=`^https?://.*$`
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="url must be a valid HTTP or HTTPS URL"
 	URL string `json:"url,omitempty"`
 
 	// timeoutSeconds is the timeout for the MCP server in seconds, default is 5.
