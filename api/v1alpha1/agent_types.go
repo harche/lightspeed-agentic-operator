@@ -209,11 +209,12 @@ type AgentSpec struct {
 	// sandbox pod. When omitted, the operator uses the default agent image
 	// from the base SandboxTemplate.
 	//
-	// The operator communicates with the agent exclusively via HTTP POST
-	// to /analyze, /execute, and /verify on port 8080. Custom images must
-	// serve these endpoints and return the expected JSON response format.
-	// The simplest way to satisfy this contract is to base your image on
-	// the default lightspeed-service image and add your own tools on top.
+	// The operator communicates with the agent via HTTP POST to /query on
+	// port 8080, with a "phase" field in the request body indicating the
+	// workflow step ("analysis", "execution", or "verification"). Custom
+	// images must serve this endpoint and return the expected JSON response
+	// format. The simplest way to satisfy this contract is to base your
+	// image on the default agent image and add your own tools on top.
 	// Must be 1-512 characters when set.
 	//
 	// Example:

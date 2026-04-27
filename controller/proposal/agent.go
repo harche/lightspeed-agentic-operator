@@ -33,6 +33,9 @@ type VerificationOutput struct {
 // it for the LLM (text-only prompt vs multimodal with binary
 // attachments). In production this manages sandbox lifecycle + HTTP
 // calls; in tests a stub returns canned results.
+//
+// HTTP implementations should POST to a single /query endpoint with
+// a "phase" field in the request body rather than separate endpoints.
 type AgentCaller interface {
 	Analyze(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*AnalysisOutput, error)
 	Execute(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption) (*ExecutionOutput, error)
