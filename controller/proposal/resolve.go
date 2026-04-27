@@ -27,8 +27,8 @@ func resolveWorkflow(ctx context.Context, c client.Client, proposal *agenticv1al
 	ns := proposal.Namespace
 
 	var wf agenticv1alpha1.Workflow
-	if err := c.Get(ctx, types.NamespacedName{Name: proposal.Spec.WorkflowRef.Name, Namespace: ns}, &wf); err != nil {
-		return nil, fmt.Errorf("get Workflow %q: %w", proposal.Spec.WorkflowRef.Name, err)
+	if err := c.Get(ctx, types.NamespacedName{Name: proposal.Spec.Workflow.Name, Namespace: ns}, &wf); err != nil {
+		return nil, fmt.Errorf("get Workflow %q: %w", proposal.Spec.Workflow.Name, err)
 	}
 
 	// Determine effective agent names, applying per-proposal overrides.
@@ -88,8 +88,8 @@ func resolveStep(ctx context.Context, c client.Client, ns, agentName string) (*r
 	}
 
 	var llm agenticv1alpha1.LLMProvider
-	if err := c.Get(ctx, types.NamespacedName{Name: agent.Spec.LLMRef.Name, Namespace: ns}, &llm); err != nil {
-		return nil, fmt.Errorf("get LLMProvider %q (referenced by Agent %q): %w", agent.Spec.LLMRef.Name, agentName, err)
+	if err := c.Get(ctx, types.NamespacedName{Name: agent.Spec.LLMProvider.Name, Namespace: ns}, &llm); err != nil {
+		return nil, fmt.Errorf("get LLMProvider %q (referenced by Agent %q): %w", agent.Spec.LLMProvider.Name, agentName, err)
 	}
 
 	return &resolvedStep{Agent: &agent, LLM: &llm}, nil

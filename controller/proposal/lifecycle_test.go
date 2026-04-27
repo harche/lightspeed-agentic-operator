@@ -23,7 +23,6 @@ import (
 	"testing"
 
 	rbacv1 "k8s.io/api/rbac/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -61,7 +60,7 @@ func TestProposalLifecycleWithContentStore(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crashloop", Namespace: "openshift-lightspeed"},
 		Spec: v1alpha1.ProposalSpec{
 			Request:          v1alpha1.ContentReference{Name: "fix-crashloop-request"},
-			WorkflowRef:      corev1.LocalObjectReference{Name: "remediation"},
+			Workflow:         v1alpha1.WorkflowReference{Name: "remediation"},
 			TargetNamespaces: []string{"production"},
 		},
 		Status: &v1alpha1.ProposalStatus{
@@ -277,7 +276,7 @@ func TestRetryWithContentStore(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-retry"},
 		Spec: v1alpha1.ProposalSpec{
 			Request:     v1alpha1.ContentReference{Name: "fix-retry-request"},
-			WorkflowRef: corev1.LocalObjectReference{Name: "remediation"},
+			Workflow: v1alpha1.WorkflowReference{Name: "remediation"},
 		},
 		Status: &v1alpha1.ProposalStatus{
 			Phase:   v1alpha1.ProposalPhasePending,
@@ -326,7 +325,7 @@ func TestEscalationWithContentStore(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-parent"},
 		Spec: v1alpha1.ProposalSpec{
 			Request:     v1alpha1.ContentReference{Name: "fix-parent-request"},
-			WorkflowRef: corev1.LocalObjectReference{Name: "remediation"},
+			Workflow: v1alpha1.WorkflowReference{Name: "remediation"},
 		},
 		Status: &v1alpha1.ProposalStatus{
 			Phase:   v1alpha1.ProposalPhaseEscalated,
@@ -357,8 +356,8 @@ func TestEscalationWithContentStore(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-parent-escalation"},
 		Spec: v1alpha1.ProposalSpec{
 			Request:     v1alpha1.ContentReference{Name: "fix-parent-escalation-request"},
-			WorkflowRef: parent.Spec.WorkflowRef,
-			ParentRef:   &corev1.LocalObjectReference{Name: parent.Name},
+			Workflow: parent.Spec.Workflow,
+			Parent:   &v1alpha1.ProposalReference{Name: parent.Name},
 		},
 	}
 
@@ -398,7 +397,7 @@ func TestRevisionLifecycleWithContentStore(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-jvm-oom", Namespace: "openshift-lightspeed"},
 		Spec: v1alpha1.ProposalSpec{
 			Request:          v1alpha1.ContentReference{Name: "fix-jvm-oom-request"},
-			WorkflowRef:      corev1.LocalObjectReference{Name: "remediation"},
+			Workflow:         v1alpha1.WorkflowReference{Name: "remediation"},
 			TargetNamespaces: []string{"production"},
 		},
 		Status: &v1alpha1.ProposalStatus{
@@ -676,7 +675,7 @@ func TestObjectiveFailureLifecycleWithContentStore(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-oom", Namespace: "openshift-lightspeed"},
 		Spec: v1alpha1.ProposalSpec{
 			Request:          v1alpha1.ContentReference{Name: "fix-oom-request"},
-			WorkflowRef:      corev1.LocalObjectReference{Name: "remediation"},
+			Workflow:         v1alpha1.WorkflowReference{Name: "remediation"},
 			TargetNamespaces: []string{"production"},
 		},
 		Status: &v1alpha1.ProposalStatus{
@@ -943,7 +942,7 @@ func TestRBACLifecycleWithContentStore(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crashloop", Namespace: "openshift-lightspeed"},
 		Spec: v1alpha1.ProposalSpec{
 			Request:          v1alpha1.ContentReference{Name: "fix-crashloop-request"},
-			WorkflowRef:      corev1.LocalObjectReference{Name: "remediation"},
+			Workflow:         v1alpha1.WorkflowReference{Name: "remediation"},
 			TargetNamespaces: []string{"production", "staging"},
 		},
 		Status: &v1alpha1.ProposalStatus{
@@ -1167,7 +1166,7 @@ func TestRBACRetryLifecycleWithContentStore(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-retry", Namespace: "default"},
 		Spec: v1alpha1.ProposalSpec{
 			Request:          v1alpha1.ContentReference{Name: "fix-retry-request"},
-			WorkflowRef:      corev1.LocalObjectReference{Name: "remediation"},
+			Workflow:         v1alpha1.WorkflowReference{Name: "remediation"},
 			TargetNamespaces: []string{"prod"},
 		},
 		Status: &v1alpha1.ProposalStatus{

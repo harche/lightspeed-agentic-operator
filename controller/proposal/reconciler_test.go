@@ -79,9 +79,9 @@ func fullWorkflow() *agenticv1alpha1.Workflow {
 	return &agenticv1alpha1.Workflow{
 		ObjectMeta: metav1.ObjectMeta{Name: "remediation", Namespace: "default"},
 		Spec: agenticv1alpha1.WorkflowSpec{
-			Analysis:     corev1.LocalObjectReference{Name: "analyzer"},
-			Execution:    &corev1.LocalObjectReference{Name: "executor"},
-			Verification: &corev1.LocalObjectReference{Name: "verifier"},
+			Analysis:     agenticv1alpha1.AgentReference{Name: "analyzer"},
+			Execution:    &agenticv1alpha1.AgentReference{Name: "executor"},
+			Verification: &agenticv1alpha1.AgentReference{Name: "verifier"},
 		},
 	}
 }
@@ -90,7 +90,7 @@ func testAnalyzerAgent() *agenticv1alpha1.Agent {
 	return &agenticv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: "analyzer", Namespace: "default"},
 		Spec: agenticv1alpha1.AgentSpec{
-			LLMRef: corev1.LocalObjectReference{Name: "smart"},
+			LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "smart"},
 			Skills: []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
 		},
 	}
@@ -100,7 +100,7 @@ func testExecutorAgent() *agenticv1alpha1.Agent {
 	return &agenticv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: "executor", Namespace: "default"},
 		Spec: agenticv1alpha1.AgentSpec{
-			LLMRef: corev1.LocalObjectReference{Name: "fast"},
+			LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "fast"},
 			Skills: []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
 		},
 	}
@@ -110,7 +110,7 @@ func testVerifierAgent() *agenticv1alpha1.Agent {
 	return &agenticv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: "verifier", Namespace: "default"},
 		Spec: agenticv1alpha1.AgentSpec{
-			LLMRef: corev1.LocalObjectReference{Name: "smart"},
+			LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "smart"},
 			Skills: []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
 		},
 	}
@@ -122,7 +122,7 @@ func testLLM(name string) *agenticv1alpha1.LLMProvider {
 		Spec: agenticv1alpha1.LLMProviderSpec{
 			Type:                 agenticv1alpha1.LLMProviderVertex,
 			Model:                "claude-opus-4-6",
-			CredentialsSecretRef: corev1.LocalObjectReference{Name: "llm-secret"},
+			CredentialsSecret: agenticv1alpha1.SecretReference{Name: "llm-secret"},
 		},
 	}
 }
@@ -132,7 +132,7 @@ func testProposal(workflowName string) *agenticv1alpha1.Proposal {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:          agenticv1alpha1.ContentReference{Name: "fix-crash-request"},
-			WorkflowRef:      corev1.LocalObjectReference{Name: workflowName},
+			Workflow:         agenticv1alpha1.WorkflowReference{Name: workflowName},
 			TargetNamespaces: []string{"production"},
 		},
 	}
@@ -176,7 +176,7 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fresh", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:     agenticv1alpha1.ContentReference{Name: "fix-crash-request"},
-			WorkflowRef: corev1.LocalObjectReference{Name: "remediation"},
+			Workflow: agenticv1alpha1.WorkflowReference{Name: "remediation"},
 		},
 	}
 

@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -111,13 +110,13 @@ const (
 type WorkflowOverride struct {
 	// analysis overrides the agent for the analysis step.
 	// +optional
-	Analysis *corev1.LocalObjectReference `json:"analysis,omitempty"`
+	Analysis *AgentReference `json:"analysis,omitempty"`
 	// execution overrides the agent for the execution step.
 	// +optional
-	Execution *corev1.LocalObjectReference `json:"execution,omitempty"`
+	Execution *AgentReference `json:"execution,omitempty"`
 	// verification overrides the agent for the verification step.
 	// +optional
-	Verification *corev1.LocalObjectReference `json:"verification,omitempty"`
+	Verification *AgentReference `json:"verification,omitempty"`
 }
 
 // PreviousAttempt captures the state of a failed attempt. When a proposal
@@ -143,8 +142,6 @@ type PreviousAttempt struct {
 // ProposalSpec defines the desired state of Proposal. This is the user-facing
 // (or adapter-facing) configuration -- everything the operator needs to start
 // processing the proposal.
-// +kubebuilder:validation:XValidation:rule="self.workflowRef.name != ''",message="workflowRef.name must not be empty"
-// +kubebuilder:validation:XValidation:rule="!has(self.parentRef) || self.parentRef.name != ''",message="parentRef.name must not be empty when set"
 type ProposalSpec struct {
 	// request references a content resource containing the user's original
 	// request, alert description, or a description of what triggered this
@@ -155,11 +152,11 @@ type ProposalSpec struct {
 	// +required
 	Request ContentReference `json:"request,omitzero"`
 
-	// workflowRef references a Workflow CR that defines
+	// workflow references a Workflow CR that defines
 	// which agents handle each step (analysis, execution, verification)
 	// and which steps are skipped. This is the primary routing mechanism.
 	// +required
-	WorkflowRef corev1.LocalObjectReference `json:"workflowRef,omitempty"`
+	Workflow WorkflowReference `json:"workflow,omitempty"`
 
 	// targetNamespaces are the Kubernetes namespace(s) this proposal
 	// operates on. The operator uses these to scope RBAC (creating Roles
@@ -178,13 +175,13 @@ type ProposalSpec struct {
 	// +optional
 	WorkflowOverride *WorkflowOverride `json:"workflowOverride,omitempty"`
 
-	// parentRef references the parent proposal in an escalation chain.
+	// parent references the parent proposal in an escalation chain.
 	// Set automatically by the operator when creating a child proposal
 	// after maxAttempts is exhausted. The child proposal inherits the
 	// full failure history from its parent. The child is also owned by
 	// the parent via Kubernetes owner references for garbage collection.
 	// +optional
-	ParentRef *corev1.LocalObjectReference `json:"parentRef,omitempty"`
+	Parent *ProposalReference `json:"parent,omitempty"`
 
 	// maxAttempts overrides the global retry limit for this proposal.
 	// When a step fails, the operator resets the proposal to Pending
@@ -259,7 +256,7 @@ type ProposalStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Workflow",type=string,JSONPath=`.spec.workflowRef.name`
+// +kubebuilder:printcolumn:name="Workflow",type=string,JSONPath=`.spec.workflow.name`
 // +kubebuilder:printcolumn:name="Request",type=string,JSONPath=`.spec.request`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
@@ -286,7 +283,7 @@ type ProposalStatus struct {
 //	spec:
 //	  request:
 //	    name: fix-crashloop-request
-//	  workflowRef:
+//	  workflow:
 //	    name: remediation
 //	  targetNamespaces:
 //	    - production
@@ -300,7 +297,7 @@ type ProposalStatus struct {
 //	spec:
 //	  request:
 //	    name: acs-fix-request
-//	  workflowRef:
+//	  workflow:
 //	    name: remediation
 //	  targetNamespaces:
 //	    - production
@@ -317,7 +314,7 @@ type ProposalStatus struct {
 //	spec:
 //	  request:
 //	    name: upgrade-4-22-request
-//	  workflowRef:
+//	  workflow:
 //	    name: upgrade
 //	  maxAttempts: 2
 type Proposal struct {

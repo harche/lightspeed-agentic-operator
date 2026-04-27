@@ -7,7 +7,6 @@ import (
 
 	"github.com/go-logr/logr"
 	rbacv1 "k8s.io/api/rbac/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,7 +54,7 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 			name: "advisory_only_completes",
 			workflow: &agenticv1alpha1.Workflow{
 				ObjectMeta: metav1.ObjectMeta{Name: "advisory", Namespace: "default"},
-				Spec:       agenticv1alpha1.WorkflowSpec{Analysis: corev1.LocalObjectReference{Name: "analyzer"}},
+				Spec:       agenticv1alpha1.WorkflowSpec{Analysis: agenticv1alpha1.AgentReference{Name: "analyzer"}},
 			},
 			objects:   []client.Object{testAnalyzerAgent(), testLLM("smart")},
 			wantPhase: agenticv1alpha1.ProposalPhaseCompleted,
@@ -65,8 +64,8 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 			workflow: &agenticv1alpha1.Workflow{
 				ObjectMeta: metav1.ObjectMeta{Name: "gitops", Namespace: "default"},
 				Spec: agenticv1alpha1.WorkflowSpec{
-					Analysis:     corev1.LocalObjectReference{Name: "analyzer"},
-					Verification: &corev1.LocalObjectReference{Name: "verifier"},
+					Analysis:     agenticv1alpha1.AgentReference{Name: "analyzer"},
+					Verification: &agenticv1alpha1.AgentReference{Name: "verifier"},
 				},
 			},
 			objects:   []client.Object{testAnalyzerAgent(), testVerifierAgent(), testLLM("smart")},
@@ -77,8 +76,8 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 			workflow: &agenticv1alpha1.Workflow{
 				ObjectMeta: metav1.ObjectMeta{Name: "trust", Namespace: "default"},
 				Spec: agenticv1alpha1.WorkflowSpec{
-					Analysis:  corev1.LocalObjectReference{Name: "analyzer"},
-					Execution: &corev1.LocalObjectReference{Name: "executor"},
+					Analysis:  agenticv1alpha1.AgentReference{Name: "analyzer"},
+					Execution: &agenticv1alpha1.AgentReference{Name: "executor"},
 				},
 			},
 			objects: []client.Object{

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -466,9 +465,9 @@ func (r *ProposalReconciler) handleEscalated(
 			}},
 		},
 		Spec: agenticv1alpha1.ProposalSpec{
-			WorkflowRef:      proposal.Spec.WorkflowRef,
+			Workflow:         proposal.Spec.Workflow,
 			Request:          agenticv1alpha1.ContentReference{Name: requestName},
-			ParentRef:        &corev1.LocalObjectReference{Name: proposal.Name},
+			Parent:           &agenticv1alpha1.ProposalReference{Name: proposal.Name},
 			TargetNamespaces: proposal.Spec.TargetNamespaces,
 		},
 	}

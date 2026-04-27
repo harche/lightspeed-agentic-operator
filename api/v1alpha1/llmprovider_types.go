@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -50,19 +49,18 @@ const (
 )
 
 // LLMProviderSpec defines the desired state of LLMProvider.
-// +kubebuilder:validation:XValidation:rule="self.credentialsSecretRef.name != ''",message="credentialsSecretRef.name must not be empty"
 type LLMProviderSpec struct {
 	// type is the LLM provider backend (e.g., "vertex", "anthropic", "bedrock").
 	// See LLMProviderType for the authentication requirements of each backend.
 	// +required
 	Type LLMProviderType `json:"type,omitempty"`
 
-	// credentialsSecretRef references a Secret in the operator's namespace
+	// credentialsSecret references a Secret in the operator's namespace
 	// containing the provider credentials. The required keys depend on the
 	// provider type (see LLMProviderType for details). The operator reads this
 	// secret and injects the credentials into agent sandbox pods at runtime.
 	// +required
-	CredentialsSecretRef corev1.LocalObjectReference `json:"credentialsSecretRef,omitempty"`
+	CredentialsSecret SecretReference `json:"credentialsSecret,omitempty"`
 
 	// model is the LLM model identifier as recognized by the provider
 	// (e.g., "claude-opus-4-6", "claude-haiku-4-5", "gpt-4o").
@@ -96,7 +94,7 @@ type LLMProviderSpec struct {
 
 // LLMProvider defines an LLM provider configuration. It is the first link in
 // the CRD chain (LLMProvider -> Agent -> Workflow -> Proposal) and is
-// referenced by Agent resources via spec.llmRef.
+// referenced by Agent resources via spec.llmProvider.
 //
 // LLMProvider is namespace-scoped for multi-tenancy. The operator uses the
 // credentials and model to configure the LLM client inside agent sandbox
@@ -115,7 +113,7 @@ type LLMProviderSpec struct {
 //	spec:
 //	  type: vertex
 //	  model: claude-opus-4-6
-//	  credentialsSecretRef:
+//	  credentialsSecret:
 //	    name: llm-credentials
 //
 // Example — a fast, cost-efficient provider for execution tasks:
@@ -127,7 +125,7 @@ type LLMProviderSpec struct {
 //	spec:
 //	  type: vertex
 //	  model: claude-haiku-4-5
-//	  credentialsSecretRef:
+//	  credentialsSecret:
 //	    name: llm-credentials
 type LLMProvider struct {
 	metav1.TypeMeta `json:",inline"`

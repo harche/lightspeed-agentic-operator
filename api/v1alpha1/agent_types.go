@@ -17,16 +17,63 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// SecretReference references a Kubernetes Secret by name within the same
+// namespace. Used for credentials and authentication tokens.
+type SecretReference struct {
+	// name of the Secret.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name,omitempty"`
+}
+
+// AgentReference references an Agent CR by name within the same namespace.
+type AgentReference struct {
+	// name of the Agent.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name,omitempty"`
+}
+
+// LLMProviderReference references an LLMProvider CR by name within the same
+// namespace.
+type LLMProviderReference struct {
+	// name of the LLMProvider.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name,omitempty"`
+}
+
+// WorkflowReference references a Workflow CR by name within the same namespace.
+type WorkflowReference struct {
+	// name of the Workflow.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name,omitempty"`
+}
+
+// ProposalReference references a Proposal CR by name within the same
+// namespace. Used for escalation parent linkage.
+type ProposalReference struct {
+	// name of the parent Proposal.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name,omitempty"`
+}
 
 // MCPHeaderSourceType defines how a header value is sourced when the
 // operator configures MCP server connections for an agent.
 //
 //   - "Secret"     — The value is read from a Kubernetes Secret referenced
-//     by secretRef. Use this for API keys and tokens.
+//     by the secret field. Use this for API keys and tokens.
 //   - "Kubernetes" — The operator injects a Kubernetes service account
 //     token automatically (for MCP servers that accept K8s auth).
 //   - "Client"     — The value is provided by the calling client at
@@ -46,17 +93,17 @@ const (
 
 // MCPHeaderValueSource defines where to obtain the value for an MCP header.
 // Exactly one source is used depending on the type field.
-// +kubebuilder:validation:XValidation:rule="self.type == 'Secret' ? has(self.secretRef) && size(self.secretRef.name) > 0 : true",message="secretRef with non-empty name is required when type is 'Secret'"
-// +kubebuilder:validation:XValidation:rule="self.type != 'Secret' ? !has(self.secretRef) : true",message="secretRef must not be set when type is 'Kubernetes' or 'Client'"
+// +kubebuilder:validation:XValidation:rule="self.type == 'Secret' ? has(self.secret) : true",message="secret is required when type is 'Secret'"
+// +kubebuilder:validation:XValidation:rule="self.type != 'Secret' ? !has(self.secret) : true",message="secret must not be set when type is 'Kubernetes' or 'Client'"
 type MCPHeaderValueSource struct {
 	// type specifies the source type for the header value.
 	// +required
 	Type MCPHeaderSourceType `json:"type,omitempty"`
 
-	// secretRef references a secret containing the header value.
-	// Required when type is "secret".
+	// secret references a Secret containing the header value.
+	// Required when type is "Secret".
 	// +optional
-	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
+	Secret *SecretReference `json:"secret,omitempty"`
 }
 
 // MCPHeader defines an HTTP header to send with every request to an
@@ -98,7 +145,7 @@ type MCPHeader struct {
 //	      - name: X-API-Key
 //	        valueFrom:
 //	          type: Secret
-//	          secretRef:
+//	          secret:
 //	            name: pagerduty-api-key
 type MCPServerConfig struct {
 	// name of the MCP server. Must be 1-253 characters.
@@ -189,7 +236,6 @@ type ContentReference struct {
 }
 
 // AgentSpec defines the desired state of Agent.
-// +kubebuilder:validation:XValidation:rule="self.llmRef.name != ''",message="llmRef.name must not be empty"
 type AgentSpec struct {
 	// image optionally overrides the agent container image used in the
 	// sandbox pod. When omitted, the operator uses the default agent image
@@ -211,12 +257,12 @@ type AgentSpec struct {
 	// +kubebuilder:validation:MaxLength=512
 	Image *string `json:"image,omitempty"`
 
-	// llmRef references an LLMProvider CR that supplies the
+	// llmProvider references an LLMProvider CR that supplies the
 	// LLM backend for this agent. The operator resolves this reference at
 	// reconcile time and configures the sandbox pod with the provider's
 	// credentials and model.
 	// +required
-	LLMRef corev1.LocalObjectReference `json:"llmRef,omitempty"`
+	LLMProvider LLMProviderReference `json:"llmProvider,omitempty"`
 
 	// skills defines one or more OCI images containing skills to mount
 	// in the agent's sandbox pod. Each entry specifies an image and optionally
@@ -269,7 +315,7 @@ type AgentSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="LLM",type=string,JSONPath=`.spec.llmRef.name`
+// +kubebuilder:printcolumn:name="LLM",type=string,JSONPath=`.spec.llmProvider.name`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Skills Image",type=string,JSONPath=`.spec.skills[0].image`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -291,7 +337,7 @@ type AgentSpec struct {
 //	metadata:
 //	  name: analyzer
 //	spec:
-//	  llmRef:
+//	  llmProvider:
 //	    name: smart
 //	  skills:
 //	    - image: registry.ci.openshift.org/ocp/5.0:agentic-skills
@@ -310,7 +356,7 @@ type AgentSpec struct {
 //	metadata:
 //	  name: executor
 //	spec:
-//	  llmRef:
+//	  llmProvider:
 //	    name: fast
 //	  skills:
 //	    - image: registry.ci.openshift.org/ocp/5.0:agentic-skills
@@ -326,7 +372,7 @@ type AgentSpec struct {
 //	metadata:
 //	  name: analyzer-with-mcp
 //	spec:
-//	  llmRef:
+//	  llmProvider:
 //	    name: smart
 //	  skills:
 //	    - image: registry.ci.openshift.org/ocp/5.0:agentic-skills
@@ -344,7 +390,7 @@ type AgentSpec struct {
 //	        - name: X-API-Key
 //	          valueFrom:
 //	            type: Secret
-//	            secretRef:
+//	            secret:
 //	              name: pagerduty-api-key
 //	  systemPrompt: |
 //	    You are an SRE analyst with access to MCP tools...

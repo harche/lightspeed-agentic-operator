@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -33,7 +32,7 @@ type WorkflowSpec struct {
 	// confidence), a remediation proposal (actions, risk, reversibility),
 	// a verification plan, and RBAC permissions needed for execution.
 	// +required
-	Analysis corev1.LocalObjectReference `json:"analysis,omitempty"`
+	Analysis AgentReference `json:"analysis,omitempty"`
 
 	// execution references an Agent for the execution step. The execution
 	// agent carries out the approved remediation plan using the RBAC
@@ -43,7 +42,7 @@ type WorkflowSpec struct {
 	// approval, making it advisory-only. The user is expected to apply
 	// changes manually or via GitOps.
 	// +optional
-	Execution *corev1.LocalObjectReference `json:"execution,omitempty"`
+	Execution *AgentReference `json:"execution,omitempty"`
 
 	// verification references an Agent for the verification step. The
 	// verification agent checks whether the remediation was successful
@@ -53,7 +52,7 @@ type WorkflowSpec struct {
 	// without a verification check. Useful for trust-mode workflows where
 	// the execution agent's inline verification is sufficient.
 	// +optional
-	Verification *corev1.LocalObjectReference `json:"verification,omitempty"`
+	Verification *AgentReference `json:"verification,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -66,7 +65,7 @@ type WorkflowSpec struct {
 // Workflow defines a reusable 3-step pipeline template that controls which
 // agents handle analysis, execution, and verification. It is the third link
 // in the CRD chain (LLMProvider -> Agent -> Workflow -> Proposal) and is
-// referenced by Proposal resources via spec.workflowRef.
+// referenced by Proposal resources via spec.workflow.
 //
 // Workflow is namespace-scoped for multi-tenancy. You create workflows representing different
 // operational patterns and then reference them from proposals. Per-proposal
@@ -129,9 +128,6 @@ type Workflow struct {
 
 	// spec defines the desired state of Workflow.
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self.analysis.name != ''",message="analysis.name must not be empty"
-	// +kubebuilder:validation:XValidation:rule="!has(self.execution) || self.execution.name != ''",message="execution.name must not be empty when set"
-	// +kubebuilder:validation:XValidation:rule="!has(self.verification) || self.verification.name != ''",message="verification.name must not be empty when set"
 	Spec WorkflowSpec `json:"spec,omitzero"`
 }
 
