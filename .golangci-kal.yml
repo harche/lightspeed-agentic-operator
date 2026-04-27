@@ -15,18 +15,18 @@ linters:
             enable:
               - maxlength
               - minlength
-              - statussubresource
               - nobools
               - preferredmarkers
+              - statussubresource
             disable:
-              - statusoptional
-              - nonpointerstructs
+              - statusoptional # Legacy, not recommended
+              - nonpointerstructs # Intended for native types, not CRD types
           lintersConfig:
             conditions:
               isFirstField: Warn
               usePatchStrategy: Ignore
               useProtobuf: Ignore
-            optionalFields:
+            optionalfields:
               pointers:
                 preference: WhenRequired
                 policy: SuggestFix
@@ -54,3 +54,6 @@ linters:
       - linters:
           - kubeapilinter
         path-except: "api/"
+
+issues:
+  max-issues-per-linter: 1000
