@@ -24,32 +24,32 @@ type testAgentCaller struct {
 	executeErr error
 	verifyErr  error
 
-	analyzeResult *agenticv1alpha1.AnalysisResultSpec
-	executeResult *agenticv1alpha1.ExecutionResultSpec
-	verifyResult  *agenticv1alpha1.VerificationResultSpec
+	analyzeResult *AnalysisOutput
+	executeResult *ExecutionOutput
+	verifyResult  *VerificationOutput
 }
 
 func newTestAgentCaller() *testAgentCaller {
 	stub := &StubAgentCaller{}
-	a, _ := stub.Analyze(context.Background(), nil, resolvedStep{}, nil)
+	a, _ := stub.Analyze(context.Background(), nil, resolvedStep{}, "")
 	e, _ := stub.Execute(context.Background(), nil, resolvedStep{}, nil)
 	v, _ := stub.Verify(context.Background(), nil, resolvedStep{}, nil, nil)
 	return &testAgentCaller{analyzeResult: a, executeResult: e, verifyResult: v}
 }
 
-func (ta *testAgentCaller) Analyze(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RequestContentSpec) (*agenticv1alpha1.AnalysisResultSpec, error) {
+func (ta *testAgentCaller) Analyze(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ string) (*AnalysisOutput, error) {
 	if ta.analyzeErr != nil {
 		return nil, ta.analyzeErr
 	}
 	return ta.analyzeResult, nil
 }
-func (ta *testAgentCaller) Execute(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption) (*agenticv1alpha1.ExecutionResultSpec, error) {
+func (ta *testAgentCaller) Execute(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption) (*ExecutionOutput, error) {
 	if ta.executeErr != nil {
 		return nil, ta.executeErr
 	}
 	return ta.executeResult, nil
 }
-func (ta *testAgentCaller) Verify(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption, _ *agenticv1alpha1.ExecutionResultSpec) (*agenticv1alpha1.VerificationResultSpec, error) {
+func (ta *testAgentCaller) Verify(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption, _ *ExecutionOutput) (*VerificationOutput, error) {
 	if ta.verifyErr != nil {
 		return nil, ta.verifyErr
 	}
@@ -66,22 +66,13 @@ func testScheme() *runtime.Scheme {
 	return s
 }
 
-func seedRequestContent(t *testing.T, store ContentStore, name, text string) {
-	t.Helper()
-	if err := store.CreateRequestContent(context.Background(), name, agenticv1alpha1.RequestContentSpec{
-		ContentPayload: agenticv1alpha1.ContentPayload{Content: text},
-	}); err != nil {
-		t.Fatalf("seed request content %q: %v", name, err)
-	}
-}
-
 func fullWorkflow() *agenticv1alpha1.Workflow {
 	return &agenticv1alpha1.Workflow{
 		ObjectMeta: metav1.ObjectMeta{Name: "remediation", Namespace: "default"},
 		Spec: agenticv1alpha1.WorkflowSpec{
 			Analysis:     agenticv1alpha1.AgentReference{Name: "analyzer"},
-			Execution:    &agenticv1alpha1.AgentReference{Name: "executor"},
-			Verification: &agenticv1alpha1.AgentReference{Name: "verifier"},
+			Execution:    agenticv1alpha1.AgentReference{Name: "executor"},
+			Verification: agenticv1alpha1.AgentReference{Name: "verifier"},
 		},
 	}
 }
@@ -91,7 +82,7 @@ func testAnalyzerAgent() *agenticv1alpha1.Agent {
 		ObjectMeta: metav1.ObjectMeta{Name: "analyzer", Namespace: "default"},
 		Spec: agenticv1alpha1.AgentSpec{
 			LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "smart"},
-			Skills: []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
+			Skills:      []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
 		},
 	}
 }
@@ -101,7 +92,7 @@ func testExecutorAgent() *agenticv1alpha1.Agent {
 		ObjectMeta: metav1.ObjectMeta{Name: "executor", Namespace: "default"},
 		Spec: agenticv1alpha1.AgentSpec{
 			LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "fast"},
-			Skills: []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
+			Skills:      []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
 		},
 	}
 }
@@ -111,7 +102,7 @@ func testVerifierAgent() *agenticv1alpha1.Agent {
 		ObjectMeta: metav1.ObjectMeta{Name: "verifier", Namespace: "default"},
 		Spec: agenticv1alpha1.AgentSpec{
 			LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "smart"},
-			Skills: []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
+			Skills:      []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
 		},
 	}
 }
@@ -120,8 +111,8 @@ func testLLM(name string) *agenticv1alpha1.LLMProvider {
 	return &agenticv1alpha1.LLMProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Spec: agenticv1alpha1.LLMProviderSpec{
-			Type:                 agenticv1alpha1.LLMProviderVertex,
-			Model:                "claude-opus-4-6",
+			Type:              agenticv1alpha1.LLMProviderVertex,
+			Model:             "claude-opus-4-6",
 			CredentialsSecret: agenticv1alpha1.SecretReference{Name: "llm-secret"},
 		},
 	}
@@ -131,7 +122,7 @@ func testProposal(workflowName string) *agenticv1alpha1.Proposal {
 	return &agenticv1alpha1.Proposal{
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
-			Request:          agenticv1alpha1.ContentReference{Name: "fix-crash-request"},
+			Request:          "Pod crashing in production",
 			Workflow:         agenticv1alpha1.WorkflowReference{Name: workflowName},
 			TargetNamespaces: []string{"production"},
 		},
@@ -168,14 +159,11 @@ func approveProposal(t *testing.T, fc client.WithWatch, name string) {
 // --- Reconciler-level tests ---
 
 func TestReconcile_StatusInitialization(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	scheme := testScheme()
 	proposal := &agenticv1alpha1.Proposal{
 		ObjectMeta: metav1.ObjectMeta{Name: "fresh", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
-			Request:     agenticv1alpha1.ContentReference{Name: "fix-crash-request"},
+			Request:  "Pod crashing",
 			Workflow: agenticv1alpha1.WorkflowReference{Name: "remediation"},
 		},
 	}
@@ -185,7 +173,7 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: newTestAgentCaller()}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
 	_, err := reconcileOnce(r, "fresh")
 	if err != nil {
@@ -193,7 +181,7 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 	}
 
 	p, _ := getProposal(r, "fresh")
-	if p.Status == nil {
+	if p.Status.Phase == "" {
 		t.Fatal("status not initialized")
 	}
 	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
@@ -205,19 +193,17 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 }
 
 func TestReconcile_Denied_Terminal(t *testing.T) {
-	store := newTestStore(t)
 	scheme := testScheme()
 
 	one := int32(1)
 	proposal := testProposal("remediation")
-	proposal.Status = &agenticv1alpha1.ProposalStatus{
+	proposal.Status = agenticv1alpha1.ProposalStatus{
 		Phase:   agenticv1alpha1.ProposalPhaseDenied,
 		Attempt: &one,
-		Steps:   &agenticv1alpha1.StepsStatus{},
 	}
 
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(proposal).WithStatusSubresource(proposal).Build()
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: newTestAgentCaller()}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
 	result, err := reconcileOnce(r, "fix-crash")
 	if err != nil {

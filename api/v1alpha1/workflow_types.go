@@ -32,7 +32,7 @@ type WorkflowSpec struct {
 	// confidence), a remediation proposal (actions, risk, reversibility),
 	// a verification plan, and RBAC permissions needed for execution.
 	// +required
-	Analysis AgentReference `json:"analysis,omitempty"`
+	Analysis AgentReference `json:"analysis,omitzero"`
 
 	// execution references an Agent for the execution step. The execution
 	// agent carries out the approved remediation plan using the RBAC
@@ -42,7 +42,7 @@ type WorkflowSpec struct {
 	// approval, making it advisory-only. The user is expected to apply
 	// changes manually or via GitOps.
 	// +optional
-	Execution *AgentReference `json:"execution,omitempty"`
+	Execution AgentReference `json:"execution,omitzero"`
 
 	// verification references an Agent for the verification step. The
 	// verification agent checks whether the remediation was successful
@@ -52,7 +52,7 @@ type WorkflowSpec struct {
 	// without a verification check. Useful for trust-mode workflows where
 	// the execution agent's inline verification is sufficient.
 	// +optional
-	Verification *AgentReference `json:"verification,omitempty"`
+	Verification AgentReference `json:"verification,omitzero"`
 }
 
 // +kubebuilder:object:root=true

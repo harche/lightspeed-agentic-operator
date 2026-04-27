@@ -67,7 +67,7 @@ type LLMProviderSpec struct {
 	// provider type (see LLMProviderType for details). The operator reads this
 	// secret and injects the credentials into agent sandbox pods at runtime.
 	// +required
-	CredentialsSecret SecretReference `json:"credentialsSecret,omitempty"`
+	CredentialsSecret SecretReference `json:"credentialsSecret,omitzero"`
 
 	// model is the LLM model identifier as recognized by the provider
 	// (e.g., "claude-opus-4-6", "claude-haiku-4-5", "gpt-4o").
@@ -88,9 +88,10 @@ type LLMProviderSpec struct {
 	// when making requests to the provider endpoint. Must be an HTTP or
 	// HTTPS URL, maximum 2048 characters.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
 	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="url must be a valid HTTP or HTTPS URL"
-	URL *string `json:"url,omitempty"`
+	URL string `json:"url,omitempty"`
 }
 
 // +kubebuilder:object:root=true

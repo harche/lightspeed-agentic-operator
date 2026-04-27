@@ -15,14 +15,8 @@ import (
 	agenticv1alpha1 "github.com/harche/lightspeed-agentic-operator/api/v1alpha1"
 )
 
-func reviseProposal(t *testing.T, fc client.WithWatch, store ContentStore, name string, revision int32, feedback string) {
+func reviseProposal(t *testing.T, fc client.WithWatch, name string, revision int32) {
 	t.Helper()
-	feedbackName := fmt.Sprintf("%s-revision-%d", name, revision)
-	if err := store.CreateRequestContent(context.Background(), feedbackName, agenticv1alpha1.RequestContentSpec{
-		ContentPayload: agenticv1alpha1.ContentPayload{Content: feedback},
-	}); err != nil {
-		t.Fatalf("seed revision feedback %q: %v", feedbackName, err)
-	}
 	var p agenticv1alpha1.Proposal
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: name, Namespace: "default"}, &p); err != nil {
 		t.Fatalf("get proposal for revision: %v", err)
@@ -65,7 +59,7 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "gitops", Namespace: "default"},
 				Spec: agenticv1alpha1.WorkflowSpec{
 					Analysis:     agenticv1alpha1.AgentReference{Name: "analyzer"},
-					Verification: &agenticv1alpha1.AgentReference{Name: "verifier"},
+					Verification: agenticv1alpha1.AgentReference{Name: "verifier"},
 				},
 			},
 			objects:   []client.Object{testAnalyzerAgent(), testVerifierAgent(), testLLM("smart")},
@@ -77,7 +71,7 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "trust", Namespace: "default"},
 				Spec: agenticv1alpha1.WorkflowSpec{
 					Analysis:  agenticv1alpha1.AgentReference{Name: "analyzer"},
-					Execution: &agenticv1alpha1.AgentReference{Name: "executor"},
+					Execution: agenticv1alpha1.AgentReference{Name: "executor"},
 				},
 			},
 			objects: []client.Object{
@@ -90,9 +84,6 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := newTestStore(t)
-			seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 			scheme := testScheme()
 			proposal := testProposal(tt.workflow.Name)
 
@@ -101,7 +92,7 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 				WithObjects(objs...).
 				WithStatusSubresource(proposal).Build()
 
-			r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: newTestAgentCaller()}
+			r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
 			if _, err := reconcileOnce(r, "fix-crash"); err != nil {
 				t.Fatalf("analysis reconcile: %v", err)
@@ -125,9 +116,6 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 }
 
 func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
@@ -135,7 +123,7 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: newTestAgentCaller()}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
 	// Reconcile 1: Pending → Proposed
 	result, err := reconcileOnce(r, "fix-crash")
@@ -150,17 +138,8 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
 		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
 	}
-	if p.Status.Steps.Analysis == nil || p.Status.Steps.Analysis.Result == nil {
-		t.Fatal("analysis result ref not set")
-	}
-
-	// Verify analysis result persisted to postgres
-	analysisResult, err := store.GetAnalysisResult(context.Background(), p.Status.Steps.Analysis.Result.Name)
-	if err != nil {
-		t.Fatalf("analysis result not in store: %v", err)
-	}
-	if len(analysisResult.Options) == 0 {
-		t.Fatal("analysis result has no options")
+	if len(p.Status.Steps.Analysis.Options) == 0 {
+		t.Fatal("analysis options not set")
 	}
 
 	// Approve
@@ -179,17 +158,8 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
 		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
 	}
-
-	// Verify execution result persisted to postgres
-	if p.Status.Steps.Execution == nil || p.Status.Steps.Execution.Result == nil {
-		t.Fatal("execution result ref not set")
-	}
-	execResult, err := store.GetExecutionResult(context.Background(), p.Status.Steps.Execution.Result.Name)
-	if err != nil {
-		t.Fatalf("execution result not in store: %v", err)
-	}
-	if len(execResult.ActionsTaken) == 0 {
-		t.Fatal("execution result has no actions")
+	if len(p.Status.Steps.Execution.ActionsTaken) == 0 {
+		t.Fatal("execution actions not set")
 	}
 
 	// Reconcile 3: Verifying → Completed
@@ -202,24 +172,12 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if p.Status.Phase != agenticv1alpha1.ProposalPhaseCompleted {
 		t.Fatalf("expected Completed, got %s", p.Status.Phase)
 	}
-
-	// Verify verification result persisted to postgres
-	if p.Status.Steps.Verification == nil || p.Status.Steps.Verification.Result == nil {
-		t.Fatal("verification result ref not set")
-	}
-	verifyResult, err := store.GetVerificationResult(context.Background(), p.Status.Steps.Verification.Result.Name)
-	if err != nil {
-		t.Fatalf("verification result not in store: %v", err)
-	}
-	if verifyResult.Summary == "" {
-		t.Fatal("verification result has no summary")
+	if p.Status.Steps.Verification.Summary == "" {
+		t.Fatal("verification summary not set")
 	}
 }
 
 func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	agent := newTestAgentCaller()
 	agent.analyzeErr = fmt.Errorf("LLM timeout")
 	scheme := testScheme()
@@ -230,7 +188,7 @@ func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
 	// Reconcile 1: Pending → Failed (system failure)
 	result, err := reconcileOnce(r, "fix-crash")
@@ -257,9 +215,6 @@ func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
 }
 
 func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	agent := newTestAgentCaller()
 	scheme := testScheme()
 
@@ -272,7 +227,7 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
 	// Analysis → approve → execution → verifying
 	reconcileOnce(r, "fix-crash")
@@ -280,7 +235,7 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 
 	// Make verification fail (objective failure, not system error)
-	agent.verifyResult = &agenticv1alpha1.VerificationResultSpec{
+	agent.verifyResult = &VerificationOutput{
 		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Result: agenticv1alpha1.CheckResultFailed}},
 		Summary: "Pod still crashing",
 	}
@@ -332,9 +287,6 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 }
 
 func TestReconcile_SystemFailure_Execution_Terminal(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	agent := newTestAgentCaller()
 	scheme := testScheme()
 
@@ -344,7 +296,7 @@ func TestReconcile_SystemFailure_Execution_Terminal(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
 	// Analysis → approve
 	reconcileOnce(r, "fix-crash")
@@ -373,9 +325,6 @@ func TestReconcile_SystemFailure_Execution_Terminal(t *testing.T) {
 }
 
 func TestReconcile_SystemFailure_Verification_Terminal(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	agent := newTestAgentCaller()
 	scheme := testScheme()
 
@@ -385,7 +334,7 @@ func TestReconcile_SystemFailure_Verification_Terminal(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
 	// Analysis → approve → execution → verifying
 	reconcileOnce(r, "fix-crash")
@@ -415,9 +364,6 @@ func TestReconcile_SystemFailure_Verification_Terminal(t *testing.T) {
 }
 
 func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	agent := newTestAgentCaller()
 	scheme := testScheme()
 
@@ -430,14 +376,14 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
 	// Full lifecycle to verification failure, retries exhausted → Proposed
 	reconcileOnce(r, "fix-crash")
 	approveProposal(t, fc, "fix-crash")
 	reconcileOnce(r, "fix-crash")
 
-	agent.verifyResult = &agenticv1alpha1.VerificationResultSpec{
+	agent.verifyResult = &VerificationOutput{
 		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Result: agenticv1alpha1.CheckResultFailed}},
 		Summary: "Pod still crashing",
 	}
@@ -454,11 +400,11 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	}
 
 	// Admin submits revision
-	agent.verifyResult = &agenticv1alpha1.VerificationResultSpec{
+	agent.verifyResult = &VerificationOutput{
 		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "Running", Result: agenticv1alpha1.CheckResultPassed}},
 		Summary: "Pod running",
 	}
-	reviseProposal(t, fc, store, "fix-crash", 1, "Try a different approach")
+	reviseProposal(t, fc, "fix-crash", 1)
 	reconcileOnce(r, "fix-crash") // revision re-analysis
 
 	p, _ = getProposal(r, "fix-crash")
@@ -470,7 +416,6 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	approveProposal(t, fc, "fix-crash")
 	reconcileOnce(r, "fix-crash") // execution + verification
 	p, _ = getProposal(r, "fix-crash")
-	// Should reach Verifying (full workflow) then complete on next reconcile
 	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
 		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
 	}
@@ -482,9 +427,6 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 }
 
 func TestReconcile_RevisionHappyPath(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
@@ -492,7 +434,7 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: newTestAgentCaller()}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
 	// Reconcile 1: Pending → Proposed
 	if _, err := reconcileOnce(r, "fix-crash"); err != nil {
@@ -502,10 +444,10 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
 		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
 	}
-	initialResult := p.Status.Steps.Analysis.Result.Name
+	initialOptionsCount := len(p.Status.Steps.Analysis.Options)
 
 	// Submit revision
-	reviseProposal(t, fc, store, "fix-crash", 1, "Increase memory to 1024MB instead of 768MB")
+	reviseProposal(t, fc, "fix-crash", 1)
 
 	// Reconcile 2: Proposed → Analyzing → Proposed (revised)
 	if _, err := reconcileOnce(r, "fix-crash"); err != nil {
@@ -518,21 +460,10 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 	if p.Status.Steps.Analysis.ObservedRevision == nil || *p.Status.Steps.Analysis.ObservedRevision != 1 {
 		t.Fatal("observedRevision not set to 1")
 	}
-	revisedResult := p.Status.Steps.Analysis.Result.Name
-	if revisedResult == initialResult {
-		t.Fatal("revision should produce a new result name")
+	if len(p.Status.Steps.Analysis.Options) == 0 {
+		t.Fatal("options should be populated after revision")
 	}
-	if revisedResult != "fix-crash-analysis-1-rev1" {
-		t.Fatalf("unexpected result name: %s", revisedResult)
-	}
-
-	// Verify both results exist in store
-	if _, err := store.GetAnalysisResult(context.Background(), initialResult); err != nil {
-		t.Fatalf("initial result missing from store: %v", err)
-	}
-	if _, err := store.GetAnalysisResult(context.Background(), revisedResult); err != nil {
-		t.Fatalf("revised result missing from store: %v", err)
-	}
+	_ = initialOptionsCount // options are replaced inline
 
 	// Approve and continue
 	approveProposal(t, fc, "fix-crash")
@@ -546,9 +477,6 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 }
 
 func TestReconcile_RevisionMultipleRounds(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
@@ -556,17 +484,17 @@ func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: newTestAgentCaller()}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
 	// Initial analysis
 	reconcileOnce(r, "fix-crash")
 
 	// Revision 1
-	reviseProposal(t, fc, store, "fix-crash", 1, "Try 1024MB")
+	reviseProposal(t, fc, "fix-crash", 1)
 	reconcileOnce(r, "fix-crash")
 
 	// Revision 2
-	reviseProposal(t, fc, store, "fix-crash", 2, "Actually, 896MB")
+	reviseProposal(t, fc, "fix-crash", 2)
 	reconcileOnce(r, "fix-crash")
 
 	p, _ := getProposal(r, "fix-crash")
@@ -575,16 +503,6 @@ func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 	}
 	if *p.Status.Steps.Analysis.ObservedRevision != 2 {
 		t.Fatalf("expected observedRevision 2, got %d", *p.Status.Steps.Analysis.ObservedRevision)
-	}
-	if p.Status.Steps.Analysis.Result.Name != "fix-crash-analysis-1-rev2" {
-		t.Fatalf("unexpected result name: %s", p.Status.Steps.Analysis.Result.Name)
-	}
-
-	// All three results should exist
-	for _, name := range []string{"fix-crash-analysis-1", "fix-crash-analysis-1-rev1", "fix-crash-analysis-1-rev2"} {
-		if _, err := store.GetAnalysisResult(context.Background(), name); err != nil {
-			t.Fatalf("result %q missing: %v", name, err)
-		}
 	}
 
 	// Approve and proceed
@@ -597,9 +515,6 @@ func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 }
 
 func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
@@ -607,7 +522,7 @@ func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: newTestAgentCaller()}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
 	// Initial analysis
 	reconcileOnce(r, "fix-crash")
@@ -627,9 +542,6 @@ func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 		t.Fatalf("patch status observedRevision: %v", err)
 	}
 
-	resultBefore, _ := getProposal(r, "fix-crash")
-	resultNameBefore := resultBefore.Status.Steps.Analysis.Result.Name
-
 	// Reconcile should be a no-op
 	result, err := reconcileOnce(r, "fix-crash")
 	if err != nil {
@@ -643,15 +555,9 @@ func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
 		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
 	}
-	if p.Status.Steps.Analysis.Result.Name != resultNameBefore {
-		t.Fatal("result should not change when revision already observed")
-	}
 }
 
 func TestReconcile_RevisionResetsSelectedOption(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
@@ -659,7 +565,7 @@ func TestReconcile_RevisionResetsSelectedOption(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: newTestAgentCaller()}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
 	// Analysis → Proposed
 	reconcileOnce(r, "fix-crash")
@@ -674,7 +580,7 @@ func TestReconcile_RevisionResetsSelectedOption(t *testing.T) {
 	}
 
 	// Submit revision
-	reviseProposal(t, fc, store, "fix-crash", 1, "Different approach please")
+	reviseProposal(t, fc, "fix-crash", 1)
 
 	// Reconcile revision
 	reconcileOnce(r, "fix-crash")
@@ -686,9 +592,6 @@ func TestReconcile_RevisionResetsSelectedOption(t *testing.T) {
 }
 
 func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	agent := newTestAgentCaller()
 	scheme := testScheme()
 	proposal := testProposal("remediation")
@@ -698,7 +601,7 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
 	// Initial analysis succeeds
 	reconcileOnce(r, "fix-crash")
@@ -708,7 +611,7 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 	}
 
 	// Submit revision, but agent will fail
-	reviseProposal(t, fc, store, "fix-crash", 1, "Increase memory")
+	reviseProposal(t, fc, "fix-crash", 1)
 	agent.analyzeErr = fmt.Errorf("LLM timeout during revision")
 
 	// Reconcile → revision analysis fails → Failed
@@ -734,12 +637,8 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 }
 
 func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	agent := newTestAgentCaller()
-	// Inject RBAC into analysis result so ensureExecutionRBAC is exercised
-	agent.analyzeResult = &agenticv1alpha1.AnalysisResultSpec{
+	agent.analyzeResult = &AnalysisOutput{
 		Options: []agenticv1alpha1.RemediationOption{{
 			Title: "Increase memory",
 			Diagnosis: agenticv1alpha1.DiagnosisResult{
@@ -751,7 +650,7 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 				Risk:        "Low",
 				Reversible:  agenticv1alpha1.ReversibilityReversible,
 			},
-			RBAC: &agenticv1alpha1.RBACResult{
+			RBAC: agenticv1alpha1.RBACResult{
 				NamespaceScoped: []agenticv1alpha1.RBACRule{{
 					APIGroups:     []string{"apps"},
 					Resources:     []string{"deployments"},
@@ -776,7 +675,7 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
 	// Pending → Proposed
 	reconcileOnce(r, "fix-crash")
@@ -838,11 +737,8 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 }
 
 func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
-	store := newTestStore(t)
-	seedRequestContent(t, store, "fix-crash-request", "Pod crashing")
-
 	agent := newTestAgentCaller()
-	agent.analyzeResult = &agenticv1alpha1.AnalysisResultSpec{
+	agent.analyzeResult = &AnalysisOutput{
 		Options: []agenticv1alpha1.RemediationOption{{
 			Title: "Fix it",
 			Diagnosis: agenticv1alpha1.DiagnosisResult{
@@ -854,7 +750,7 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 				Risk:        "Low",
 				Reversible:  agenticv1alpha1.ReversibilityReversible,
 			},
-			RBAC: &agenticv1alpha1.RBACResult{
+			RBAC: agenticv1alpha1.RBACResult{
 				NamespaceScoped: []agenticv1alpha1.RBACRule{{
 					APIGroups: []string{"apps"}, Resources: []string{"deployments"},
 					Verbs: []string{"get", "patch"}, Justification: "Fix deploy",
@@ -871,7 +767,7 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 		testLLM("smart"), testLLM("fast"),
 	).WithStatusSubresource(proposal).Build()
 
-	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Content: store, Agent: agent}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
 	// Analysis → approve
 	reconcileOnce(r, "fix-crash")
@@ -906,8 +802,8 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: roleName, Namespace: "production"}, &role); err == nil {
 		t.Fatal("Role should be cleaned up after failure")
 	}
-	var binding rbacv1.RoleBinding
-	if err := fc.Get(context.Background(), types.NamespacedName{Name: roleName, Namespace: "production"}, &binding); err == nil {
+	var bindingCheck rbacv1.RoleBinding
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: roleName, Namespace: "production"}, &bindingCheck); err == nil {
 		t.Fatal("RoleBinding should be cleaned up after failure")
 	}
 }

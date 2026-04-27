@@ -68,13 +68,10 @@ func (r *ProposalReconciler) failStep(ctx context.Context, log logr.Logger, prop
 
 	switch conditionType {
 	case agenticv1alpha1.ProposalConditionAnalyzed:
-		ensureAnalysisStep(proposal)
 		proposal.Status.Steps.Analysis.CompletionTime = &completedAt
 	case agenticv1alpha1.ProposalConditionExecuted:
-		ensureExecutionStep(proposal)
 		proposal.Status.Steps.Execution.CompletionTime = &completedAt
 	case agenticv1alpha1.ProposalConditionVerified:
-		ensureVerificationStep(proposal)
 		proposal.Status.Steps.Verification.CompletionTime = &completedAt
 	}
 
@@ -102,24 +99,6 @@ func isTerminal(phase agenticv1alpha1.ProposalPhase) bool {
 	return false
 }
 
-func ensureAnalysisStep(proposal *agenticv1alpha1.Proposal) {
-	if proposal.Status.Steps.Analysis == nil {
-		proposal.Status.Steps.Analysis = &agenticv1alpha1.AnalysisStepStatus{}
-	}
-}
-
-func ensureExecutionStep(proposal *agenticv1alpha1.Proposal) {
-	if proposal.Status.Steps.Execution == nil {
-		proposal.Status.Steps.Execution = &agenticv1alpha1.ExecutionStepStatus{}
-	}
-}
-
-func ensureVerificationStep(proposal *agenticv1alpha1.Proposal) {
-	if proposal.Status.Steps.Verification == nil {
-		proposal.Status.Steps.Verification = &agenticv1alpha1.VerificationStepStatus{}
-	}
-}
-
 func setVerificationSkipped(proposal *agenticv1alpha1.Proposal) {
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionVerified,
@@ -129,27 +108,46 @@ func setVerificationSkipped(proposal *agenticv1alpha1.Proposal) {
 	})
 }
 
-func resultName(proposal *agenticv1alpha1.Proposal, step string) string {
-	return fmt.Sprintf("%s-%s-%d", proposal.Name, step, *proposal.Status.Attempt)
-}
-
-func (r *ProposalReconciler) selectedOption(ctx context.Context, proposal *agenticv1alpha1.Proposal) (*agenticv1alpha1.RemediationOption, error) {
+func (r *ProposalReconciler) selectedOption(proposal *agenticv1alpha1.Proposal) *agenticv1alpha1.RemediationOption {
 	analysis := proposal.Status.Steps.Analysis
-	if analysis == nil || analysis.SelectedOption == nil || analysis.Result == nil {
-		return nil, nil
-	}
-	result, err := r.Content.GetAnalysisResult(ctx, analysis.Result.Name)
-	if err != nil {
-		return nil, err
+	if analysis.SelectedOption == nil || len(analysis.Options) == 0 {
+		return nil
 	}
 	idx := int(*analysis.SelectedOption)
-	if idx < 0 || idx >= len(result.Options) {
-		return nil, fmt.Errorf("selectedOption index %d out of range (have %d options)", idx, len(result.Options))
+	if idx < 0 || idx >= len(analysis.Options) {
+		r.Log.Info("selectedOption index out of range", "index", idx, "options", len(analysis.Options), "proposal", proposal.Name)
+		return nil
 	}
-	return &result.Options[idx], nil
+	return &analysis.Options[idx]
 }
 
-func determineFailure(proposal *agenticv1alpha1.Proposal) (*agenticv1alpha1.SandboxStep, *string) {
+func applyAnalysisResult(step *agenticv1alpha1.AnalysisStepStatus, result *AnalysisOutput) {
+	step.Options = result.Options
+	step.Components = result.Components
+}
+
+func applyExecutionResult(step *agenticv1alpha1.ExecutionStepStatus, result *ExecutionOutput) {
+	step.ActionsTaken = result.ActionsTaken
+	step.Verification = result.Verification
+	step.Components = result.Components
+}
+
+func applyVerificationResult(step *agenticv1alpha1.VerificationStepStatus, result *VerificationOutput) {
+	step.Checks = result.Checks
+	step.Summary = result.Summary
+	step.Components = result.Components
+}
+
+func resetExecutionAndVerification(steps *agenticv1alpha1.StepsStatus) {
+	steps.Execution.StartTime = nil
+	steps.Execution.CompletionTime = nil
+	steps.Execution.ActionsTaken = nil
+	steps.Execution.Verification = agenticv1alpha1.ExecutionVerification{}
+	steps.Execution.Components = nil
+	steps.Verification = agenticv1alpha1.VerificationStepStatus{}
+}
+
+func determineFailure(proposal *agenticv1alpha1.Proposal) (agenticv1alpha1.SandboxStep, string) {
 	for _, c := range proposal.Status.Conditions {
 		if c.Status != metav1.ConditionFalse {
 			continue
@@ -165,10 +163,9 @@ func determineFailure(proposal *agenticv1alpha1.Proposal) (*agenticv1alpha1.Sand
 		default:
 			continue
 		}
-		msg := c.Message
-		return &step, &msg
+		return step, c.Message
 	}
-	return nil, nil
+	return "", ""
 }
 
 func attemptAlreadyRecorded(attempts []agenticv1alpha1.PreviousAttempt, num int32) bool {
@@ -189,7 +186,7 @@ func (r *ProposalReconciler) maxAttempts(proposal *agenticv1alpha1.Proposal) int
 
 type escalationData struct {
 	Name             string
-	RequestName      string
+	Request          string
 	AttemptCount     int32
 	PreviousAttempts []escalationAttempt
 }
@@ -203,17 +200,16 @@ type escalationAttempt struct {
 func buildEscalationRequest(proposal *agenticv1alpha1.Proposal) string {
 	data := escalationData{
 		Name:         proposal.Name,
-		RequestName:  proposal.Spec.Request.Name,
+		Request:      proposal.Spec.Request,
 		AttemptCount: *proposal.Status.Attempt,
 	}
+	data.PreviousAttempts = make([]escalationAttempt, 0, len(proposal.Status.PreviousAttempts))
 	for _, pa := range proposal.Status.PreviousAttempts {
 		a := escalationAttempt{Attempt: pa.Attempt}
-		if pa.FailedStep != nil {
-			a.FailedStep = string(*pa.FailedStep)
+		if pa.FailedStep != "" {
+			a.FailedStep = string(pa.FailedStep)
 		}
-		if pa.FailureReason != nil {
-			a.FailureReason = *pa.FailureReason
-		}
+		a.FailureReason = pa.FailureReason
 		data.PreviousAttempts = append(data.PreviousAttempts, a)
 	}
 	return renderTemplate("escalation_request.tmpl", data)
@@ -224,40 +220,23 @@ func needsRevision(proposal *agenticv1alpha1.Proposal) bool {
 		return false
 	}
 	analysis := proposal.Status.Steps.Analysis
-	if analysis == nil {
-		return true
-	}
 	if analysis.ObservedRevision == nil {
 		return true
 	}
 	return *proposal.Spec.Revision > *analysis.ObservedRevision
 }
 
-func revisionResultName(proposal *agenticv1alpha1.Proposal) string {
-	return fmt.Sprintf("%s-analysis-%d-rev%d", proposal.Name, *proposal.Status.Attempt, *proposal.Spec.Revision)
-}
-
-func revisionRequestName(proposal *agenticv1alpha1.Proposal) string {
-	return fmt.Sprintf("%s-revision-%d", proposal.Name, *proposal.Spec.Revision)
-}
-
 type revisionData struct {
-	Revision            int32
-	ProposalName        string
-	Namespace           string
-	PreviousResultName  string
-	RevisionRequestName string
+	Revision     int32
+	ProposalName string
+	Namespace    string
 }
 
 func buildRevisionContext(proposal *agenticv1alpha1.Proposal) string {
 	data := revisionData{
-		Revision:            *proposal.Spec.Revision,
-		ProposalName:        proposal.Name,
-		Namespace:           proposal.Namespace,
-		RevisionRequestName: revisionRequestName(proposal),
-	}
-	if proposal.Status.Steps.Analysis != nil && proposal.Status.Steps.Analysis.Result != nil {
-		data.PreviousResultName = proposal.Status.Steps.Analysis.Result.Name
+		Revision:     *proposal.Spec.Revision,
+		ProposalName: proposal.Name,
+		Namespace:    proposal.Namespace,
 	}
 	return renderTemplate("revision_context.tmpl", data)
 }

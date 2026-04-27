@@ -3,9 +3,7 @@ module github.com/harche/lightspeed-agentic-operator
 go 1.25.7
 
 require (
-	github.com/fergusstrange/embedded-postgres v1.34.0
 	github.com/go-logr/logr v1.4.3
-	github.com/lib/pq v1.12.3
 	k8s.io/api v0.35.3
 	k8s.io/apiextensions-apiserver v0.35.3
 	k8s.io/apimachinery v0.35.3
@@ -40,7 +38,6 @@ require (
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/net v0.47.0 // indirect

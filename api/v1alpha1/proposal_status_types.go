@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -72,13 +73,15 @@ type ExecutionAction struct {
 	// output is the command output or API response from the action.
 	// Maximum 32768 characters.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
-	Output *string `json:"output,omitempty"`
+	Output string `json:"output,omitempty"`
 	// error is the error message if the action failed.
 	// Maximum 8192 characters.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=8192
-	Error *string `json:"error,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 // ExecutionVerification is a lightweight inline verification that the
@@ -86,6 +89,7 @@ type ExecutionAction struct {
 // before the formal verification step. This gives early signal on whether
 // the remediation worked. In trust-mode workflows (verification skipped),
 // this is the only verification that occurs.
+// +kubebuilder:validation:MinProperties=1
 type ExecutionVerification struct {
 	// conditionOutcome indicates whether the target condition improved
 	// after the remediation (e.g., pod is no longer CrashLoopBackOff).
@@ -103,6 +107,7 @@ type ExecutionVerification struct {
 // VerifyCheck is a single verification check result from the verification
 // agent. Each check corresponds to a VerificationStep from the analysis
 // agent's verification plan.
+// +kubebuilder:validation:MinProperties=1
 type VerifyCheck struct {
 	// name is the check identifier, matching the VerificationStep name.
 	// Maximum 253 characters.
@@ -132,19 +137,22 @@ type VerifyCheck struct {
 // creates a sandbox pod for each active step (analysis, execution,
 // verification) and records the claim details here. This enables the
 // console UI to stream sandbox pod logs in real time.
+// +kubebuilder:validation:MinProperties=1
 type SandboxInfo struct {
 	// claimName is the name of the SandboxClaim resource that owns the
 	// sandbox pod. Omit when no sandbox has been claimed; an empty string
 	// is treated the same as omitted. Maximum 253 characters.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
-	ClaimName *string `json:"claimName,omitempty"`
+	ClaimName string `json:"claimName,omitempty"`
 	// namespace is the namespace where the SandboxClaim and its pod live.
 	// Must be a valid RFC 1123 DNS label.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Label().validate(self).hasValue()",message="must be a valid DNS label: lowercase alphanumeric characters and hyphens, starting with an alphabetic character and ending with an alphanumeric character"
-	Namespace *string `json:"namespace,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
 	// startTime is when the sandbox pod was created.
 	// +optional
 	StartTime *metav1.Time `json:"startTime,omitempty"`
@@ -154,9 +162,7 @@ type SandboxInfo struct {
 }
 
 // AnalysisStepStatus is the observed state of the analysis step.
-// The full analysis output (remediation options, components) is stored
-// via the aggregated content API and referenced by result. The Proposal
-// status holds only conditions, timing, and the user's selection.
+// +kubebuilder:validation:MinProperties=1
 type AnalysisStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -164,6 +170,8 @@ type AnalysisStepStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	// startTime is when the step started.
 	// +optional
@@ -173,13 +181,23 @@ type AnalysisStepStatus struct {
 	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 	// sandbox tracks the sandbox used.
 	// +optional
-	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
-	// result references the full analysis output (remediation options,
-	// components) stored via the aggregated content API. The operator
-	// populates this after a successful analysis step.
+	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+	// options contains one or more remediation options returned by the
+	// analysis agent. Each option has its own diagnosis, plan,
+	// verification strategy, and RBAC requirements.
 	// +optional
-	Result *ContentReference `json:"result,omitempty"`
-	// selectedOption is the 0-based index into the result's options array
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=10
+	Options []RemediationOption `json:"options,omitempty"`
+	// components contains optional adapter-specific UI components that
+	// apply to the analysis step as a whole.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	Components []apiextensionsv1.JSON `json:"components,omitempty"`
+	// selectedOption is the 0-based index into the options array
 	// that the user approved. Set when the user approves the proposal.
 	// The operator uses this to determine which option's RBAC and plan
 	// to use for execution. Minimum value: 0.
@@ -195,8 +213,7 @@ type AnalysisStepStatus struct {
 }
 
 // ExecutionStepStatus is the observed state of the execution step.
-// The full execution output (actions taken, inline verification) is
-// stored via the aggregated content API and referenced by result.
+// +kubebuilder:validation:MinProperties=1
 type ExecutionStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -204,6 +221,8 @@ type ExecutionStepStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	// startTime is when the step started.
 	// +optional
@@ -213,12 +232,23 @@ type ExecutionStepStatus struct {
 	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 	// sandbox tracks the sandbox used.
 	// +optional
-	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
-	// result references the full execution output (actions taken,
-	// inline verification, components) stored via the aggregated
-	// content API. The operator populates this after execution completes.
+	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+	// actionsTaken lists what the agent did.
 	// +optional
-	Result *ContentReference `json:"result,omitempty"`
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100
+	ActionsTaken []ExecutionAction `json:"actionsTaken,omitempty"`
+	// verification is the lightweight inline verification the execution
+	// agent performs immediately after completing its actions.
+	// +optional
+	Verification ExecutionVerification `json:"verification,omitzero"`
+	// components contains optional adapter-defined structured data.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 	// retryCount tracks how many times execution+verification has been
 	// retried for the current analysis option. Reset when a new analysis
 	// is run (initial or revision). The operator increments this on each
@@ -229,8 +259,7 @@ type ExecutionStepStatus struct {
 }
 
 // VerificationStepStatus is the observed state of the verification step.
-// The full verification output (checks, summary) is stored via the
-// aggregated content API and referenced by result.
+// +kubebuilder:validation:MinProperties=1
 type VerificationStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -238,6 +267,8 @@ type VerificationStepStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	// startTime is when the step started.
 	// +optional
@@ -247,12 +278,24 @@ type VerificationStepStatus struct {
 	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 	// sandbox tracks the sandbox used.
 	// +optional
-	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
-	// result references the full verification output (checks, summary,
-	// components) stored via the aggregated content API. The operator
-	// populates this after verification completes.
+	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+	// checks contains individual verification check results.
 	// +optional
-	Result *ContentReference `json:"result,omitempty"`
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=50
+	Checks []VerifyCheck `json:"checks,omitempty"`
+	// summary is a Markdown-formatted verification summary.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32768
+	Summary string `json:"summary,omitempty"`
+	// components contains optional adapter-defined structured data.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
+	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 }
 
 // StepsStatus contains the per-step observed state for all three workflow
@@ -261,11 +304,11 @@ type VerificationStepStatus struct {
 type StepsStatus struct {
 	// analysis is the observed state of the analysis step.
 	// +optional
-	Analysis *AnalysisStepStatus `json:"analysis,omitempty"`
+	Analysis AnalysisStepStatus `json:"analysis,omitzero"`
 	// execution is the observed state of the execution step.
 	// +optional
-	Execution *ExecutionStepStatus `json:"execution,omitempty"`
+	Execution ExecutionStepStatus `json:"execution,omitzero"`
 	// verification is the observed state of the verification step.
 	// +optional
-	Verification *VerificationStepStatus `json:"verification,omitempty"`
+	Verification VerificationStepStatus `json:"verification,omitzero"`
 }

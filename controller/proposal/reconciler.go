@@ -16,12 +16,11 @@ import (
 
 // ProposalReconciler reconciles Proposal objects.
 //
-// Content and Agent must be set before calling SetupWithManager.
+// Agent must be set before calling SetupWithManager.
 type ProposalReconciler struct {
 	client.Client
-	Log     logr.Logger
-	Content ContentStore
-	Agent   AgentCaller
+	Log   logr.Logger
+	Agent AgentCaller
 }
 
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals,verbs=get;list;watch;create;update;patch;delete
@@ -48,10 +47,6 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				log.Error(err, "RBAC cleanup failed, retrying")
 				return ctrl.Result{}, err
 			}
-			if err := cleanupContentReadRBAC(ctx, r.Client, &proposal); err != nil {
-				log.Error(err, "content-read RBAC cleanup failed, retrying")
-				return ctrl.Result{}, err
-			}
 			original := proposal.DeepCopy()
 			controllerutil.RemoveFinalizer(&proposal, proposalFinalizer)
 			if err := r.Patch(ctx, &proposal, client.MergeFrom(original)); err != nil {
@@ -62,21 +57,15 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// --- Initialize status on first reconcile ---
-	needsInit := proposal.Status == nil || proposal.Status.Phase == "" || proposal.Status.Attempt == nil || proposal.Status.Steps == nil
+	needsInit := proposal.Status.Phase == "" || proposal.Status.Attempt == nil
 	if needsInit {
 		base := proposal.DeepCopy()
-		if proposal.Status == nil {
-			proposal.Status = &agenticv1alpha1.ProposalStatus{}
-		}
 		if proposal.Status.Phase == "" {
 			proposal.Status.Phase = agenticv1alpha1.ProposalPhasePending
 		}
 		if proposal.Status.Attempt == nil {
 			one := int32(1)
 			proposal.Status.Attempt = &one
-		}
-		if proposal.Status.Steps == nil {
-			proposal.Status.Steps = &agenticv1alpha1.StepsStatus{}
 		}
 		if err := r.Status().Patch(ctx, &proposal, client.MergeFrom(base)); err != nil {
 			return ctrl.Result{}, fmt.Errorf("initialize status: %w", err)

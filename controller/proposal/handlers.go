@@ -26,7 +26,6 @@ func (r *ProposalReconciler) handlePending(
 	base := proposal.DeepCopy()
 	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseAnalyzing
 	now := metav1.Now()
-	ensureAnalysisStep(proposal)
 	proposal.Status.Steps.Analysis.StartTime = &now
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
@@ -38,25 +37,15 @@ func (r *ProposalReconciler) handlePending(
 		return ctrl.Result{}, fmt.Errorf("update to Analyzing: %w", err)
 	}
 
-	reqContent, err := r.Content.GetRequestContent(ctx, proposal.Spec.Request.Name)
-	if err != nil {
-		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("read request content %q: %w", proposal.Spec.Request.Name, err))
-	}
-
-	analysisResult, err := r.Agent.Analyze(ctx, proposal, resolved.Analysis, reqContent)
+	analysisResult, err := r.Agent.Analyze(ctx, proposal, resolved.Analysis, proposal.Spec.Request)
 	if err != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, err)
-	}
-
-	resultName := resultName(proposal, "analysis")
-	if err := r.Content.CreateAnalysisResult(ctx, resultName, *analysisResult); err != nil {
-		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("store analysis result: %w", err))
 	}
 
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
 	proposal.Status.Steps.Analysis.CompletionTime = &completedAt
-	proposal.Status.Steps.Analysis.Result = &agenticv1alpha1.ContentReference{Name: resultName}
+	applyAnalysisResult(&proposal.Status.Steps.Analysis, analysisResult)
 	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseProposed
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
@@ -73,8 +62,7 @@ func (r *ProposalReconciler) handlePending(
 }
 
 // handleRevision re-runs analysis with revision context appended to the
-// agent's system prompt. The agent pulls previous analysis and user feedback
-// via oc get, keeping the system prompt O(1) regardless of revision count.
+// agent's system prompt.
 func (r *ProposalReconciler) handleRevision(
 	ctx context.Context,
 	log logr.Logger,
@@ -87,7 +75,6 @@ func (r *ProposalReconciler) handleRevision(
 	base := proposal.DeepCopy()
 	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseAnalyzing
 	now := metav1.Now()
-	ensureAnalysisStep(proposal)
 	proposal.Status.Steps.Analysis.StartTime = &now
 	proposal.Status.Steps.Analysis.CompletionTime = nil
 	proposal.Status.Steps.Analysis.SelectedOption = nil
@@ -101,39 +88,24 @@ func (r *ProposalReconciler) handleRevision(
 		return ctrl.Result{}, fmt.Errorf("update to Analyzing (revision): %w", err)
 	}
 
-	reqContent, err := r.Content.GetRequestContent(ctx, proposal.Spec.Request.Name)
-	if err != nil {
-		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("read request content %q: %w", proposal.Spec.Request.Name, err))
-	}
-
-	if err := ensureContentReadRBAC(ctx, r.Client, proposal, defaultSandboxSA, proposal.Namespace); err != nil {
-		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("ensure content-read RBAC: %w", err))
-	}
-
 	agentCopy := resolved.Analysis.Agent.DeepCopy()
 	revisionSuffix := buildRevisionContext(proposal)
-	if agentCopy.Spec.SystemPrompt != nil {
-		combined := *agentCopy.Spec.SystemPrompt + "\n\n" + revisionSuffix
-		agentCopy.Spec.SystemPrompt = &combined
+	if agentCopy.Spec.SystemPrompt != "" {
+		agentCopy.Spec.SystemPrompt = agentCopy.Spec.SystemPrompt + "\n\n" + revisionSuffix
 	} else {
-		agentCopy.Spec.SystemPrompt = &revisionSuffix
+		agentCopy.Spec.SystemPrompt = revisionSuffix
 	}
 	revisionStep := resolvedStep{Agent: agentCopy, LLM: resolved.Analysis.LLM}
 
-	analysisResult, err := r.Agent.Analyze(ctx, proposal, revisionStep, reqContent)
+	analysisResult, err := r.Agent.Analyze(ctx, proposal, revisionStep, proposal.Spec.Request)
 	if err != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, err)
-	}
-
-	rName := revisionResultName(proposal)
-	if err := r.Content.CreateAnalysisResult(ctx, rName, *analysisResult); err != nil {
-		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("store revision analysis result: %w", err))
 	}
 
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
 	proposal.Status.Steps.Analysis.CompletionTime = &completedAt
-	proposal.Status.Steps.Analysis.Result = &agenticv1alpha1.ContentReference{Name: rName}
+	applyAnalysisResult(&proposal.Status.Steps.Analysis, analysisResult)
 	proposal.Status.Steps.Analysis.ObservedRevision = &revision
 	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseProposed
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
@@ -167,10 +139,7 @@ func (r *ProposalReconciler) handleApproved(
 		Message: "Proposal approved by user",
 	})
 
-	selectedOption, err := r.selectedOption(ctx, proposal)
-	if err != nil {
-		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, fmt.Errorf("read selected option: %w", err))
-	}
+	selectedOption := r.selectedOption(proposal)
 
 	if resolved.Execution == nil {
 		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
@@ -204,13 +173,10 @@ func (r *ProposalReconciler) handleApproved(
 		return ctrl.Result{}, nil
 	}
 
-	if selectedOption != nil && selectedOption.RBAC != nil {
-		// TODO: resolve sandbox SA from template when sandbox infra is wired
-		if err := ensureExecutionRBAC(ctx, r.Client, proposal, selectedOption.RBAC, defaultSandboxSA, proposal.Namespace); err != nil {
+	if selectedOption != nil && (len(selectedOption.RBAC.NamespaceScoped) > 0 || len(selectedOption.RBAC.ClusterScoped) > 0) {
+		if err := ensureExecutionRBAC(ctx, r.Client, proposal, &selectedOption.RBAC, defaultSandboxSA, proposal.Namespace); err != nil {
 			return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, fmt.Errorf("ensure execution RBAC: %w", err))
 		}
-		// Persist the rbac-namespaces annotation so cleanup can find
-		// target namespaces after the proposal is re-fetched.
 		if err := r.Patch(ctx, proposal, client.MergeFrom(base)); err != nil {
 			return ctrl.Result{}, fmt.Errorf("persist RBAC annotation: %w", err)
 		}
@@ -219,7 +185,6 @@ func (r *ProposalReconciler) handleApproved(
 
 	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseExecuting
 	now := metav1.Now()
-	ensureExecutionStep(proposal)
 	proposal.Status.Steps.Execution.StartTime = &now
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionExecuted,
@@ -236,15 +201,10 @@ func (r *ProposalReconciler) handleApproved(
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, err)
 	}
 
-	resultName := resultName(proposal, "execution")
-	if err := r.Content.CreateExecutionResult(ctx, resultName, *execResult); err != nil {
-		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, fmt.Errorf("store execution result: %w", err))
-	}
-
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
 	proposal.Status.Steps.Execution.CompletionTime = &completedAt
-	proposal.Status.Steps.Execution.Result = &agenticv1alpha1.ContentReference{Name: resultName}
+	applyExecutionResult(&proposal.Status.Steps.Execution, execResult)
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionExecuted,
 		Status:  metav1.ConditionTrue,
@@ -292,7 +252,6 @@ func (r *ProposalReconciler) handleVerifying(
 	}
 
 	now := metav1.Now()
-	ensureVerificationStep(proposal)
 	proposal.Status.Steps.Verification.StartTime = &now
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionVerified,
@@ -301,33 +260,26 @@ func (r *ProposalReconciler) handleVerifying(
 		Message: "Verification agent is running",
 	})
 
-	selectedOption, err := r.selectedOption(ctx, proposal)
-	if err != nil {
-		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionVerified, fmt.Errorf("read selected option for verification: %w", err))
-	}
+	selectedOption := r.selectedOption(proposal)
 
-	var execResult *agenticv1alpha1.ExecutionResultSpec
-	if proposal.Status.Steps.Execution != nil && proposal.Status.Steps.Execution.Result != nil {
-		execResult, err = r.Content.GetExecutionResult(ctx, proposal.Status.Steps.Execution.Result.Name)
-		if err != nil {
-			log.Error(err, "could not read execution result for verification context, continuing")
+	var execOutput *ExecutionOutput
+	if len(proposal.Status.Steps.Execution.ActionsTaken) > 0 {
+		execOutput = &ExecutionOutput{
+			ActionsTaken: proposal.Status.Steps.Execution.ActionsTaken,
+			Verification: proposal.Status.Steps.Execution.Verification,
+			Components:   proposal.Status.Steps.Execution.Components,
 		}
 	}
 
-	verifyResult, err := r.Agent.Verify(ctx, proposal, *resolved.Verification, selectedOption, execResult)
+	verifyResult, err := r.Agent.Verify(ctx, proposal, *resolved.Verification, selectedOption, execOutput)
 	if err != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionVerified, err)
-	}
-
-	resultName := resultName(proposal, "verification")
-	if err := r.Content.CreateVerificationResult(ctx, resultName, *verifyResult); err != nil {
-		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionVerified, fmt.Errorf("store verification result: %w", err))
 	}
 
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
 	proposal.Status.Steps.Verification.CompletionTime = &completedAt
-	proposal.Status.Steps.Verification.Result = &agenticv1alpha1.ContentReference{Name: resultName}
+	applyVerificationResult(&proposal.Status.Steps.Verification, verifyResult)
 
 	allPassed := true
 	for _, check := range verifyResult.Checks {
@@ -339,7 +291,7 @@ func (r *ProposalReconciler) handleVerifying(
 
 	if !allPassed {
 		retryCount := int32(0)
-		if proposal.Status.Steps.Execution != nil && proposal.Status.Steps.Execution.RetryCount != nil {
+		if proposal.Status.Steps.Execution.RetryCount != nil {
 			retryCount = *proposal.Status.Steps.Execution.RetryCount
 		}
 		maxRetries := r.maxAttempts(proposal)
@@ -348,10 +300,7 @@ func (r *ProposalReconciler) handleVerifying(
 			next := retryCount + 1
 			log.Info("verification failed, retrying execution", "retryCount", next, "maxRetries", maxRetries, "summary", verifyResult.Summary)
 			proposal.Status.Steps.Execution.RetryCount = &next
-			proposal.Status.Steps.Execution.StartTime = nil
-			proposal.Status.Steps.Execution.CompletionTime = nil
-			proposal.Status.Steps.Execution.Result = nil
-			proposal.Status.Steps.Verification = nil
+			resetExecutionAndVerification(&proposal.Status.Steps)
 			proposal.Status.Phase = agenticv1alpha1.ProposalPhaseApproved
 			meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 				Type:    agenticv1alpha1.ProposalConditionVerified,
@@ -411,9 +360,6 @@ func (r *ProposalReconciler) handleFailed(
 			log.Error(err, "RBAC cleanup on failure")
 		}
 	}
-	if err := cleanupContentReadRBAC(ctx, r.Client, proposal); err != nil {
-		log.Error(err, "content-read RBAC cleanup on failure")
-	}
 
 	currentAttempt := *proposal.Status.Attempt
 	if !attemptAlreadyRecorded(proposal.Status.PreviousAttempts, currentAttempt) {
@@ -440,15 +386,6 @@ func (r *ProposalReconciler) handleEscalated(
 	childName := truncateK8sName(proposal.Name + "-escalation")
 
 	escalationText := buildEscalationRequest(proposal)
-	requestName := childName + "-request"
-	if err := r.Content.CreateRequestContent(ctx, requestName, agenticv1alpha1.RequestContentSpec{
-		ContentPayload: agenticv1alpha1.ContentPayload{
-			MediaType: "text/plain",
-			Content:   escalationText,
-		},
-	}); err != nil {
-		log.Error(err, "create escalation request content (may already exist)")
-	}
 
 	child := &agenticv1alpha1.Proposal{
 		ObjectMeta: metav1.ObjectMeta{
@@ -466,8 +403,8 @@ func (r *ProposalReconciler) handleEscalated(
 		},
 		Spec: agenticv1alpha1.ProposalSpec{
 			Workflow:         proposal.Spec.Workflow,
-			Request:          agenticv1alpha1.ContentReference{Name: requestName},
-			Parent:           &agenticv1alpha1.ProposalReference{Name: proposal.Name},
+			Request:          escalationText,
+			Parent:           agenticv1alpha1.ProposalReference{Name: proposal.Name},
 			TargetNamespaces: proposal.Spec.TargetNamespaces,
 		},
 	}

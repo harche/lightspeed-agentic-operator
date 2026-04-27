@@ -59,6 +59,7 @@ const (
 // This is populated by the agent during the analysis step and stored in
 // the AnalysisStepStatus as part of a RemediationOption. Users see this
 // in the console UI when reviewing the proposal.
+// +kubebuilder:validation:MinProperties=1
 type DiagnosisResult struct {
 	// summary is a Markdown-formatted diagnosis summary explaining the
 	// problem, its symptoms, and the agent's findings. Maximum 8192 characters.
@@ -83,6 +84,7 @@ type DiagnosisResult struct {
 // ProposedAction describes a single discrete action the analysis agent
 // recommends as part of its remediation plan. Actions are displayed to
 // the user after analysis for review before approval.
+// +kubebuilder:validation:MinProperties=1
 type ProposedAction struct {
 	// type is the action category (e.g., "patch", "scale", "restart",
 	// "create", "delete", "rollout"). Free-form string to allow agents
@@ -114,6 +116,7 @@ const (
 // This is part of a RemediationOption and is presented to the user after
 // analysis, before approval. The risk and reversibility assessments help
 // users make informed approval decisions.
+// +kubebuilder:validation:MinProperties=1
 type ProposalResult struct {
 	// description is a Markdown-formatted summary of the overall remediation
 	// approach. Maximum 8192 characters.
@@ -143,8 +146,9 @@ type ProposalResult struct {
 	// unknown; an empty string is treated the same as omitted.
 	// Maximum 1024 characters.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=1024
-	EstimatedImpact *string `json:"estimatedImpact,omitempty"`
+	EstimatedImpact string `json:"estimatedImpact,omitempty"`
 	// rollbackPlan describes how to undo the remediation if execution fails
 	// or causes unexpected issues. Only the execution step mutates cluster
 	// state, so rollback lives here alongside the actions it would undo.
@@ -155,6 +159,7 @@ type ProposalResult struct {
 // VerificationStep describes a single verification check that the
 // verification agent should run after execution. Populated by the
 // analysis agent as part of the RemediationOption.
+// +kubebuilder:validation:MinProperties=1
 type VerificationStep struct {
 	// name is a short identifier for this check (e.g., "pod-running").
 	// Must be 1-253 characters.
@@ -185,6 +190,7 @@ type VerificationStep struct {
 
 // RollbackPlan describes how to undo the remediation if execution fails
 // or causes unexpected issues. Populated by the analysis agent.
+// +kubebuilder:validation:MinProperties=1
 type RollbackPlan struct {
 	// description is a Markdown-formatted explanation of the rollback strategy.
 	// Must be 1-4096 characters.
@@ -204,6 +210,7 @@ type RollbackPlan struct {
 // remediation. Populated by the analysis agent as part of a
 // RemediationOption and used by the verification agent (if not skipped)
 // to validate the remediation.
+// +kubebuilder:validation:MinProperties=1
 type VerificationPlan struct {
 	// description is a Markdown-formatted summary of the verification approach.
 	// Maximum 4096 characters.
@@ -215,6 +222,7 @@ type VerificationPlan struct {
 	// Maximum 20 items.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	Steps []VerificationStep `json:"steps,omitempty"`
 }
@@ -224,39 +232,53 @@ type VerificationPlan struct {
 // these requests against a 6-layer defense model before creating the
 // actual Role/ClusterRole bindings. Each rule must include a justification
 // so that users and policy can audit why the permission is needed.
+// +kubebuilder:validation:MinProperties=1
 type RBACRule struct {
 	// namespace is the target namespace for namespace-scoped rules.
 	// Must match one of the proposal's targetNamespaces. Ignored for
 	// cluster-scoped rules. Validation is deferred to the operator's
 	// policy engine at runtime. Must be a valid RFC 1123 DNS label.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Label().validate(self).hasValue()",message="must be a valid DNS label: lowercase alphanumeric characters and hyphens, starting with an alphabetic character and ending with an alphanumeric character"
-	Namespace *string `json:"namespace,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
 	// apiGroups are the API groups for this rule (e.g., "", "apps", "batch").
 	// Maximum 20 items.
 	// +required
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=253
 	APIGroups []string `json:"apiGroups,omitempty"`
 	// resources are the resource types (e.g., "pods", "deployments").
 	// Maximum 20 items.
 	// +required
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=253
 	Resources []string `json:"resources,omitempty"`
 	// resourceNames restricts the rule to specific named resources.
 	// When empty, the rule applies to all resources of the given type.
 	// Maximum 50 items.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=253
 	ResourceNames []string `json:"resourceNames,omitempty"`
 	// verbs are the allowed operations (e.g., "get", "patch", "delete").
 	// Maximum 10 items.
 	// +required
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=63
 	Verbs []string `json:"verbs,omitempty"`
 	// justification is a Markdown-formatted explanation of why this
 	// permission is needed for the remediation
@@ -273,12 +295,14 @@ type RBACRule struct {
 // per proposal and binds these permissions via Role (namespace-scoped) or
 // ClusterRole (cluster-scoped) before launching the execution sandbox.
 // All RBAC resources are cleaned up after the proposal reaches a terminal state.
+// +kubebuilder:validation:MinProperties=1
 type RBACResult struct {
 	// namespaceScoped are rules that will be applied via Role + RoleBinding
 	// in the proposal's target namespaces. These are the most common rules.
 	// Maximum 50 items.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	NamespaceScoped []RBACRule `json:"namespaceScoped,omitempty"`
 	// clusterScoped are rules that will be applied via ClusterRole +
@@ -287,6 +311,7 @@ type RBACResult struct {
 	// Maximum 50 items.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	ClusterScoped []RBACRule `json:"clusterScoped,omitempty"`
 }
@@ -302,6 +327,7 @@ type RBACResult struct {
 // data. For example, an ACS adapter might include violation details or
 // affected deployment information as components that the console plugin
 // renders with custom components.
+// +kubebuilder:validation:MinProperties=1
 type RemediationOption struct {
 	// title is a short Markdown-formatted name for this option
 	// (e.g., "Increase memory limit", "Restart with backoff").
@@ -313,8 +339,9 @@ type RemediationOption struct {
 	// summary is an optional Markdown-formatted one-line summary for
 	// collapsed views in the console UI. Maximum 1024 characters.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=1024
-	Summary *string `json:"summary,omitempty"`
+	Summary string `json:"summary,omitempty"`
 	// diagnosis contains the root cause analysis specific to this option.
 	// +required
 	Diagnosis DiagnosisResult `json:"diagnosis,omitzero"`
@@ -324,12 +351,12 @@ type RemediationOption struct {
 	// verification contains the verification plan. Omitted when
 	// verification is skipped in the workflow.
 	// +optional
-	Verification *VerificationPlan `json:"verification,omitempty"`
+	Verification VerificationPlan `json:"verification,omitzero"`
 	// rbac contains the RBAC permissions the execution agent will need.
 	// The operator's policy engine validates these before creating the
 	// actual Kubernetes RBAC resources. Omitted for advisory-only options.
 	// +optional
-	RBAC *RBACResult `json:"rbac,omitempty"`
+	RBAC RBACResult `json:"rbac,omitzero"`
 	// components contains optional adapter-defined structured data for
 	// custom console UI rendering. Each entry is a raw JSON object.
 	// Maximum 20 items.

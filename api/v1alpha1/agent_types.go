@@ -61,7 +61,7 @@ type MCPHeaderValueSource struct {
 	// secret references a Secret containing the header value.
 	// Required when type is "Secret".
 	// +optional
-	Secret *SecretReference `json:"secret,omitempty"`
+	Secret SecretReference `json:"secret,omitzero"`
 }
 
 // MCPHeader defines an HTTP header to send with every request to an
@@ -127,7 +127,7 @@ type MCPServerConfig struct {
 	// +default=5
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=300
-	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
+	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`
 
 	// headers to send to the MCP server. Maximum 20 items.
 	// +optional
@@ -198,22 +198,9 @@ type SkillsSource struct {
 	// +kubebuilder:validation:XValidation:rule="self.all(p, !p.contains('//'))",message="paths must not contain double slashes"
 	// +kubebuilder:validation:XValidation:rule="self.all(p, !p.contains('/../') && !p.endsWith('/..') && !p.contains('/./') && !p.endsWith('/.'))",message="paths must not contain '.' or '..' segments"
 	// +kubebuilder:validation:XValidation:rule="self.all(p, p.matches('^[a-zA-Z0-9/_.-]+$'))",message="paths may only contain alphanumeric characters, '/', '_', '.', and '-'"
+	// +kubebuilder:validation:items:MinLength=2
+	// +kubebuilder:validation:items:MaxLength=512
 	Paths []string `json:"paths,omitempty"`
-}
-
-// ContentReference points to content served by the platform's aggregated
-// content API. The storage backend (etcd, object storage, PVC) is
-// configured by the cluster admin independently. API consumers reference
-// content by name without knowledge of where it is physically stored.
-// The operator resolves these references at reconcile time via the
-// aggregated API server.
-type ContentReference struct {
-	// name of the content resource.
-	// Must be 1-253 characters.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name,omitempty"`
 }
 
 // AgentSpec defines the desired state of Agent.
@@ -244,14 +231,14 @@ type AgentSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' ? self.find('(@.*:)').matches('(@[A-Za-z][A-Za-z0-9]*([_+.][A-Za-z][A-Za-z0-9]*)*[:])') : true",message="digest algorithm is not valid. valid algorithms must start with an alpha character followed by alphanumeric characters and may contain '-', '_', '+', and '.' characters."
 	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' ? self.find(':.*$').substring(1).size() >= 32 : true",message="digest must be at least 32 characters"
 	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' ? self.find(':.*$').matches(':[0-9A-Fa-f]*$') : true",message="digest must only contain hex characters (A-F, a-f, 0-9)"
-	Image *string `json:"image,omitempty"`
+	Image string `json:"image,omitempty"`
 
 	// llmProvider references an LLMProvider CR that supplies the
 	// LLM backend for this agent. The operator resolves this reference at
 	// reconcile time and configures the sandbox pod with the provider's
 	// credentials and model.
 	// +required
-	LLMProvider LLMProviderReference `json:"llmProvider,omitempty"`
+	LLMProvider LLMProviderReference `json:"llmProvider,omitzero"`
 
 	// skills defines one or more OCI images containing skills to mount
 	// in the agent's sandbox pod. Each entry specifies an image and optionally
@@ -281,6 +268,7 @@ type AgentSpec struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	MCPServers []MCPServerConfig `json:"mcpServers,omitempty"`
 
@@ -289,8 +277,9 @@ type AgentSpec struct {
 	// When omitted, the agent uses a default prompt appropriate for
 	// its workflow step. Maximum 32768 characters.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
-	SystemPrompt *string `json:"systemPrompt,omitempty"`
+	SystemPrompt string `json:"systemPrompt,omitempty"`
 
 	// outputSchema is a JSON Schema object that defines additional structured
 	// output fields beyond the base schema that every agent produces (diagnosis,
@@ -397,7 +386,8 @@ type Agent struct {
 
 	// status defines the observed state of Agent.
 	// +optional
-	Status *AgentStatus `json:"status,omitempty"`
+	// +kubebuilder:validation:MinProperties=1
+	Status AgentStatus `json:"status,omitzero"`
 }
 
 const (
@@ -418,6 +408,8 @@ type AgentStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 

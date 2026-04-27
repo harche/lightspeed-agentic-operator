@@ -282,8 +282,8 @@ func TestEnsureExecutionRBAC_NamespacesFromRBACRules(t *testing.T) {
 	}
 	rbacResult := &agenticv1alpha1.RBACResult{
 		NamespaceScoped: []agenticv1alpha1.RBACRule{
-			{Namespace: &ns1, APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get"}, Justification: "Read pods"},
-			{Namespace: &ns2, APIGroups: []string{""}, Resources: []string{"services"}, Verbs: []string{"get"}, Justification: "Read services"},
+			{Namespace: ns1, APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get"}, Justification: "Read pods"},
+			{Namespace: ns2, APIGroups: []string{""}, Resources: []string{"services"}, Verbs: []string{"get"}, Justification: "Read services"},
 		},
 	}
 
@@ -513,7 +513,7 @@ func TestRBACTargetNamespaces(t *testing.T) {
 			Spec: agenticv1alpha1.ProposalSpec{TargetNamespaces: []string{"prod", "staging"}},
 		}
 		got := rbacTargetNamespaces(proposal, &agenticv1alpha1.RBACResult{
-			NamespaceScoped: []agenticv1alpha1.RBACRule{{Namespace: &ns1}},
+			NamespaceScoped: []agenticv1alpha1.RBACRule{{Namespace: ns1}},
 		})
 		if len(got) != 2 || got[0] != "prod" || got[1] != "staging" {
 			t.Fatalf("spec namespaces should take precedence: %v", got)
@@ -524,8 +524,8 @@ func TestRBACTargetNamespaces(t *testing.T) {
 		proposal := &agenticv1alpha1.Proposal{}
 		got := rbacTargetNamespaces(proposal, &agenticv1alpha1.RBACResult{
 			NamespaceScoped: []agenticv1alpha1.RBACRule{
-				{Namespace: &ns1},
-				{Namespace: &ns2},
+				{Namespace: ns1},
+				{Namespace: ns2},
 			},
 		})
 		if len(got) != 2 || got[0] != ns1 || got[1] != ns2 {
@@ -537,9 +537,9 @@ func TestRBACTargetNamespaces(t *testing.T) {
 		proposal := &agenticv1alpha1.Proposal{}
 		got := rbacTargetNamespaces(proposal, &agenticv1alpha1.RBACResult{
 			NamespaceScoped: []agenticv1alpha1.RBACRule{
-				{Namespace: &ns1},
-				{Namespace: &ns1},
-				{Namespace: &ns2},
+				{Namespace: ns1},
+				{Namespace: ns1},
+				{Namespace: ns2},
 			},
 		})
 		if len(got) != 2 {
@@ -572,7 +572,7 @@ func TestRBACTargetNamespaces(t *testing.T) {
 		proposal := &agenticv1alpha1.Proposal{}
 		got := rbacTargetNamespaces(proposal, &agenticv1alpha1.RBACResult{
 			NamespaceScoped: []agenticv1alpha1.RBACRule{
-				{Namespace: &empty},
+				{Namespace: empty},
 			},
 		})
 		if len(got) != 0 {
@@ -701,13 +701,6 @@ func TestRoleNameGenerators(t *testing.T) {
 		got := clusterRoleName("fix-oom")
 		if got != "ls-exec-cluster-fix-oom" {
 			t.Fatalf("expected ls-exec-cluster-fix-oom, got %s", got)
-		}
-	})
-
-	t.Run("contentReadRoleName", func(t *testing.T) {
-		got := contentReadRoleName("fix-oom")
-		if got != "ls-content-read-fix-oom" {
-			t.Fatalf("expected ls-content-read-fix-oom, got %s", got)
 		}
 	})
 

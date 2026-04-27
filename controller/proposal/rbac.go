@@ -152,9 +152,9 @@ func rbacTargetNamespaces(proposal *agenticv1alpha1.Proposal, rbacResult *agenti
 	seen := make(map[string]bool)
 	var nsList []string
 	for _, rule := range rbacResult.NamespaceScoped {
-		if rule.Namespace != nil && *rule.Namespace != "" && !seen[*rule.Namespace] {
-			nsList = append(nsList, *rule.Namespace)
-			seen[*rule.Namespace] = true
+		if rule.Namespace != "" && !seen[rule.Namespace] {
+			nsList = append(nsList, rule.Namespace)
+			seen[rule.Namespace] = true
 		}
 	}
 	return nsList
@@ -180,64 +180,6 @@ func rbacLabels(proposalName, component string) map[string]string {
 		labelProposal:  proposalName,
 		labelComponent: component,
 	}
-}
-
-// ensureContentReadRBAC creates a Role + RoleBinding granting the sandbox SA
-// read-only access to content API resources (AnalysisResult, RequestContent).
-// This allows the agent to pull previous analysis results and revision feedback
-// via "oc get" during revision rounds.
-func ensureContentReadRBAC(
-	ctx context.Context,
-	c client.Client,
-	proposal *agenticv1alpha1.Proposal,
-	sandboxSA string,
-	operatorNS string,
-) error {
-	roleName := contentReadRoleName(proposal.Name)
-	labels := rbacLabels(proposal.Name, "content-read-rbac")
-
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: operatorNS, Labels: labels},
-		Rules: []rbacv1.PolicyRule{{
-			APIGroups: []string{"agentic.openshift.io"},
-			Resources: []string{"analysisresults", "requestcontents"},
-			Verbs:     []string{"get", "list"},
-		}},
-	}
-	if err := c.Create(ctx, role); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create content-read Role: %w", err)
-	}
-
-	binding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: operatorNS, Labels: labels},
-		RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: roleName},
-		Subjects: []rbacv1.Subject{{
-			Kind:      rbacv1.ServiceAccountKind,
-			Name:      sandboxSA,
-			Namespace: operatorNS,
-		}},
-	}
-	if err := c.Create(ctx, binding); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create content-read RoleBinding: %w", err)
-	}
-
-	return nil
-}
-
-func cleanupContentReadRBAC(ctx context.Context, c client.Client, proposal *agenticv1alpha1.Proposal) error {
-	roleName := contentReadRoleName(proposal.Name)
-	ns := proposal.Namespace
-	if err := deleteIfExists(ctx, c, &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: ns}}); err != nil {
-		return fmt.Errorf("delete content-read RoleBinding: %w", err)
-	}
-	if err := deleteIfExists(ctx, c, &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: ns}}); err != nil {
-		return fmt.Errorf("delete content-read Role: %w", err)
-	}
-	return nil
-}
-
-func contentReadRoleName(proposalName string) string {
-	return truncateK8sName("ls-content-read-" + proposalName)
 }
 
 func rbacRulesToPolicyRules(rules []agenticv1alpha1.RBACRule) []rbacv1.PolicyRule {

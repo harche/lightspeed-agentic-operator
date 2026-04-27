@@ -11,8 +11,43 @@ linters:
         type: module
         description: Kube API Linter lints Kube like APIs based on API conventions and best practices.
         settings:
-          linters: {}
-          lintersConfig: {}
+          linters:
+            enable:
+              - maxlength
+              - minlength
+              - statussubresource
+              - nobools
+              - preferredmarkers
+            disable:
+              - statusoptional
+              - nonpointerstructs
+          lintersConfig:
+            conditions:
+              isFirstField: Warn
+              usePatchStrategy: Ignore
+              useProtobuf: Ignore
+            optionalFields:
+              pointers:
+                preference: WhenRequired
+                policy: SuggestFix
+              omitEmpty:
+                policy: SuggestFix
+              omitzero:
+                policy: SuggestFix
+            requiredfields:
+              pointers:
+                policy: SuggestFix
+              omitempty:
+                policy: SuggestFix
+              omitzero:
+                policy: SuggestFix
+            preferredmarkers:
+              markers:
+                - preferredIdentifier: "kubebuilder:validation:XValidation"
+                  equivalentIdentifiers:
+                    - identifier: "kubebuilder:validation:Pattern"
+            noreferences:
+              policy: NoReferences
 
   exclusions:
     rules:

@@ -110,13 +110,13 @@ const (
 type WorkflowOverride struct {
 	// analysis overrides the agent for the analysis step.
 	// +optional
-	Analysis *AgentReference `json:"analysis,omitempty"`
+	Analysis AgentReference `json:"analysis,omitzero"`
 	// execution overrides the agent for the execution step.
 	// +optional
-	Execution *AgentReference `json:"execution,omitempty"`
+	Execution AgentReference `json:"execution,omitzero"`
 	// verification overrides the agent for the verification step.
 	// +optional
-	Verification *AgentReference `json:"verification,omitempty"`
+	Verification AgentReference `json:"verification,omitzero"`
 }
 
 // PreviousAttempt captures the state of a failed attempt. When a proposal
@@ -131,33 +131,35 @@ type PreviousAttempt struct {
 	Attempt int32 `json:"attempt,omitempty"`
 	// failedStep is which workflow step failed (analysis, execution, or verification).
 	// +optional
-	FailedStep *SandboxStep `json:"failedStep,omitempty"`
+	FailedStep SandboxStep `json:"failedStep,omitempty"`
 	// failureReason is the error message or explanation from the failed step.
 	// Omit when no failure has occurred; an empty string is treated the same
 	// as omitted (no failure). Maximum 8192 characters.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=8192
-	FailureReason *string `json:"failureReason,omitempty"`
+	FailureReason string `json:"failureReason,omitempty"`
 }
 
 // ProposalSpec defines the desired state of Proposal. This is the user-facing
 // (or adapter-facing) configuration -- everything the operator needs to start
 // processing the proposal.
 type ProposalSpec struct {
-	// request references a content resource containing the user's original
-	// request, alert description, or a description of what triggered this
-	// proposal. The content is served by the aggregated content API and
-	// passed to the analysis agent as the primary input. For adapter-created
-	// proposals, the adapter creates the content resource with the alert
-	// summary and relevant details, then references it here.
+	// request is the user's original request, alert description, or a
+	// description of what triggered this proposal. This text is passed to
+	// the analysis agent as the primary input. For adapter-created proposals,
+	// the adapter sets this to the alert summary and relevant details.
+	// Maximum 32768 characters.
 	// +required
-	Request ContentReference `json:"request,omitzero"`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=32768
+	Request string `json:"request,omitempty"`
 
 	// workflow references a Workflow CR that defines
 	// which agents handle each step (analysis, execution, verification)
 	// and which steps are skipped. This is the primary routing mechanism.
 	// +required
-	Workflow WorkflowReference `json:"workflow,omitempty"`
+	Workflow WorkflowReference `json:"workflow,omitzero"`
 
 	// targetNamespaces are the Kubernetes namespace(s) this proposal
 	// operates on. The operator uses these to scope RBAC (creating Roles
@@ -170,6 +172,8 @@ type ProposalSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="self.all(ns, !format.dns1123Label().validate(ns).hasValue())",message="each namespace must be a valid DNS label: lowercase alphanumeric characters and hyphens, starting with an alphabetic character and ending with an alphanumeric character"
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=63
 	TargetNamespaces []string `json:"targetNamespaces,omitempty"`
 
 	// workflowOverride allows per-proposal overrides of the referenced
@@ -177,7 +181,8 @@ type ProposalSpec struct {
 	// customizations like skipping execution on a normally full-lifecycle
 	// workflow, or swapping in a specialized agent.
 	// +optional
-	WorkflowOverride *WorkflowOverride `json:"workflowOverride,omitempty"`
+	// +kubebuilder:validation:MinProperties=1
+	WorkflowOverride WorkflowOverride `json:"workflowOverride,omitzero"`
 
 	// parent references the parent proposal in an escalation chain.
 	// Set automatically by the operator when creating a child proposal
@@ -185,7 +190,7 @@ type ProposalSpec struct {
 	// full failure history from its parent. The child is also owned by
 	// the parent via Kubernetes owner references for garbage collection.
 	// +optional
-	Parent *ProposalReference `json:"parent,omitempty"`
+	Parent ProposalReference `json:"parent,omitzero"`
 
 	// maxAttempts overrides the global retry limit for this proposal.
 	// When a step fails, the operator resets the proposal to Pending
@@ -200,8 +205,6 @@ type ProposalSpec struct {
 	// revision is incremented by the user (or console UI) each time they
 	// submit revision feedback for the analysis. The operator compares this
 	// to status.steps.analysis.observedRevision to detect new revisions.
-	// The revision feedback content is stored as a RequestContent resource
-	// with a conventional name: {proposal.name}-revision-{revision}.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Revision *int32 `json:"revision,omitempty"`
@@ -220,6 +223,8 @@ type ProposalStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 
 	// phase summarizes the proposal's lifecycle state for display purposes.
@@ -239,7 +244,8 @@ type ProposalStatus struct {
 	// verification). Each step independently tracks its timing, sandbox
 	// info, and results.
 	// +optional
-	Steps *StepsStatus `json:"steps,omitempty"`
+	// +kubebuilder:validation:MinProperties=1
+	Steps StepsStatus `json:"steps,omitzero"`
 
 	// previousAttempts contains the failure history from earlier attempts.
 	// Each entry records which step failed and why, giving the analysis
@@ -281,8 +287,7 @@ type ProposalStatus struct {
 //	metadata:
 //	  name: fix-crashloop
 //	spec:
-//	  request:
-//	    name: fix-crashloop-request
+//	  request: "Pod web-frontend in namespace production is CrashLoopBackOff"
 //	  workflow:
 //	    name: remediation
 //	  targetNamespaces:
@@ -295,8 +300,7 @@ type ProposalStatus struct {
 //	metadata:
 //	  name: acs-fix
 //	spec:
-//	  request:
-//	    name: acs-fix-request
+//	  request: "ACS violation: nginx:1.21 has known CVEs"
 //	  workflow:
 //	    name: remediation
 //	  targetNamespaces:
@@ -312,8 +316,7 @@ type ProposalStatus struct {
 //	metadata:
 //	  name: upgrade-4-22
 //	spec:
-//	  request:
-//	    name: upgrade-4-22-request
+//	  request: "Upgrade cluster from 4.21 to 4.22"
 //	  workflow:
 //	    name: upgrade
 //	  maxAttempts: 2
@@ -330,7 +333,8 @@ type Proposal struct {
 
 	// status defines the observed state of Proposal.
 	// +optional
-	Status *ProposalStatus `json:"status,omitempty"`
+	// +kubebuilder:validation:MinProperties=1
+	Status ProposalStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true

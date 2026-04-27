@@ -33,24 +33,24 @@ func resolveWorkflow(ctx context.Context, c client.Client, proposal *agenticv1al
 
 	// Determine effective agent names, applying per-proposal overrides.
 	analysisAgentName := wf.Spec.Analysis.Name
-	if o := proposal.Spec.WorkflowOverride; o != nil && o.Analysis != nil {
-		analysisAgentName = o.Analysis.Name
+	if proposal.Spec.WorkflowOverride.Analysis.Name != "" {
+		analysisAgentName = proposal.Spec.WorkflowOverride.Analysis.Name
 	}
 
 	var executionAgentName string
-	if wf.Spec.Execution != nil {
+	if wf.Spec.Execution.Name != "" {
 		executionAgentName = wf.Spec.Execution.Name
 	}
-	if o := proposal.Spec.WorkflowOverride; o != nil && o.Execution != nil {
-		executionAgentName = o.Execution.Name
+	if proposal.Spec.WorkflowOverride.Execution.Name != "" {
+		executionAgentName = proposal.Spec.WorkflowOverride.Execution.Name
 	}
 
 	var verificationAgentName string
-	if wf.Spec.Verification != nil {
+	if wf.Spec.Verification.Name != "" {
 		verificationAgentName = wf.Spec.Verification.Name
 	}
-	if o := proposal.Spec.WorkflowOverride; o != nil && o.Verification != nil {
-		verificationAgentName = o.Verification.Name
+	if proposal.Spec.WorkflowOverride.Verification.Name != "" {
+		verificationAgentName = proposal.Spec.WorkflowOverride.Verification.Name
 	}
 
 	resolved := &resolvedWorkflow{}

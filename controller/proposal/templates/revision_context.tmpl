@@ -1,15 +1,7 @@
-This is revision {{.Revision}} of the analysis for proposal "{{.ProposalName}}".
-{{- if .PreviousResultName}}
+This is revision {{.Revision}} of the analysis for proposal "{{.ProposalName}}" in namespace "{{.Namespace}}".
 
-Your previous analysis is stored as an AnalysisResult resource.
-Fetch it to see what you previously proposed:
-  oc get analysisresult {{.PreviousResultName}} -n {{.Namespace}} -o yaml
-{{- end}}
-
-The user's revision feedback is stored as a RequestContent resource.
-Fetch it to understand what changes the user wants:
-  oc get requestcontent {{.RevisionRequestName}} -n {{.Namespace}} -o yaml
-
-After reviewing both, produce updated remediation options that address the user's feedback.
+The previous analysis options and the user's revision feedback are available in the proposal's
+status. Review the current options and the user's feedback, then produce updated remediation
+options that address the user's request.
 If you disagree with the user's suggestion, return multiple options: one following their request
 and one with your recommendation, with clear explanations and appropriate risk/confidence levels.
