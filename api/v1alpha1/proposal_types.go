@@ -165,6 +165,7 @@ type ProposalSpec struct {
 	// cluster level only. Maximum 50 items.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	TargetNamespaces []string `json:"targetNamespaces,omitempty"`
 
@@ -225,12 +226,6 @@ type ProposalStatus struct {
 	// +optional
 	Phase ProposalPhase `json:"phase,omitempty"` //nolint:kubeapilinter // Phase is derived from conditions for display (oc get, console).
 
-	// observedGeneration is the most recent generation observed by the
-	// operator. It corresponds to the Proposal's generation, which is
-	// updated on mutation by the API Server.
-	// +optional
-	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
-
 	// attempt is the current attempt number (1-based). Incremented each
 	// time the proposal is retried after a failure. Starts at 1 for the
 	// first attempt.
@@ -249,6 +244,7 @@ type ProposalStatus struct {
 	// Maximum 20 items.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	PreviousAttempts []PreviousAttempt `json:"previousAttempts,omitempty"`
 }

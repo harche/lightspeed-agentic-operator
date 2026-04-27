@@ -126,6 +126,7 @@ type MCPServerConfig struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	Headers []MCPHeader `json:"headers,omitempty"`
 }
@@ -168,6 +169,7 @@ type SkillsSource struct {
 	// Maximum 50 items.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	Paths []string `json:"paths,omitempty"`
 }
@@ -381,12 +383,6 @@ type AgentStatus struct {
 	// +patchMergeKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-
-	// observedGeneration is the most recent generation observed by the
-	// operator. It corresponds to the Agent's generation, which is
-	// updated on mutation by the API Server.
-	// +optional
-	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true

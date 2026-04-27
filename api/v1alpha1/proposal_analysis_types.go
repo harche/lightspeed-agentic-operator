@@ -20,6 +20,41 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
+// ConfidenceLevel is the agent's self-assessed confidence in its diagnosis.
+// Higher confidence generally correlates with clearer symptoms and
+// more deterministic root causes.
+//
+//   - "Low"    — Uncertain diagnosis; symptoms are ambiguous or incomplete.
+//   - "Medium" — Reasonable diagnosis; symptoms point to a likely cause.
+//   - "High"   — Strong diagnosis; clear symptoms with deterministic root cause.
+//
+// +kubebuilder:validation:Enum=Low;Medium;High
+type ConfidenceLevel string
+
+const (
+	ConfidenceLevelLow    ConfidenceLevel = "Low"
+	ConfidenceLevelMedium ConfidenceLevel = "Medium"
+	ConfidenceLevelHigh   ConfidenceLevel = "High"
+)
+
+// RiskLevel is the agent's assessment of how risky a remediation is.
+// Critical-risk proposals typically require explicit human review.
+//
+//   - "Low"      — Minimal risk; safe to apply automatically.
+//   - "Medium"   — Moderate risk; review recommended.
+//   - "High"     — Significant risk; careful review required.
+//   - "Critical" — Extreme risk; manual approval strongly recommended.
+//
+// +kubebuilder:validation:Enum=Low;Medium;High;Critical
+type RiskLevel string
+
+const (
+	RiskLevelLow      RiskLevel = "Low"
+	RiskLevelMedium   RiskLevel = "Medium"
+	RiskLevelHigh     RiskLevel = "High"
+	RiskLevelCritical RiskLevel = "Critical"
+)
+
 // DiagnosisResult contains the root cause analysis from the analysis agent.
 // This is populated by the agent during the analysis step and stored in
 // the AnalysisStepStatus as part of a RemediationOption. Users see this
@@ -33,10 +68,9 @@ type DiagnosisResult struct {
 	Summary string `json:"summary,omitempty"`
 	// confidence is the agent's self-assessed confidence in its diagnosis.
 	// Higher confidence generally correlates with clearer symptoms and
-	// more deterministic root causes. Must be one of: Low, Medium, High.
+	// more deterministic root causes.
 	// +required
-	// +kubebuilder:validation:Enum=Low;Medium;High
-	Confidence string `json:"confidence,omitempty"`
+	Confidence ConfidenceLevel `json:"confidence,omitempty"`
 	// rootCause is a concise Markdown-formatted description of the identified
 	// root cause (e.g., "OOMKilled due to memory limit of 256Mi").
 	// Maximum 1024 characters.
@@ -91,14 +125,13 @@ type ProposalResult struct {
 	// Maximum 50 items.
 	// +required
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	Actions []ProposedAction `json:"actions,omitempty"`
 	// risk is the agent's assessment of how risky the remediation is.
 	// Critical-risk proposals typically require explicit human review.
-	// Must be one of: Low, Medium, High, Critical.
 	// +required
-	// +kubebuilder:validation:Enum=Low;Medium;High;Critical
-	Risk string `json:"risk,omitempty"`
+	Risk RiskLevel `json:"risk,omitempty"`
 	// reversible indicates whether the remediation can be rolled back
 	// if something goes wrong. See rollbackPlan for details.
 	// Must be one of: Reversible, Irreversible, Partial.
@@ -114,7 +147,7 @@ type ProposalResult struct {
 	// or causes unexpected issues. Only the execution step mutates cluster
 	// state, so rollback lives here alongside the actions it would undo.
 	// +optional
-	RollbackPlan *RollbackPlan `json:"rollbackPlan,omitempty"`
+	RollbackPlan RollbackPlan `json:"rollbackPlan,omitzero"`
 }
 
 // VerificationStep describes a single verification check that the
@@ -299,6 +332,7 @@ type RemediationOption struct {
 	// Maximum 20 items.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 }

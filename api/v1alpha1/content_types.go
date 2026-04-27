@@ -146,6 +146,8 @@ type AnalysisResultSpec struct {
 	// apply to the analysis step as a whole (not to a specific option).
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
 	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 }
 
@@ -191,6 +193,8 @@ type ExecutionResultSpec struct {
 	// components contains optional adapter-defined structured data.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
 	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 }
 
@@ -235,6 +239,8 @@ type VerificationResultSpec struct {
 	// components contains optional adapter-defined structured data.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=20
 	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 }
 
