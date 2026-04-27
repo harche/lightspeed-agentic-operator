@@ -165,12 +165,22 @@ type SkillsSource struct {
 	// skills directory. The last segment of each path becomes the mount name
 	// (e.g., "/skills/prometheus" mounts as "prometheus").
 	//
+	// Each path must be an absolute file path: starts with "/", no ".."
+	// or "." segments, no double slashes, no trailing slash, and only
+	// alphanumeric characters, hyphens, underscores, dots, and slashes.
+	//
 	// When omitted, the entire image is mounted as a single volume.
 	// Maximum 50 items.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
+	// +kubebuilder:validation:XValidation:rule="self.all(p, p.size() >= 2 && p.size() <= 512)",message="each path must be 2-512 characters"
+	// +kubebuilder:validation:XValidation:rule="self.all(p, p.startsWith('/'))",message="each path must be absolute (start with '/')"
+	// +kubebuilder:validation:XValidation:rule="self.all(p, !p.endsWith('/'))",message="paths must not end with '/'"
+	// +kubebuilder:validation:XValidation:rule="self.all(p, !p.contains('//'))",message="paths must not contain double slashes"
+	// +kubebuilder:validation:XValidation:rule="self.all(p, !p.contains('/../') && !p.endsWith('/..') && !p.contains('/./') && !p.endsWith('/.'))",message="paths must not contain '.' or '..' segments"
+	// +kubebuilder:validation:XValidation:rule="self.all(p, p.matches('^[a-zA-Z0-9/_.-]+$'))",message="paths may only contain alphanumeric characters, '/', '_', '.', and '-'"
 	Paths []string `json:"paths,omitempty"`
 }
 
