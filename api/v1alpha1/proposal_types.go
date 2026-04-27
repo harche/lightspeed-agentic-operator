@@ -254,6 +254,7 @@ type ProposalStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Workflow",type=string,JSONPath=`.spec.workflow.name`
 // +kubebuilder:printcolumn:name="Request",type=string,JSONPath=`.spec.request`,priority=1

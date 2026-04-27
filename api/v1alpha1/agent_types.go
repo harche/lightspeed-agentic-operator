@@ -304,6 +304,7 @@ type AgentSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:printcolumn:name="LLM",type=string,JSONPath=`.spec.llmProvider.name`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Skills Image",type=string,JSONPath=`.spec.skills[0].image`,priority=1
