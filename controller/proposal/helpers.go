@@ -13,7 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	agenticv1alpha1 "github.com/harche/lightspeed-agentic-operator/api/v1alpha1"
+	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
 //go:embed templates/*.tmpl

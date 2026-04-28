@@ -1,0 +1,191 @@
+package proposal
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+
+	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
+)
+
+const defaultSandboxTimeout = 5 * time.Minute
+
+type analysisResponse struct {
+	Options    []agenticv1alpha1.RemediationOption `json:"options"`
+	Components []apiextensionsv1.JSON              `json:"components,omitempty"`
+}
+
+type executionResponse struct {
+	ActionsTaken []agenticv1alpha1.ExecutionAction      `json:"actionsTaken"`
+	Verification *agenticv1alpha1.ExecutionVerification `json:"verification,omitempty"`
+	Components   []apiextensionsv1.JSON                 `json:"components,omitempty"`
+}
+
+type verificationResponse struct {
+	Checks     []agenticv1alpha1.VerifyCheck `json:"checks"`
+	Summary    string                        `json:"summary"`
+	Components []apiextensionsv1.JSON        `json:"components,omitempty"`
+}
+
+// SandboxAgentCaller implements AgentCaller by claiming a sandbox pod,
+// calling the agent HTTP service, and releasing the sandbox on completion.
+type SandboxAgentCaller struct {
+	Sandbox       SandboxProvider
+	ClientFactory func(endpoint string) AgentHTTPClientInterface
+	Namespace     string
+	TemplateName  string
+	Timeout       time.Duration
+}
+
+func NewSandboxAgentCaller(
+	sandbox SandboxProvider,
+	clientFactory func(endpoint string) AgentHTTPClientInterface,
+	namespace, templateName string,
+) *SandboxAgentCaller {
+	return &SandboxAgentCaller{
+		Sandbox:       sandbox,
+		ClientFactory: clientFactory,
+		Namespace:     namespace,
+		TemplateName:  templateName,
+		Timeout:       defaultSandboxTimeout,
+	}
+}
+
+func phaseString(step agenticv1alpha1.SandboxStep) string {
+	return strings.ToLower(string(step))
+}
+
+func (s *SandboxAgentCaller) Analyze(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*AnalysisOutput, error) {
+	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepAnalysis), step, requestText, nil, buildAgentContext(proposal))
+	if err != nil {
+		return nil, fmt.Errorf("analysis agent call: %w", err)
+	}
+
+	var resp analysisResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("parse analysis response: %w", err)
+	}
+
+	return &AnalysisOutput{
+		Options:    resp.Options,
+		Components: resp.Components,
+	}, nil
+}
+
+func (s *SandboxAgentCaller) Execute(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption) (*ExecutionOutput, error) {
+	agentCtx := buildAgentContext(proposal)
+	if option != nil {
+		agentCtx.ApprovedOption = option
+	}
+
+	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepExecution), step, proposal.Spec.Request, nil, agentCtx)
+	if err != nil {
+		return nil, fmt.Errorf("execution agent call: %w", err)
+	}
+
+	var resp executionResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("parse execution response: %w", err)
+	}
+
+	out := &ExecutionOutput{
+		ActionsTaken: resp.ActionsTaken,
+		Components:   resp.Components,
+	}
+	if resp.Verification != nil {
+		out.Verification = *resp.Verification
+	}
+	return out, nil
+}
+
+func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption, exec *ExecutionOutput) (*VerificationOutput, error) {
+	agentCtx := buildAgentContext(proposal)
+	if option != nil {
+		agentCtx.ApprovedOption = option
+	}
+
+	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepVerification), step, proposal.Spec.Request, nil, agentCtx)
+	if err != nil {
+		return nil, fmt.Errorf("verification agent call: %w", err)
+	}
+
+	var resp verificationResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("parse verification response: %w", err)
+	}
+
+	return &VerificationOutput{
+		Checks:     resp.Checks,
+		Summary:    resp.Summary,
+		Components: resp.Components,
+	}, nil
+}
+
+func (s *SandboxAgentCaller) callWithSandbox(
+	ctx context.Context,
+	proposalName, phase string,
+	step resolvedStep,
+	query string,
+	outputSchema json.RawMessage,
+	agentCtx *agentContext,
+) (json.RawMessage, error) {
+	claimName, err := s.Sandbox.Claim(ctx, proposalName, phase, s.TemplateName)
+	if err != nil {
+		return nil, fmt.Errorf("claim sandbox: %w", err)
+	}
+	defer func() { _ = s.Sandbox.Release(ctx, claimName) }()
+
+	timeout := s.Timeout
+	if timeout == 0 {
+		timeout = defaultSandboxTimeout
+	}
+
+	endpoint, err := s.Sandbox.WaitReady(ctx, claimName, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("wait for sandbox: %w", err)
+	}
+
+	agentURL := endpoint
+	if !strings.HasPrefix(endpoint, "http") {
+		agentURL = fmt.Sprintf("https://%s:8080", endpoint)
+	}
+
+	var systemPrompt string
+	if step.ComponentTools != nil {
+		systemPrompt = step.ComponentTools.Spec.SystemPrompt
+	}
+
+	client := s.ClientFactory(agentURL)
+	resp, err := client.Query(ctx, phase, systemPrompt, query, outputSchema, agentCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Response, nil
+}
+
+func buildAgentContext(proposal *agenticv1alpha1.Proposal) *agentContext {
+	ctx := &agentContext{
+		TargetNamespaces: proposal.Spec.TargetNamespaces,
+	}
+
+	if proposal.Status.Attempt != nil {
+		ctx.Attempt = *proposal.Status.Attempt
+	}
+
+	if n := len(proposal.Status.PreviousAttempts); n > 0 {
+		ctx.PreviousAttempts = make([]agentPreviousAttempt, 0, n)
+	}
+	for _, pa := range proposal.Status.PreviousAttempts {
+		ctx.PreviousAttempts = append(ctx.PreviousAttempts, agentPreviousAttempt{
+			Attempt:       pa.Attempt,
+			FailureReason: pa.FailureReason,
+		})
+	}
+
+	return ctx
+}

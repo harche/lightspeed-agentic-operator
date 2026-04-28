@@ -5,7 +5,7 @@ import (
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
-	agenticv1alpha1 "github.com/harche/lightspeed-agentic-operator/api/v1alpha1"
+	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
 // AnalysisOutput holds the analysis agent's output.

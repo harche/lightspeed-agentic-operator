@@ -2,6 +2,7 @@ package proposal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	agenticv1alpha1 "github.com/harche/lightspeed-agentic-operator/api/v1alpha1"
+	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
 func reviseProposal(t *testing.T, fc client.WithWatch, name string, revision int32) {
@@ -803,5 +804,129 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 	var bindingCheck rbacv1.RoleBinding
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: roleName, Namespace: "production"}, &bindingCheck); err == nil {
 		t.Fatal("RoleBinding should be cleaned up after failure")
+	}
+}
+
+// TestFullLifecycle_WithSandboxAgent exercises the full Pending → Completed
+// lifecycle using SandboxAgentCaller with mocked sandbox and HTTP, proving
+// the real agent caller implementation works through the reconciler.
+func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
+	analysisJSON, _ := json.Marshal(analysisResponse{
+		Options: []agenticv1alpha1.RemediationOption{{
+			Title: "Increase memory limit",
+			Diagnosis: agenticv1alpha1.DiagnosisResult{
+				Summary:    "Pod OOMKilled due to 256Mi memory limit",
+				Confidence: "High",
+				RootCause:  "Memory limit too low for workload",
+			},
+			Proposal: agenticv1alpha1.ProposalResult{
+				Description: "Increase deployment memory limit to 512Mi",
+				Actions:     []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "Patch deployment memory limit"}},
+				Risk:        "Low",
+				Reversible:  agenticv1alpha1.ReversibilityReversible,
+			},
+		}},
+	})
+
+	executionJSON, _ := json.Marshal(executionResponse{
+		ActionsTaken: []agenticv1alpha1.ExecutionAction{{
+			Type:        "patch",
+			Description: "Patched deployment/web memory limit to 512Mi",
+			Outcome:     agenticv1alpha1.ActionOutcomeSucceeded,
+		}},
+		Verification: &agenticv1alpha1.ExecutionVerification{
+			ConditionOutcome: agenticv1alpha1.ConditionOutcomeImproved,
+			Summary:          "Pod running with new memory limit",
+		},
+	})
+
+	verificationJSON, _ := json.Marshal(verificationResponse{
+		Checks: []agenticv1alpha1.VerifyCheck{{
+			Name:   "pod-running",
+			Source: "oc",
+			Value:  "Running",
+			Result: agenticv1alpha1.CheckResultPassed,
+		}},
+		Summary: "All verification checks passed",
+	})
+
+	sandboxAgent, sandbox := newMockSandboxAgent(string(analysisJSON), string(executionJSON), string(verificationJSON))
+
+	scheme := testScheme()
+	proposal := testProposal("remediation")
+
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
+
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: sandboxAgent}
+
+	// Reconcile 1: Pending → Proposed (via sandbox analysis)
+	if _, err := reconcileOnce(r, "fix-crash"); err != nil {
+		t.Fatalf("analysis reconcile: %v", err)
+	}
+	p, _ := getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
+	}
+	if len(p.Status.Steps.Analysis.Options) != 1 {
+		t.Fatalf("expected 1 option, got %d", len(p.Status.Steps.Analysis.Options))
+	}
+	if p.Status.Steps.Analysis.Options[0].Title != "Increase memory limit" {
+		t.Errorf("option title = %q", p.Status.Steps.Analysis.Options[0].Title)
+	}
+	if p.Status.Steps.Analysis.Options[0].Diagnosis.Confidence != "High" {
+		t.Errorf("confidence = %q", p.Status.Steps.Analysis.Options[0].Diagnosis.Confidence)
+	}
+
+	// Approve
+	approveProposal(t, fc, "fix-crash")
+
+	// Reconcile 2: Approved → Executing → Verifying (via sandbox execution)
+	result, err := reconcileOnce(r, "fix-crash")
+	if err != nil {
+		t.Fatalf("execution reconcile: %v", err)
+	}
+	if !result.Requeue {
+		t.Error("should requeue to enter verification")
+	}
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
+	}
+	if len(p.Status.Steps.Execution.ActionsTaken) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(p.Status.Steps.Execution.ActionsTaken))
+	}
+	if p.Status.Steps.Execution.ActionsTaken[0].Outcome != agenticv1alpha1.ActionOutcomeSucceeded {
+		t.Errorf("action outcome = %q", p.Status.Steps.Execution.ActionsTaken[0].Outcome)
+	}
+	if p.Status.Steps.Execution.Verification.ConditionOutcome != agenticv1alpha1.ConditionOutcomeImproved {
+		t.Errorf("inline verification = %q", p.Status.Steps.Execution.Verification.ConditionOutcome)
+	}
+
+	// Reconcile 3: Verifying → Completed (via sandbox verification)
+	if _, err := reconcileOnce(r, "fix-crash"); err != nil {
+		t.Fatalf("verification reconcile: %v", err)
+	}
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseCompleted {
+		t.Fatalf("expected Completed, got %s", p.Status.Phase)
+	}
+	if p.Status.Steps.Verification.Summary != "All verification checks passed" {
+		t.Errorf("summary = %q", p.Status.Steps.Verification.Summary)
+	}
+	if len(p.Status.Steps.Verification.Checks) != 1 {
+		t.Fatalf("expected 1 check, got %d", len(p.Status.Steps.Verification.Checks))
+	}
+	if p.Status.Steps.Verification.Checks[0].Result != agenticv1alpha1.CheckResultPassed {
+		t.Errorf("check result = %q", p.Status.Steps.Verification.Checks[0].Result)
+	}
+
+	// Verify sandbox was claimed and released for each phase
+	if sandbox.claimCalls != 3 {
+		t.Errorf("sandbox claim calls = %d, want 3 (analysis + execution + verification)", sandbox.claimCalls)
+	}
+	if sandbox.releaseCalls != 3 {
+		t.Errorf("sandbox release calls = %d, want 3", sandbox.releaseCalls)
 	}
 }

@@ -2,7 +2,9 @@ package proposal
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -14,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	agenticv1alpha1 "github.com/harche/lightspeed-agentic-operator/api/v1alpha1"
+	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
 // --- Configurable agent stub for tests ---
@@ -159,6 +161,30 @@ func approveProposal(t *testing.T, fc client.WithWatch, name string) {
 	if err := fc.Status().Patch(context.Background(), &p, client.MergeFrom(base)); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
+}
+
+// --- Sandbox-based reconciler helpers ---
+
+func newMockSandboxAgent(analysisJSON, executionJSON, verificationJSON string) (*SandboxAgentCaller, *mockSandboxProvider) {
+	sandbox := &mockSandboxProvider{claimName: "ls-test-claim", endpoint: "http://sandbox:8080"}
+
+	callCount := 0
+	responses := []string{analysisJSON, executionJSON, verificationJSON}
+
+	httpClient := &mockHTTPClient{}
+	caller := &SandboxAgentCaller{
+		Sandbox: sandbox,
+		ClientFactory: func(_ string) AgentHTTPClientInterface {
+			resp := responses[callCount%len(responses)]
+			callCount++
+			httpClient.response = &agentQueryResponse{Response: json.RawMessage(resp)}
+			return httpClient
+		},
+		Namespace:    "test-ns",
+		TemplateName: "test-template",
+		Timeout:      5 * time.Minute,
+	}
+	return caller, sandbox
 }
 
 // --- Reconciler-level tests ---

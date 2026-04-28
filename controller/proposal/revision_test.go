@@ -3,7 +3,7 @@ package proposal
 import (
 	"testing"
 
-	agenticv1alpha1 "github.com/harche/lightspeed-agentic-operator/api/v1alpha1"
+	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
 func TestNeedsRevision(t *testing.T) {

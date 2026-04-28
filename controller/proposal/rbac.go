@@ -10,13 +10,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	agenticv1alpha1 "github.com/harche/lightspeed-agentic-operator/api/v1alpha1"
+	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
 const (
 	rbacNamespacesAnnotation = "agentic.openshift.io/rbac-namespaces"
 
 	labelProposal  = "agentic.openshift.io/proposal"
+	labelPhase     = "agentic.openshift.io/phase"
 	labelComponent = "agentic.openshift.io/component"
 	labelParent    = "agentic.openshift.io/parent"
 )
