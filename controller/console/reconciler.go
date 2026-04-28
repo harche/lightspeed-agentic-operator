@@ -10,20 +10,22 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
-	pluginName    = "lightspeed-agentic-console-plugin"
-	pluginPort    = 9443
+	pluginName     = "lightspeed-agentic-console-plugin"
+	pluginPort     = 9443
 	certSecretName = pluginName + "-cert"
-	consoleCRName = "cluster"
+	consoleCRName  = "cluster"
 
 	servingCertAnnotation = "service.beta.openshift.io/serving-cert-secret-name"
 
@@ -91,114 +93,108 @@ func labels() map[string]string {
 func ensureConfigMap(ctx context.Context, c client.Client, cfg AgenticConsoleConfig) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: pluginName, Namespace: cfg.Namespace, Labels: labels()},
-		Data:       map[string]string{"nginx.conf": nginxConfig},
 	}
-	return createOrUpdate(ctx, c, cm, func(existing *corev1.ConfigMap) {
-		existing.Data = cm.Data
+	_, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
+		cm.Data = map[string]string{"nginx.conf": nginxConfig}
+		return nil
 	})
+	return err
 }
 
 func ensureServiceAccount(ctx context.Context, c client.Client, cfg AgenticConsoleConfig) error {
 	sa := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{Name: pluginName, Namespace: cfg.Namespace, Labels: labels()},
 	}
-	return createIfNotExists(ctx, c, sa)
+	if err := c.Create(ctx, sa); err != nil && !errors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
 }
 
 func ensureService(ctx context.Context, c client.Client, cfg AgenticConsoleConfig) error {
 	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pluginName,
-			Namespace: cfg.Namespace,
-			Labels:    labels(),
-			Annotations: map[string]string{
-				servingCertAnnotation: certSecretName,
-			},
-		},
-		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{"app.kubernetes.io/name": pluginName},
-			Ports: []corev1.ServicePort{{
-				Name:       "https",
-				Port:       pluginPort,
-				TargetPort: intstr.FromInt32(pluginPort),
-				Protocol:   corev1.ProtocolTCP,
-			}},
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: pluginName, Namespace: cfg.Namespace, Labels: labels()},
 	}
-	return createOrUpdate(ctx, c, svc, func(existing *corev1.Service) {
-		existing.Annotations = svc.Annotations
-		existing.Spec.Ports = svc.Spec.Ports
-		existing.Spec.Selector = svc.Spec.Selector
+	_, err := controllerutil.CreateOrUpdate(ctx, c, svc, func() error {
+		svc.Annotations = map[string]string{servingCertAnnotation: certSecretName}
+		svc.Spec.Selector = map[string]string{"app.kubernetes.io/name": pluginName}
+		svc.Spec.Ports = []corev1.ServicePort{{
+			Name:       "https",
+			Port:       pluginPort,
+			TargetPort: intstr.FromInt32(pluginPort),
+			Protocol:   corev1.ProtocolTCP,
+		}}
+		return nil
 	})
+	return err
 }
 
 func ensureDeployment(ctx context.Context, c client.Client, cfg AgenticConsoleConfig) error {
-	replicas := int32(1)
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: pluginName, Namespace: cfg.Namespace, Labels: labels()},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": pluginName}},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels()},
-				Spec: corev1.PodSpec{
-					ServiceAccountName: pluginName,
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: boolPtr(true),
-						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+	_, err := controllerutil.CreateOrUpdate(ctx, c, dep, func() error {
+		dep.Spec.Replicas = ptr.To(int32(1))
+		dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": pluginName}}
+		dep.Spec.Template = corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{Labels: labels()},
+			Spec: corev1.PodSpec{
+				ServiceAccountName: pluginName,
+				SecurityContext: &corev1.PodSecurityContext{
+					RunAsNonRoot:   ptr.To(true),
+					SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+				},
+				Containers: []corev1.Container{{
+					Name:            "console",
+					Image:           cfg.Image,
+					ImagePullPolicy: corev1.PullAlways,
+					Ports: []corev1.ContainerPort{{
+						ContainerPort: pluginPort,
+						Protocol:      corev1.ProtocolTCP,
+					}},
+					SecurityContext: &corev1.SecurityContext{
+						AllowPrivilegeEscalation: ptr.To(false),
+						Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 					},
-					Containers: []corev1.Container{{
-						Name:            "console",
-						Image:           cfg.Image,
-						ImagePullPolicy: corev1.PullAlways,
-						Ports: []corev1.ContainerPort{{
-							ContainerPort: pluginPort,
-							Protocol:      corev1.ProtocolTCP,
-						}},
-						SecurityContext: &corev1.SecurityContext{
-							AllowPrivilegeEscalation: boolPtr(false),
-							Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("10m"),
+							corev1.ResourceMemory: resource.MustParse("50Mi"),
 						},
-						Resources: corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("10m"),
-								corev1.ResourceMemory: resource.MustParse("50Mi"),
-							},
-							Limits: corev1.ResourceList{
-								corev1.ResourceMemory: resource.MustParse("100Mi"),
-							},
+						Limits: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("100Mi"),
 						},
-						VolumeMounts: []corev1.VolumeMount{
-							{Name: "cert", MountPath: "/var/cert", ReadOnly: true},
-							{Name: "nginx-conf", MountPath: "/etc/nginx/nginx.conf", SubPath: "nginx.conf", ReadOnly: true},
-							{Name: "nginx-tmp", MountPath: "/tmp/nginx"},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{Name: "cert", MountPath: "/var/cert", ReadOnly: true},
+						{Name: "nginx-conf", MountPath: "/etc/nginx/nginx.conf", SubPath: "nginx.conf", ReadOnly: true},
+						{Name: "nginx-tmp", MountPath: "/tmp/nginx"},
+					},
+				}},
+				Volumes: []corev1.Volume{
+					{Name: "cert", VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{SecretName: certSecretName},
+					}},
+					{Name: "nginx-conf", VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{Name: pluginName},
 						},
 					}},
-					Volumes: []corev1.Volume{
-						{Name: "cert", VolumeSource: corev1.VolumeSource{
-							Secret: &corev1.SecretVolumeSource{SecretName: certSecretName},
-						}},
-						{Name: "nginx-conf", VolumeSource: corev1.VolumeSource{
-							ConfigMap: &corev1.ConfigMapVolumeSource{
-								LocalObjectReference: corev1.LocalObjectReference{Name: pluginName},
-							},
-						}},
-						{Name: "nginx-tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-					},
+					{Name: "nginx-tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 				},
 			},
-		},
-	}
-	return createOrUpdate(ctx, c, dep, func(existing *appsv1.Deployment) {
-		existing.Spec.Template.Spec.Containers[0].Image = cfg.Image
-		existing.Spec.Template = dep.Spec.Template
+		}
+		return nil
 	})
+	return err
 }
 
 func ensureConsolePlugin(ctx context.Context, c client.Client, cfg AgenticConsoleConfig) error {
 	plugin := &consolev1.ConsolePlugin{
 		ObjectMeta: metav1.ObjectMeta{Name: pluginName, Labels: labels()},
-		Spec: consolev1.ConsolePluginSpec{
+	}
+	_, err := controllerutil.CreateOrUpdate(ctx, c, plugin, func() error {
+		plugin.Spec = consolev1.ConsolePluginSpec{
 			DisplayName: "OpenShift Lightspeed Agentic Console Plugin",
 			Backend: consolev1.ConsolePluginBackend{
 				Type: consolev1.Service,
@@ -210,17 +206,19 @@ func ensureConsolePlugin(ctx context.Context, c client.Client, cfg AgenticConsol
 				},
 			},
 			I18n: consolev1.ConsolePluginI18n{LoadType: consolev1.Preload},
-		},
-	}
-	return createOrUpdate(ctx, c, plugin, func(existing *consolev1.ConsolePlugin) {
-		existing.Spec = plugin.Spec
+		}
+		return nil
 	})
+	return err
 }
 
 func ensureConsoleActivation(ctx context.Context, c client.Client, _ AgenticConsoleConfig) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		console := &openshiftv1.Console{}
 		if err := c.Get(ctx, types.NamespacedName{Name: consoleCRName}, console); err != nil {
+			if errors.IsNotFound(err) {
+				return fmt.Errorf("Console CR %q not found — OpenShift Console operator may not be installed", consoleCRName)
+			}
 			return fmt.Errorf("get Console CR: %w", err)
 		}
 		if slices.Contains(console.Spec.Plugins, pluginName) {
@@ -230,38 +228,3 @@ func ensureConsoleActivation(ctx context.Context, c client.Client, _ AgenticCons
 		return c.Update(ctx, console)
 	})
 }
-
-// --- helpers ---
-
-type clientObject[T any] interface {
-	client.Object
-	*T
-}
-
-func createIfNotExists[T any, PT clientObject[T]](ctx context.Context, c client.Client, obj PT) error {
-	if err := c.Create(ctx, obj); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
-func createOrUpdate[T any, PT clientObject[T]](ctx context.Context, c client.Client, desired PT, update func(*T)) error {
-	existing := PT(new(T))
-	err := c.Get(ctx, types.NamespacedName{
-		Name:      desired.GetName(),
-		Namespace: desired.GetNamespace(),
-	}, existing)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return c.Create(ctx, desired)
-		}
-		return err
-	}
-	update(existing)
-	return c.Update(ctx, existing)
-}
-
-func boolPtr(b bool) *bool { return &b }

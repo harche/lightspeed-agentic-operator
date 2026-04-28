@@ -466,14 +466,14 @@ func addVolumeMount(tmpl *unstructured.Unstructured, name, mountPath string, rea
 		if existing["mountPath"] == mountPath {
 			mounts[i] = mount
 			if err := unstructured.SetNestedSlice(container, mounts, "volumeMounts"); err != nil {
-				return err
+				return fmt.Errorf("set volumeMounts (update): %w", err)
 			}
 			return writeContainers(tmpl, container, containers)
 		}
 	}
 	mounts = append(mounts, mount)
 	if err := unstructured.SetNestedSlice(container, mounts, "volumeMounts"); err != nil {
-		return err
+		return fmt.Errorf("set volumeMounts (append): %w", err)
 	}
 	return writeContainers(tmpl, container, containers)
 }
