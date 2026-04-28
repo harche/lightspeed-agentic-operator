@@ -61,7 +61,7 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 						Agent:          "default",
 						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
 					},
-					Verification: &agenticv1alpha1.WorkflowStep{
+					Verification: agenticv1alpha1.WorkflowStep{
 						Agent:          "default",
 						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
 					},
@@ -78,7 +78,7 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 						Agent:          "default",
 						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
 					},
-					Execution: &agenticv1alpha1.WorkflowStep{
+					Execution: agenticv1alpha1.WorkflowStep{
 						Agent:          "default",
 						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
 					},

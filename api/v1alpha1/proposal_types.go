@@ -126,12 +126,15 @@ type WorkflowStepOverride struct {
 type WorkflowOverride struct {
 	// analysis overrides the analysis step.
 	// +optional
+	// +kubebuilder:validation:MinProperties=1
 	Analysis WorkflowStepOverride `json:"analysis,omitzero"`
 	// execution overrides the execution step.
 	// +optional
+	// +kubebuilder:validation:MinProperties=1
 	Execution WorkflowStepOverride `json:"execution,omitzero"`
 	// verification overrides the verification step.
 	// +optional
+	// +kubebuilder:validation:MinProperties=1
 	Verification WorkflowStepOverride `json:"verification,omitzero"`
 }
 

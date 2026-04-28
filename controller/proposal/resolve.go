@@ -84,8 +84,8 @@ func resolveWorkflow(ctx context.Context, c client.Client, proposal *agenticv1al
 	}
 	resolved.Analysis = *step
 
-	if wf.Spec.Execution != nil {
-		agent, ct := effectiveStepConfig(*wf.Spec.Execution, proposal.Spec.WorkflowOverride.Execution)
+	if wf.Spec.Execution != (agenticv1alpha1.WorkflowStep{}) {
+		agent, ct := effectiveStepConfig(wf.Spec.Execution, proposal.Spec.WorkflowOverride.Execution)
 		step, err := resolveStepCached(agent, ct)
 		if err != nil {
 			return nil, fmt.Errorf("resolve execution step: %w", err)
@@ -93,8 +93,8 @@ func resolveWorkflow(ctx context.Context, c client.Client, proposal *agenticv1al
 		resolved.Execution = step
 	}
 
-	if wf.Spec.Verification != nil {
-		agent, ct := effectiveStepConfig(*wf.Spec.Verification, proposal.Spec.WorkflowOverride.Verification)
+	if wf.Spec.Verification != (agenticv1alpha1.WorkflowStep{}) {
+		agent, ct := effectiveStepConfig(wf.Spec.Verification, proposal.Spec.WorkflowOverride.Verification)
 		step, err := resolveStepCached(agent, ct)
 		if err != nil {
 			return nil, fmt.Errorf("resolve verification step: %w", err)

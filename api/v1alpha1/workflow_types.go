@@ -28,7 +28,7 @@ type WorkflowStep struct {
 	// resources (e.g., "default", "smart", "fast"); the component owner
 	// references them by name here.
 	// +optional
-	// +kubebuilder:default="default"
+	// +default="default"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	Agent string `json:"agent,omitempty"`
@@ -62,7 +62,7 @@ type WorkflowSpec struct {
 	// approval, making it advisory-only. The user is expected to apply
 	// changes manually or via GitOps.
 	// +optional
-	Execution *WorkflowStep `json:"execution,omitempty"`
+	Execution WorkflowStep `json:"execution,omitzero"`
 
 	// verification defines the verification step configuration. The
 	// verification agent checks whether the remediation was successful
@@ -72,7 +72,7 @@ type WorkflowSpec struct {
 	// without a verification check. Useful for trust-mode workflows where
 	// the execution agent's inline verification is sufficient.
 	// +optional
-	Verification *WorkflowStep `json:"verification,omitempty"`
+	Verification WorkflowStep `json:"verification,omitzero"`
 }
 
 // +kubebuilder:object:root=true

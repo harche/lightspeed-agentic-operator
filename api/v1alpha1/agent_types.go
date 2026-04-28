@@ -27,25 +27,25 @@ type AgentTimeouts struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=3600
-	AnalysisSeconds *int32 `json:"analysisSeconds,omitempty"`
+	AnalysisSeconds int32 `json:"analysisSeconds,omitempty,omitzero"`
 
 	// executionSeconds is the timeout for the execution step in seconds.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=3600
-	ExecutionSeconds *int32 `json:"executionSeconds,omitempty"`
+	ExecutionSeconds int32 `json:"executionSeconds,omitempty,omitzero"`
 
 	// verificationSeconds is the timeout for the verification step in seconds.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=3600
-	VerificationSeconds *int32 `json:"verificationSeconds,omitempty"`
+	VerificationSeconds int32 `json:"verificationSeconds,omitempty,omitzero"`
 
 	// chatSeconds is the timeout for each chat turn with the LLM in seconds.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=600
-	ChatSeconds *int32 `json:"chatSeconds,omitempty"`
+	ChatSeconds int32 `json:"chatSeconds,omitempty,omitzero"`
 }
 
 // AgentSpec defines the desired state of Agent.
@@ -57,6 +57,7 @@ type AgentSpec struct {
 
 	// timeouts configures per-step and per-turn timeout limits.
 	// +optional
+	// +kubebuilder:validation:MinProperties=1
 	Timeouts AgentTimeouts `json:"timeouts,omitzero"`
 
 	// maxTurns is the maximum number of tool-use turns the agent may take
@@ -64,13 +65,14 @@ type AgentSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=500
-	MaxTurns *int32 `json:"maxTurns,omitempty"`
+	MaxTurns int32 `json:"maxTurns,omitempty,omitzero"`
 
 	// providerSettings is a freeform key-value map passed through to the
 	// LLM SDK. Use this for provider-specific tuning parameters such as
 	// temperature, reasoningEffort, topP, etc. The operator does not
 	// validate these keys — they are forwarded as-is to the SDK.
 	// +optional
+	// +kubebuilder:validation:MinProperties=1
 	ProviderSettings map[string]string `json:"providerSettings,omitempty"`
 }
 
