@@ -98,41 +98,21 @@ const (
 	ProposalConditionEscalated string = "Escalated"
 )
 
-// WorkflowStepOverride allows overriding the agent tier and/or componentTools
-// for a single workflow step in a per-proposal override.
-type WorkflowStepOverride struct {
-	// agent overrides the Agent tier for this step.
+// ProposalStep defines per-step configuration on a Proposal. When used
+// inline (no templateRef), the agent field selects the agent tier. The
+// tools field provides per-step tools that replace the shared spec.tools.
+type ProposalStep struct {
+	// agent is the name of the cluster-scoped Agent to use for this step.
+	// Only meaningful when the Proposal defines steps inline (no templateRef).
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	Agent string `json:"agent,omitempty"`
 
-	// componentTools overrides the ComponentTools reference for this step.
+	// tools provides per-step tools that replace the shared spec.tools
+	// for this step. Use this when different steps need different skills.
 	// +optional
-	ComponentTools ComponentToolsReference `json:"componentTools,omitzero"`
-}
-
-// WorkflowOverride allows per-proposal overrides of the referenced workflow.
-// This is useful for swapping in a specialized agent tier or component tools
-// for a specific proposal without creating a new Workflow CR.
-//
-// Example — use the smart agent and ACS-specific tools for analysis:
-//
-//	workflowOverride:
-//	  analysis:
-//	    agent: smart
-//	    componentTools:
-//	      name: acs-tools
-type WorkflowOverride struct {
-	// analysis overrides the analysis step.
-	// +optional
-	Analysis WorkflowStepOverride `json:"analysis,omitzero"`
-	// execution overrides the execution step.
-	// +optional
-	Execution WorkflowStepOverride `json:"execution,omitzero"`
-	// verification overrides the verification step.
-	// +optional
-	Verification WorkflowStepOverride `json:"verification,omitzero"`
+	Tools *ToolsSpec `json:"tools,omitempty"`
 }
 
 // PreviousAttempt captures the state of a failed attempt. When a proposal
@@ -157,69 +137,79 @@ type PreviousAttempt struct {
 	FailureReason string `json:"failureReason,omitempty"`
 }
 
-// ProposalSpec defines the desired state of Proposal. This is the user-facing
-// (or adapter-facing) configuration -- everything the operator needs to start
-// processing the proposal.
+// ProposalSpec defines the desired state of Proposal.
+//
+// A Proposal either references a ProposalTemplate (via templateRef) or
+// defines the workflow shape inline. Either templateRef or inline analysis
+// must be provided, but not both.
+//
+// +kubebuilder:validation:XValidation:rule="has(self.templateRef) || has(self.analysis)",message="either templateRef or inline analysis must be provided"
+// +kubebuilder:validation:XValidation:rule="!(has(self.templateRef) && has(self.analysis) && has(self.analysis.agent) && self.analysis.agent != '')",message="templateRef and inline analysis.agent are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!(has(self.templateRef) && has(self.execution) && has(self.execution.agent) && self.execution.agent != '')",message="templateRef and inline execution.agent are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!(has(self.templateRef) && has(self.verification) && has(self.verification.agent) && self.verification.agent != '')",message="templateRef and inline verification.agent are mutually exclusive"
 type ProposalSpec struct {
 	// request is the user's original request, alert description, or a
 	// description of what triggered this proposal. This text is passed to
-	// the analysis agent as the primary input. For adapter-created proposals,
-	// the adapter sets this to the alert summary and relevant details.
-	// Maximum 32768 characters.
+	// the analysis agent as the primary input.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
 	Request string `json:"request,omitempty"`
 
-	// workflow references a Workflow CR that defines
-	// which agents handle each step (analysis, execution, verification)
-	// and which steps are skipped. This is the primary routing mechanism.
-	// +required
-	Workflow WorkflowReference `json:"workflow,omitzero"`
+	// templateRef references a cluster-scoped ProposalTemplate that
+	// defines the workflow shape (which steps run, which agent tier
+	// handles each step).
+	// +optional
+	TemplateRef *ProposalTemplateReference `json:"templateRef,omitempty"`
 
 	// targetNamespaces are the Kubernetes namespace(s) this proposal
-	// operates on. The operator uses these to scope RBAC (creating Roles
-	// and RoleBindings only in these namespaces) and to pass context to
-	// the analysis agent. When empty, the proposal operates at the
-	// cluster level only. Each entry must be a valid RFC 1123 DNS label.
-	// Maximum 50 items.
+	// operates on. Used for RBAC scoping and context to the analysis agent.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
-	// +kubebuilder:validation:XValidation:rule="self.all(ns, !format.dns1123Label().validate(ns).hasValue())",message="each namespace must be a valid DNS label: lowercase alphanumeric characters and hyphens, starting with an alphabetic character and ending with an alphanumeric character"
+	// +kubebuilder:validation:XValidation:rule="self.all(ns, !format.dns1123Label().validate(ns).hasValue())",message="each namespace must be a valid DNS label"
 	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=63
 	TargetNamespaces []string `json:"targetNamespaces,omitempty"`
 
-	// workflowOverride allows per-proposal overrides of the referenced
-	// workflow without creating a new Workflow CR. Useful for one-off
-	// customizations like skipping execution on a normally full-lifecycle
-	// workflow, or swapping in a specialized agent.
+	// tools defines the default tools for all steps: skills images,
+	// required secrets, and output schema. Per-step tools
+	// (analysis.tools, execution.tools, verification.tools) replace
+	// this default for individual steps.
 	// +optional
-	WorkflowOverride WorkflowOverride `json:"workflowOverride,omitzero"`
+	Tools ToolsSpec `json:"tools,omitzero"`
+
+	// analysis defines per-step configuration for the analysis step.
+	// When templateRef is not set, analysis.agent selects the agent tier
+	// (inline workflow definition). When templateRef is set, only
+	// analysis.tools is meaningful (per-step tools override).
+	// +optional
+	Analysis *ProposalStep `json:"analysis,omitempty"`
+
+	// execution defines per-step configuration for the execution step.
+	// Only execution.tools is meaningful (per-step tools override).
+	// +optional
+	Execution *ProposalStep `json:"execution,omitempty"`
+
+	// verification defines per-step configuration for the verification step.
+	// Only verification.tools is meaningful (per-step tools override).
+	// +optional
+	Verification *ProposalStep `json:"verification,omitempty"`
 
 	// parent references the parent proposal in an escalation chain.
-	// Set automatically by the operator when creating a child proposal
-	// after maxAttempts is exhausted. The child proposal inherits the
-	// full failure history from its parent. The child is also owned by
-	// the parent via Kubernetes owner references for garbage collection.
+	// Set automatically by the operator when creating a child proposal.
 	// +optional
 	Parent ProposalReference `json:"parent,omitzero"`
 
-	// maxAttempts overrides the global retry limit for this proposal.
-	// When a step fails, the operator resets the proposal to Pending
-	// with enriched context (up to maxAttempts times). After that, the
-	// proposal transitions to Escalated. Set to 0 to disable retries.
-	// When omitted, the operator's global default is used. Valid range: 0-20.
+	// maxAttempts overrides the template's retry limit for this proposal.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=20
 	MaxAttempts *int32 `json:"maxAttempts,omitempty"`
 
 	// revision is incremented by the user (or console UI) each time they
-	// submit revision feedback for the analysis. The operator compares this
-	// to status.steps.analysis.observedRevision to detect new revisions.
+	// submit revision feedback for the analysis.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Revision *int32 `json:"revision,omitempty"`
@@ -276,66 +266,54 @@ type ProposalStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Workflow",type=string,JSONPath=`.spec.workflow.name`
+// +kubebuilder:printcolumn:name="Template",type=string,JSONPath=`.spec.templateRef.name`
 // +kubebuilder:printcolumn:name="Request",type=string,JSONPath=`.spec.request`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// Proposal represents a unit of work managed by the agentic platform. It is
-// the final link in the CRD chain (LLMProvider -> Agent -> Workflow ->
-// Proposal) and the primary resource users and adapters interact with.
+// Proposal represents a unit of work managed by the agentic platform.
+// It is the primary resource component teams and adapters interact with.
 //
-// A Proposal references a Workflow that defines which agents handle each
-// step, and tracks the full lifecycle from initial request through analysis,
-// user approval, execution, and verification. Proposals are created by
-// adapters (AlertManager webhook, ACS violation webhook, manual creation)
-// or by the operator itself (escalation child proposals).
+// A Proposal either references a ProposalTemplate (via templateRef) that
+// defines the workflow shape, or defines the workflow inline. Tools
+// (skills images, required secrets) are specified directly on the Proposal.
 //
-// Proposal is namespace-scoped for multi-tenancy. The operator watches for new Proposals and
-// drives them through the lifecycle automatically. Users interact with
-// proposals after analysis to approve, deny, or escalate.
-//
-// Example — a remediation proposal targeting a specific namespace:
+// Example — ACS remediation using a template:
 //
 //	apiVersion: agentic.openshift.io/v1alpha1
 //	kind: Proposal
 //	metadata:
-//	  name: fix-crashloop
+//	  name: fix-nginx-cve-2024-1234
+//	  namespace: stackrox
 //	spec:
-//	  request: "Pod web-frontend in namespace production is CrashLoopBackOff"
-//	  workflow:
+//	  request: |
+//	    ACS violation: Deployment nginx in namespace lightspeed-demo
+//	    is running nginx:1.21 which has CVE-2024-1234 (Critical).
+//	  templateRef:
 //	    name: remediation
 //	  targetNamespaces:
-//	    - production
+//	    - lightspeed-demo
+//	  tools:
+//	    skills:
+//	      - image: registry.redhat.io/acs/acs-lightspeed-skills:latest
+//	    requiredSecrets:
+//	      - name: acs-api-token
+//	        mountAs: ACS_API_TOKEN
 //
-// Example — use a specialized agent tier and tools via workflowOverride:
+// Example — fully inline (no template):
 //
 //	apiVersion: agentic.openshift.io/v1alpha1
 //	kind: Proposal
 //	metadata:
-//	  name: acs-fix
+//	  name: one-off-investigation
 //	spec:
-//	  request: "ACS violation: nginx:1.21 has known CVEs"
-//	  workflow:
-//	    name: remediation
+//	  request: "Investigate why pod foo is crashlooping"
 //	  targetNamespaces:
-//	    - production
-//	  workflowOverride:
-//	    analysis:
-//	      agent: smart
-//	      componentTools:
-//	        name: acs-tools
-//
-// Example — an upgrade proposal with limited retries:
-//
-//	apiVersion: agentic.openshift.io/v1alpha1
-//	kind: Proposal
-//	metadata:
-//	  name: upgrade-4-22
-//	spec:
-//	  request: "Upgrade cluster from 4.21 to 4.22"
-//	  workflow:
-//	    name: upgrade
-//	  maxAttempts: 2
+//	    - lightspeed-demo
+//	  tools:
+//	    skills:
+//	      - image: registry.redhat.io/acs/acs-lightspeed-skills:latest
+//	  analysis:
+//	    agent: smart
 type Proposal struct {
 	metav1.TypeMeta `json:",inline"`
 

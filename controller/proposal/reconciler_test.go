@@ -69,22 +69,13 @@ func testScheme() *runtime.Scheme {
 	return s
 }
 
-func fullWorkflow() *agenticv1alpha1.Workflow {
-	return &agenticv1alpha1.Workflow{
-		ObjectMeta: metav1.ObjectMeta{Name: "remediation", Namespace: "default"},
-		Spec: agenticv1alpha1.WorkflowSpec{
-			Analysis: agenticv1alpha1.WorkflowStep{
-				Agent:          "default",
-				ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
-			},
-			Execution: agenticv1alpha1.WorkflowStep{
-				Agent:          "default",
-				ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
-			},
-			Verification: agenticv1alpha1.WorkflowStep{
-				Agent:          "default",
-				ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
-			},
+func fullTemplate() *agenticv1alpha1.ProposalTemplate {
+	return &agenticv1alpha1.ProposalTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "remediation"},
+		Spec: agenticv1alpha1.ProposalTemplateSpec{
+			Analysis:     agenticv1alpha1.TemplateStep{Agent: "default"},
+			Execution:    &agenticv1alpha1.TemplateStep{Agent: "default"},
+			Verification: &agenticv1alpha1.TemplateStep{Agent: "default"},
 		},
 	}
 }
@@ -98,12 +89,9 @@ func testDefaultAgent() *agenticv1alpha1.Agent {
 	}
 }
 
-func testComponentTools() *agenticv1alpha1.ComponentTools {
-	return &agenticv1alpha1.ComponentTools{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-tools", Namespace: "default"},
-		Spec: agenticv1alpha1.ComponentToolsSpec{
-			Skills: []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
-		},
+func testTools() agenticv1alpha1.ToolsSpec {
+	return agenticv1alpha1.ToolsSpec{
+		Skills: []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
 	}
 }
 
@@ -118,12 +106,13 @@ func testLLM(name string) *agenticv1alpha1.LLMProvider {
 	}
 }
 
-func testProposal(workflowName string) *agenticv1alpha1.Proposal {
+func testProposal(templateName string) *agenticv1alpha1.Proposal {
 	return &agenticv1alpha1.Proposal{
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:          "Pod crashing in production",
-			Workflow:         agenticv1alpha1.WorkflowReference{Name: workflowName},
+			TemplateRef:      &agenticv1alpha1.ProposalTemplateReference{Name: templateName},
+			Tools:            testTools(),
 			TargetNamespaces: []string{"production"},
 		},
 	}
@@ -133,7 +122,7 @@ func testProposal(workflowName string) *agenticv1alpha1.Proposal {
 // objects needed to resolve a full workflow.
 func defaultObjects() []client.Object {
 	return []client.Object{
-		testDefaultAgent(), testLLM("smart"), testComponentTools(),
+		testDefaultAgent(), testLLM("smart"), fullTemplate(),
 	}
 }
 
@@ -235,12 +224,13 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 	proposal := &agenticv1alpha1.Proposal{
 		ObjectMeta: metav1.ObjectMeta{Name: "fresh", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
-			Request:  "Pod crashing",
-			Workflow: agenticv1alpha1.WorkflowReference{Name: "remediation"},
+			Request:     "Pod crashing",
+			TemplateRef: &agenticv1alpha1.ProposalTemplateReference{Name: "remediation"},
+			Tools:       testTools(),
 		},
 	}
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 

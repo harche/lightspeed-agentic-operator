@@ -92,7 +92,7 @@ func TestList_FilterByPhase(t *testing.T) {
 	}
 }
 
-func TestList_FilterByWorkflow(t *testing.T) {
+func TestList_FilterByTemplate(t *testing.T) {
 	streams, out, _ := fakeStreams()
 	p1 := testProposal("p1", "default", "remediation")
 	p1.Status.Phase = agenticv1alpha1.ProposalPhasePending
@@ -105,7 +105,7 @@ func TestList_FilterByWorkflow(t *testing.T) {
 	o := &ListOptions{
 		client:    fc,
 		namespace: "default",
-		workflow:  "remediation",
+		template:  "remediation",
 		IOStreams:  streams,
 	}
 	if err := o.Run(context.Background()); err != nil {

@@ -15,7 +15,7 @@ type ListOptions struct {
 	configFlags   *genericclioptions.ConfigFlags
 	allNamespaces bool
 	phase         string
-	workflow      string
+	template      string
 	output        string
 
 	client    client.Client
@@ -43,8 +43,8 @@ func NewListCmd(streams genericclioptions.IOStreams) *cobra.Command {
   # Filter by phase
   oc agentic proposal list --phase=Proposed
 
-  # Filter by workflow with wide output
-  oc agentic proposal list --workflow=remediation -o wide`,
+  # Filter by template with wide output
+  oc agentic proposal list --template=remediation -o wide`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -59,7 +59,7 @@ func NewListCmd(streams genericclioptions.IOStreams) *cobra.Command {
 	o.configFlags.AddFlags(cmd.Flags())
 	cmd.Flags().BoolVarP(&o.allNamespaces, "all-namespaces", "A", false, "List proposals across all namespaces")
 	cmd.Flags().StringVar(&o.phase, "phase", "", "Filter by phase (Pending, Analyzing, Proposed, Approved, Denied, Executing, Verifying, Completed, Failed, Escalated)")
-	cmd.Flags().StringVar(&o.workflow, "workflow", "", "Filter by workflow name")
+	cmd.Flags().StringVar(&o.template, "template", "", "Filter by template name")
 	cmd.Flags().StringVarP(&o.output, "output", "o", "", "Output format: json, yaml, or wide")
 
 	return cmd
@@ -103,7 +103,11 @@ func (o *ListOptions) Run(ctx context.Context) error {
 		if o.phase != "" && string(p.Status.Phase) != o.phase {
 			continue
 		}
-		if o.workflow != "" && p.Spec.Workflow.Name != o.workflow {
+		tmplName := ""
+		if p.Spec.TemplateRef != nil {
+			tmplName = p.Spec.TemplateRef.Name
+		}
+		if o.template != "" && tmplName != o.template {
 			continue
 		}
 		filtered = append(filtered, p)
@@ -136,9 +140,9 @@ func (o *ListOptions) Run(ctx context.Context) error {
 func (o *ListOptions) printTable(items []agenticv1alpha1.Proposal) {
 	var headers []string
 	if o.allNamespaces {
-		headers = []string{"NAMESPACE", "NAME", "WORKFLOW", "PHASE", "AGE"}
+		headers = []string{"NAMESPACE", "NAME", "TEMPLATE", "PHASE", "AGE"}
 	} else {
-		headers = []string{"NAME", "WORKFLOW", "PHASE", "AGE"}
+		headers = []string{"NAME", "TEMPLATE", "PHASE", "AGE"}
 	}
 	rows := make([][]string, 0, len(items))
 	for _, p := range items {
@@ -146,7 +150,7 @@ func (o *ListOptions) printTable(items []agenticv1alpha1.Proposal) {
 		if o.allNamespaces {
 			row = append(row, p.Namespace)
 		}
-		row = append(row, p.Name, p.Spec.Workflow.Name, ColoredPhase(p.Status.Phase), HumanDuration(p.CreationTimestamp.Time))
+		row = append(row, p.Name, TemplateName(&p), ColoredPhase(p.Status.Phase), HumanDuration(p.CreationTimestamp.Time))
 		rows = append(rows, row)
 	}
 	PrintTable(o.Out, headers, rows)
@@ -155,9 +159,9 @@ func (o *ListOptions) printTable(items []agenticv1alpha1.Proposal) {
 func (o *ListOptions) printWideTable(items []agenticv1alpha1.Proposal) {
 	var headers []string
 	if o.allNamespaces {
-		headers = []string{"NAMESPACE", "NAME", "WORKFLOW", "PHASE", "ATTEMPT", "TARGET-NS", "AGE"}
+		headers = []string{"NAMESPACE", "NAME", "TEMPLATE", "PHASE", "ATTEMPT", "TARGET-NS", "AGE"}
 	} else {
-		headers = []string{"NAME", "WORKFLOW", "PHASE", "ATTEMPT", "TARGET-NS", "AGE"}
+		headers = []string{"NAME", "TEMPLATE", "PHASE", "ATTEMPT", "TARGET-NS", "AGE"}
 	}
 	rows := make([][]string, 0, len(items))
 	for _, p := range items {
@@ -169,9 +173,10 @@ func (o *ListOptions) printWideTable(items []agenticv1alpha1.Proposal) {
 		if o.allNamespaces {
 			row = append(row, p.Namespace)
 		}
-		row = append(row, p.Name, p.Spec.Workflow.Name, ColoredPhase(p.Status.Phase),
+		row = append(row, p.Name, TemplateName(&p), ColoredPhase(p.Status.Phase),
 			int32PtrStr(p.Status.Attempt), targetNS, HumanDuration(p.CreationTimestamp.Time))
 		rows = append(rows, row)
 	}
 	PrintTable(o.Out, headers, rows)
 }
+

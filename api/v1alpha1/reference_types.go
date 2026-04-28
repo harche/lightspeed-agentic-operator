@@ -52,19 +52,10 @@ type LLMProviderReference struct {
 	Name string `json:"name,omitempty"`
 }
 
-// ComponentToolsReference references a ComponentTools CR by name within the
-// same namespace.
-type ComponentToolsReference struct {
-	// name of the ComponentTools.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name,omitempty"`
-}
-
-// WorkflowReference references a Workflow CR by name within the same namespace.
-type WorkflowReference struct {
-	// name of the Workflow.
+// ProposalTemplateReference references a cluster-scoped ProposalTemplate
+// CR by name.
+type ProposalTemplateReference struct {
+	// name of the ProposalTemplate.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253

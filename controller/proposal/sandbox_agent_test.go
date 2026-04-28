@@ -75,15 +75,11 @@ func testSandboxProposal() *agenticv1alpha1.Proposal {
 }
 
 func testSandboxStep() resolvedStep {
+	tools := testTools()
 	return resolvedStep{
 		Agent: testDefaultAgent(),
 		LLM:   testLLM("smart"),
-		ComponentTools: &agenticv1alpha1.ComponentTools{
-			Spec: agenticv1alpha1.ComponentToolsSpec{
-				SystemPrompt: "You are an SRE agent",
-				Skills:       []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
-			},
-		},
+		Tools: &tools,
 	}
 }
 
@@ -291,22 +287,6 @@ func TestSandboxAgentCaller_CorrectPhase(t *testing.T) {
 	}
 }
 
-func TestSandboxAgentCaller_SystemPromptForwarded(t *testing.T) {
-	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
-	httpClient := &mockHTTPClient{
-		response: &agentQueryResponse{Response: json.RawMessage(`{"options": []}`)},
-	}
-
-	caller := newTestSandboxAgentCaller(sandbox, httpClient)
-	step := testSandboxStep()
-	step.ComponentTools.Spec.SystemPrompt = "Custom system prompt for analysis"
-	_, _ = caller.Analyze(context.Background(), testSandboxProposal(), step, "test")
-
-	if httpClient.lastPrompt != "Custom system prompt for analysis" {
-		t.Errorf("systemPrompt = %q, want %q", httpClient.lastPrompt, "Custom system prompt for analysis")
-	}
-}
-
 func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
@@ -320,7 +300,8 @@ func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:          "Pod crashing",
-			Workflow:         agenticv1alpha1.WorkflowReference{Name: "remediation"},
+			TemplateRef:      &agenticv1alpha1.ProposalTemplateReference{Name: "remediation"},
+			Tools:            testTools(),
 			TargetNamespaces: []string{"production", "staging"},
 		},
 		Status: agenticv1alpha1.ProposalStatus{

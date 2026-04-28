@@ -1,0 +1,48 @@
+# AlertManager adapter — example proposals.
+#
+# When Prometheus fires an alert, the AlertManager adapter creates a Proposal
+# referencing a ProposalTemplate with skills inline.
+#
+# Requires: LLMProvider + Agent from 00/01, ProposalTemplate from 02
+---
+# AlertManager remediation
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Proposal
+metadata:
+  name: alert-high-cpu-example
+  namespace: openshift-lightspeed
+  labels:
+    agentic.openshift.io/source: alertmanager
+spec:
+  templateRef:
+    name: remediation
+  request: |
+    AlertManager alert fired: HighCPUUsage (critical)
+    Pod api-server in namespace production is using 95% CPU for the last 15 minutes.
+    Labels: severity=critical, namespace=production, pod=api-server
+  targetNamespaces:
+    - production
+  tools:
+    skills:
+      - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
+---
+# AlertManager advisory
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Proposal
+metadata:
+  name: alert-disk-warning-example
+  namespace: openshift-lightspeed
+  labels:
+    agentic.openshift.io/source: alertmanager
+spec:
+  templateRef:
+    name: advisory
+  request: |
+    AlertManager alert fired: DiskSpaceWarning (warning)
+    Node worker-3 disk usage at 85%.
+    Labels: severity=warning, node=worker-3
+  targetNamespaces:
+    - openshift-lightspeed
+  tools:
+    skills:
+      - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest

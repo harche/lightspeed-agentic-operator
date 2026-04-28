@@ -29,60 +29,45 @@ func reviseProposal(t *testing.T, fc client.WithWatch, name string, revision int
 	}
 }
 
-func TestReconcile_WorkflowVariants(t *testing.T) {
+func TestReconcile_TemplateVariants(t *testing.T) {
 	tests := []struct {
 		name      string
-		workflow  *agenticv1alpha1.Workflow
+		template  *agenticv1alpha1.ProposalTemplate
 		wantPhase agenticv1alpha1.ProposalPhase
 	}{
 		{
 			name:      "full_lifecycle_reaches_verifying",
-			workflow:  fullWorkflow(),
+			template:  fullTemplate(),
 			wantPhase: agenticv1alpha1.ProposalPhaseVerifying,
 		},
 		{
 			name: "advisory_only_completes",
-			workflow: &agenticv1alpha1.Workflow{
-				ObjectMeta: metav1.ObjectMeta{Name: "advisory", Namespace: "default"},
-				Spec: agenticv1alpha1.WorkflowSpec{
-					Analysis: agenticv1alpha1.WorkflowStep{
-						Agent:          "default",
-						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
-					},
+			template: &agenticv1alpha1.ProposalTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "advisory"},
+				Spec: agenticv1alpha1.ProposalTemplateSpec{
+					Analysis: agenticv1alpha1.TemplateStep{Agent: "default"},
 				},
 			},
 			wantPhase: agenticv1alpha1.ProposalPhaseCompleted,
 		},
 		{
-			name: "gitops_awaits_sync",
-			workflow: &agenticv1alpha1.Workflow{
-				ObjectMeta: metav1.ObjectMeta{Name: "gitops", Namespace: "default"},
-				Spec: agenticv1alpha1.WorkflowSpec{
-					Analysis: agenticv1alpha1.WorkflowStep{
-						Agent:          "default",
-						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
-					},
-					Verification: agenticv1alpha1.WorkflowStep{
-						Agent:          "default",
-						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
-					},
+			name: "assisted_awaits_sync",
+			template: &agenticv1alpha1.ProposalTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "assisted"},
+				Spec: agenticv1alpha1.ProposalTemplateSpec{
+					Analysis:     agenticv1alpha1.TemplateStep{Agent: "default"},
+					Verification: &agenticv1alpha1.TemplateStep{Agent: "default"},
 				},
 			},
 			wantPhase: agenticv1alpha1.ProposalPhaseAwaitingSync,
 		},
 		{
-			name: "trust_mode_skips_verification",
-			workflow: &agenticv1alpha1.Workflow{
-				ObjectMeta: metav1.ObjectMeta{Name: "trust", Namespace: "default"},
-				Spec: agenticv1alpha1.WorkflowSpec{
-					Analysis: agenticv1alpha1.WorkflowStep{
-						Agent:          "default",
-						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
-					},
-					Execution: agenticv1alpha1.WorkflowStep{
-						Agent:          "default",
-						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
-					},
+			name: "no_verification_skips_verification",
+			template: &agenticv1alpha1.ProposalTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "no-verify"},
+				Spec: agenticv1alpha1.ProposalTemplateSpec{
+					Analysis:  agenticv1alpha1.TemplateStep{Agent: "default"},
+					Execution: &agenticv1alpha1.TemplateStep{Agent: "default"},
 				},
 			},
 			wantPhase: agenticv1alpha1.ProposalPhaseCompleted,
@@ -92,9 +77,9 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := testScheme()
-			proposal := testProposal(tt.workflow.Name)
+			proposal := testProposal(tt.template.Name)
 
-			objs := append([]client.Object{proposal, tt.workflow}, defaultObjects()...)
+			objs := append([]client.Object{proposal, tt.template}, testDefaultAgent(), testLLM("smart"))
 			fc := fake.NewClientBuilder().WithScheme(scheme).
 				WithObjects(objs...).
 				WithStatusSubresource(proposal).Build()
@@ -126,7 +111,7 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -190,7 +175,7 @@ func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
 	scheme := testScheme()
 
 	proposal := testProposal("remediation")
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -228,7 +213,7 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 	proposal := testProposal("remediation")
 	proposal.Spec.MaxAttempts = &maxAttempts
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -296,7 +281,7 @@ func TestReconcile_SystemFailure_Execution_Terminal(t *testing.T) {
 	scheme := testScheme()
 
 	proposal := testProposal("remediation")
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -333,7 +318,7 @@ func TestReconcile_SystemFailure_Verification_Terminal(t *testing.T) {
 	scheme := testScheme()
 
 	proposal := testProposal("remediation")
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -374,7 +359,7 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	proposal := testProposal("remediation")
 	proposal.Spec.MaxAttempts = &maxAttempts
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -432,7 +417,7 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -482,7 +467,7 @@ func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -520,7 +505,7 @@ func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -563,7 +548,7 @@ func TestReconcile_RevisionResetsSelectedOption(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -598,7 +583,7 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -671,7 +656,7 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -762,7 +747,7 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 
@@ -855,7 +840,7 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
 

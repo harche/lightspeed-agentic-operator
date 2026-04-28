@@ -26,10 +26,9 @@ type ProposalReconciler struct {
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals/finalizers,verbs=update
-// +kubebuilder:rbac:groups=agentic.openshift.io,resources=workflows,verbs=get;list;watch
+// +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposaltemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=agents,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=llmproviders,verbs=get;list;watch
-// +kubebuilder:rbac:groups=agentic.openshift.io,resources=componenttools,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;create;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;create;delete
 
@@ -109,8 +108,7 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.handleEscalated(ctx, log, &proposal)
 	}
 
-	// Active phases need the workflow resolved.
-	resolved, err := resolveWorkflow(ctx, r.Client, &proposal)
+	resolved, err := resolveProposal(ctx, r.Client, &proposal)
 	if err != nil {
 		log.Error(err, "workflow resolution failed")
 		base := proposal.DeepCopy()

@@ -88,16 +88,10 @@ func (r *ProposalReconciler) handleRevision(
 		return ctrl.Result{}, fmt.Errorf("update to Analyzing (revision): %w", err)
 	}
 
-	ctCopy := resolved.Analysis.ComponentTools.DeepCopy()
 	revisionSuffix := buildRevisionContext(proposal)
-	if ctCopy.Spec.SystemPrompt != "" {
-		ctCopy.Spec.SystemPrompt = ctCopy.Spec.SystemPrompt + "\n\n" + revisionSuffix
-	} else {
-		ctCopy.Spec.SystemPrompt = revisionSuffix
-	}
-	revisionStep := resolvedStep{Agent: resolved.Analysis.Agent, LLM: resolved.Analysis.LLM, ComponentTools: ctCopy}
+	requestWithRevision := proposal.Spec.Request + "\n\n" + revisionSuffix
 
-	analysisResult, err := r.Agent.Analyze(ctx, proposal, revisionStep, proposal.Spec.Request)
+	analysisResult, err := r.Agent.Analyze(ctx, proposal, resolved.Analysis, requestWithRevision)
 	if err != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, err)
 	}
@@ -294,7 +288,7 @@ func (r *ProposalReconciler) handleVerifying(
 		if proposal.Status.Steps.Execution.RetryCount != nil {
 			retryCount = *proposal.Status.Steps.Execution.RetryCount
 		}
-		maxRetries := r.maxAttempts(proposal)
+		maxRetries := maxAttempts(proposal, resolved)
 
 		if int(retryCount) < maxRetries {
 			next := retryCount + 1
@@ -402,7 +396,11 @@ func (r *ProposalReconciler) handleEscalated(
 			}},
 		},
 		Spec: agenticv1alpha1.ProposalSpec{
-			Workflow:         proposal.Spec.Workflow,
+			TemplateRef:      proposal.Spec.TemplateRef,
+			Tools:            proposal.Spec.Tools,
+			Analysis:         proposal.Spec.Analysis,
+			Execution:        proposal.Spec.Execution,
+			Verification:     proposal.Spec.Verification,
 			Request:          escalationText,
 			Parent:           agenticv1alpha1.ProposalReference{Name: proposal.Name},
 			TargetNamespaces: proposal.Spec.TargetNamespaces,

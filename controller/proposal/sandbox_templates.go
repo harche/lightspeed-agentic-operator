@@ -43,9 +43,9 @@ const (
 )
 
 type templateHashInput struct {
-	LLM             agenticv1alpha1.LLMProviderSpec    `json:"llm"`
-	Skills          []agenticv1alpha1.SkillsSource     `json:"skills"`
-	MCPServers      []agenticv1alpha1.MCPServerConfig  `json:"mcpServers,omitempty"`
+	LLM             agenticv1alpha1.LLMProviderSpec     `json:"llm"`
+	Skills          []agenticv1alpha1.SkillsSource      `json:"skills"`
+	MCPServers      []agenticv1alpha1.MCPServerConfig   `json:"mcpServers,omitempty"`
 	RequiredSecrets []agenticv1alpha1.SecretRequirement `json:"requiredSecrets,omitempty"`
 	Phase           string                              `json:"phase"`
 }
@@ -88,7 +88,7 @@ func EnsureAgentTemplate(
 	phase string,
 	agent *agenticv1alpha1.Agent,
 	llm *agenticv1alpha1.LLMProvider,
-	ct *agenticv1alpha1.ComponentTools,
+	tools *agenticv1alpha1.ToolsSpec,
 ) (string, error) {
 	log := logf.FromContext(ctx).WithName("sandbox-templates")
 
@@ -102,10 +102,10 @@ func EnsureAgentTemplate(
 	var skills []agenticv1alpha1.SkillsSource
 	var mcpServers []agenticv1alpha1.MCPServerConfig
 	var requiredSecrets []agenticv1alpha1.SecretRequirement
-	if ct != nil {
-		skills = ct.Spec.Skills
-		mcpServers = ct.Spec.MCPServers
-		requiredSecrets = ct.Spec.RequiredSecrets
+	if tools != nil {
+		skills = tools.Skills
+		mcpServers = tools.MCPServers
+		requiredSecrets = tools.RequiredSecrets
 	}
 
 	hash, err := computeTemplateHash(llm, skills, mcpServers, requiredSecrets, phase)

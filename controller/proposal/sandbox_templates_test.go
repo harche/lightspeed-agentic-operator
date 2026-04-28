@@ -46,9 +46,9 @@ func emptyTemplate() *unstructured.Unstructured {
 	}
 }
 
-func mustHash(t *testing.T, llm *agenticv1alpha1.LLMProvider, skills []agenticv1alpha1.SkillsSource, mcpServers []agenticv1alpha1.MCPServerConfig, requiredSecrets []agenticv1alpha1.SecretRequirement, phase string) string {
+func mustHash(t *testing.T, llm *agenticv1alpha1.LLMProvider, skills []agenticv1alpha1.SkillsSource, requiredSecrets []agenticv1alpha1.SecretRequirement, phase string) string {
 	t.Helper()
-	h, err := computeTemplateHash(llm, skills, mcpServers, requiredSecrets, phase)
+	h, err := computeTemplateHash(llm, skills, nil, requiredSecrets, phase)
 	if err != nil {
 		t.Fatalf("computeTemplateHash: %v", err)
 	}
@@ -150,8 +150,8 @@ func TestComputeTemplateHash_Deterministic(t *testing.T) {
 	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1 := mustHash(t, llm, skills, nil, nil, "analysis")
-	h2 := mustHash(t, llm, skills, nil, nil, "analysis")
+	h1 := mustHash(t, llm, skills, nil, "analysis")
+	h2 := mustHash(t, llm, skills, nil, "analysis")
 
 	if h1 != h2 {
 		t.Errorf("same input produced different hashes: %q vs %q", h1, h2)
@@ -163,8 +163,8 @@ func TestComputeTemplateHash_Deterministic(t *testing.T) {
 
 func TestComputeTemplateHash_DifferentModel(t *testing.T) {
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
-	h1 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6"), skills, nil, nil, "analysis")
-	h2 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-sonnet-4-6"), skills, nil, nil, "analysis")
+	h1 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6"), skills, nil, "analysis")
+	h2 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-sonnet-4-6"), skills, nil, "analysis")
 
 	if h1 == h2 {
 		t.Error("different models should produce different hashes")
@@ -175,8 +175,8 @@ func TestComputeTemplateHash_DifferentPhase(t *testing.T) {
 	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1 := mustHash(t, llm, skills, nil, nil, "analysis")
-	h2 := mustHash(t, llm, skills, nil, nil, "execution")
+	h1 := mustHash(t, llm, skills, nil, "analysis")
+	h2 := mustHash(t, llm, skills, nil, "execution")
 
 	if h1 == h2 {
 		t.Error("different phases should produce different hashes")
@@ -189,8 +189,8 @@ func TestComputeTemplateHash_DifferentSecret(t *testing.T) {
 	llm2 := testLLMProvider(agenticv1alpha1.LLMProviderAnthropic, "claude-opus-4-6")
 	llm2.Spec.CredentialsSecret.Name = "different-secret"
 
-	h1 := mustHash(t, llm1, skills, nil, nil, "analysis")
-	h2 := mustHash(t, llm2, skills, nil, nil, "analysis")
+	h1 := mustHash(t, llm1, skills, nil, "analysis")
+	h2 := mustHash(t, llm2, skills, nil, "analysis")
 
 	if h1 == h2 {
 		t.Error("different secrets should produce different hashes")
@@ -201,8 +201,8 @@ func TestComputeTemplateHash_DifferentRequiredSecrets(t *testing.T) {
 	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1 := mustHash(t, llm, skills, nil, nil, "analysis")
-	h2 := mustHash(t, llm, skills, nil, []agenticv1alpha1.SecretRequirement{
+	h1 := mustHash(t, llm, skills, nil, "analysis")
+	h2 := mustHash(t, llm, skills, []agenticv1alpha1.SecretRequirement{
 		{Name: "my-token", MountAs: "MY_TOKEN"},
 	}, "analysis")
 
@@ -459,8 +459,8 @@ func TestPatchSkillsPaths_HashChangesWithPaths(t *testing.T) {
 	noPaths := []agenticv1alpha1.SkillsSource{{Image: "img:latest"}}
 	withPaths := []agenticv1alpha1.SkillsSource{{Image: "img:latest", Paths: []string{"/a", "/b"}}}
 
-	h1 := mustHash(t, llm, noPaths, nil, nil, "analysis")
-	h2 := mustHash(t, llm, withPaths, nil, nil, "analysis")
+	h1 := mustHash(t, llm, noPaths, nil, "analysis")
+	h2 := mustHash(t, llm, withPaths, nil, "analysis")
 
 	if h1 == h2 {
 		t.Error("hash should differ when paths are added")

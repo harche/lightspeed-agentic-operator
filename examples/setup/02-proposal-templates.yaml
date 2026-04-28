@@ -1,0 +1,39 @@
+# ProposalTemplates — cluster-scoped, define reusable workflow shapes.
+# Created by the cluster admin on Day 0. Component teams reference these
+# from Proposals via spec.templateRef.
+#
+# Steps are skipped by omitting them. Analysis is always required.
+# Each step's agent field references a cluster-scoped Agent by name.
+---
+# Advisory — analysis only, no execution or verification
+apiVersion: agentic.openshift.io/v1alpha1
+kind: ProposalTemplate
+metadata:
+  name: advisory
+spec:
+  analysis:
+    agent: smart
+---
+# Remediation — full pipeline: analyze → execute → verify
+apiVersion: agentic.openshift.io/v1alpha1
+kind: ProposalTemplate
+metadata:
+  name: remediation
+spec:
+  maxAttempts: 3
+  analysis:
+    agent: smart
+  execution: {}
+  verification:
+    agent: fast
+---
+# Assisted — analyze, user applies manually, then verify
+apiVersion: agentic.openshift.io/v1alpha1
+kind: ProposalTemplate
+metadata:
+  name: assisted
+spec:
+  analysis:
+    agent: smart
+  verification:
+    agent: fast

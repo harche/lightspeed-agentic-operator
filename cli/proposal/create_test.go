@@ -16,7 +16,7 @@ func TestCreate_Success(t *testing.T) {
 	o := &CreateOptions{
 		client:    fc,
 		namespace: "default",
-		workflow:  "remediation",
+		template:  "remediation",
 		request:   "Pod crashing",
 		IOStreams:  streams,
 	}
@@ -35,7 +35,7 @@ func TestCreate_GenerateNamePrefix(t *testing.T) {
 	o := &CreateOptions{
 		client:    fc,
 		namespace: "default",
-		workflow:  "remediation",
+		template:  "remediation",
 		request:   "Pod crashing",
 	}
 
@@ -61,7 +61,7 @@ func TestCreate_WithMaxAttempts(t *testing.T) {
 	o := &CreateOptions{
 		client:      fc,
 		namespace:   "default",
-		workflow:    "remediation",
+		template:    "remediation",
 		request:     "Pod crashing",
 		maxAttempts: 3,
 		IOStreams:    streams,
@@ -93,7 +93,7 @@ func TestCreate_WithoutMaxAttempts(t *testing.T) {
 	o := &CreateOptions{
 		client:      fc,
 		namespace:   "default",
-		workflow:    "remediation",
+		template:    "remediation",
 		request:     "Pod crashing",
 		maxAttempts: -1,
 		IOStreams:    streams,
@@ -118,7 +118,7 @@ func TestCreate_WithTargetNamespaces(t *testing.T) {
 	o := &CreateOptions{
 		client:           fc,
 		namespace:        "default",
-		workflow:         "remediation",
+		template:         "remediation",
 		request:          "Pod crashing",
 		targetNamespaces: []string{"prod", "staging"},
 		maxAttempts:      -1,
@@ -145,7 +145,7 @@ func TestCreate_JSONOutput(t *testing.T) {
 	o := &CreateOptions{
 		client:      fc,
 		namespace:   "default",
-		workflow:    "remediation",
+		template:    "remediation",
 		request:     "Pod crashing",
 		output:      "json",
 		maxAttempts: -1,
@@ -155,7 +155,7 @@ func TestCreate_JSONOutput(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	if !strings.Contains(out.String(), `"request"`) || !strings.Contains(out.String(), `"workflow"`) {
+	if !strings.Contains(out.String(), `"request"`) || !strings.Contains(out.String(), `"templateRef"`) {
 		t.Errorf("expected JSON output with proposal fields, got:\n%s", out.String())
 	}
 }
@@ -169,41 +169,41 @@ func TestCreate_Validate(t *testing.T) {
 	}{
 		{
 			name:    "empty request",
-			opts:    CreateOptions{request: "  ", workflow: "remediation", maxAttempts: -1},
+			opts:    CreateOptions{request: "  ", template: "remediation", maxAttempts: -1},
 			wantErr: true,
 			errMsg:  "--request",
 		},
 		{
-			name:    "empty workflow",
-			opts:    CreateOptions{request: "fix", workflow: "  ", maxAttempts: -1},
+			name:    "empty template",
+			opts:    CreateOptions{request: "fix", template: "  ", maxAttempts: -1},
 			wantErr: true,
-			errMsg:  "--workflow",
+			errMsg:  "--template",
 		},
 		{
 			name:    "max-attempts too high",
-			opts:    CreateOptions{request: "fix", workflow: "remediation", maxAttempts: 25},
+			opts:    CreateOptions{request: "fix", template: "remediation", maxAttempts: 25},
 			wantErr: true,
 			errMsg:  "--max-attempts",
 		},
 		{
 			name:    "max-attempts negative (not sentinel)",
-			opts:    CreateOptions{request: "fix", workflow: "remediation", maxAttempts: -2},
+			opts:    CreateOptions{request: "fix", template: "remediation", maxAttempts: -2},
 			wantErr: true,
 			errMsg:  "--max-attempts",
 		},
 		{
 			name:    "valid",
-			opts:    CreateOptions{request: "fix", workflow: "remediation", maxAttempts: -1},
+			opts:    CreateOptions{request: "fix", template: "remediation", maxAttempts: -1},
 			wantErr: false,
 		},
 		{
 			name:    "max-attempts zero",
-			opts:    CreateOptions{request: "fix", workflow: "remediation", maxAttempts: 0},
+			opts:    CreateOptions{request: "fix", template: "remediation", maxAttempts: 0},
 			wantErr: false,
 		},
 		{
 			name:    "invalid output",
-			opts:    CreateOptions{request: "fix", workflow: "remediation", maxAttempts: -1, output: "xml"},
+			opts:    CreateOptions{request: "fix", template: "remediation", maxAttempts: -1, output: "xml"},
 			wantErr: true,
 		},
 	}
@@ -220,14 +220,14 @@ func TestCreate_Validate(t *testing.T) {
 	}
 }
 
-func TestCreate_WorkflowReference(t *testing.T) {
+func TestCreate_TemplateReference(t *testing.T) {
 	streams, _, _ := fakeStreams()
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()
 
 	o := &CreateOptions{
 		client:      fc,
 		namespace:   "default",
-		workflow:    "my-workflow",
+		template:    "my-template",
 		request:     "test",
 		maxAttempts: -1,
 		IOStreams:    streams,
@@ -240,7 +240,7 @@ func TestCreate_WorkflowReference(t *testing.T) {
 	if err := fc.List(context.Background(), list); err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if list.Items[0].Spec.Workflow.Name != "my-workflow" {
-		t.Errorf("expected workflow ref 'my-workflow', got %q", list.Items[0].Spec.Workflow.Name)
+	if list.Items[0].Spec.TemplateRef == nil || list.Items[0].Spec.TemplateRef.Name != "my-template" {
+		t.Errorf("expected templateRef 'my-template', got %v", list.Items[0].Spec.TemplateRef)
 	}
 }

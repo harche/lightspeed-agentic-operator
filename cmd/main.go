@@ -63,6 +63,7 @@ func main() {
 
 	agentCaller := proposal.NewSandboxAgentCaller(
 		sandboxMgr,
+		mgr.GetClient(),
 		proposal.NewAgentHTTPClient,
 		namespace,
 		templateName,

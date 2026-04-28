@@ -144,6 +144,13 @@ func PrintTable(w io.Writer, headers []string, rows [][]string) {
 	tw.Flush()
 }
 
+func TemplateName(p *agenticv1alpha1.Proposal) string {
+	if p.Spec.TemplateRef != nil {
+		return p.Spec.TemplateRef.Name
+	}
+	return "(inline)"
+}
+
 func MarshalOutput(w io.Writer, obj interface{}, format string) error {
 	switch format {
 	case OutputJSON:

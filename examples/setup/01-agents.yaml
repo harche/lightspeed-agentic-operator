@@ -1,9 +1,8 @@
 # Agents — cluster-scoped tiers that pair an LLM provider with runtime settings.
-# Referenced by name from Workflow steps (agent field).
+# Referenced by name from ProposalTemplate steps.
 #
-# Agents no longer carry skills or system prompts — those live in ComponentTools.
-# Think of agents as "infrastructure tiers" (smart vs fast) and ComponentTools
-# as "domain-specific tooling" (ACS tools, cluster-ops tools, etc.).
+# Agents define infrastructure tiers (smart vs fast). Domain-specific tooling
+# (skills images, required secrets) is specified on Proposals via spec.tools.
 ---
 apiVersion: agentic.openshift.io/v1alpha1
 kind: Agent
@@ -35,8 +34,8 @@ spec:
   providerSettings:
     reasoningEffort: "low"
 ---
-# The "default" agent must exist — the operator auto-links to it when a
-# Workflow step omits the agent field.
+# The "default" agent must exist — the operator uses it when a
+# ProposalTemplate step omits the agent field.
 apiVersion: agentic.openshift.io/v1alpha1
 kind: Agent
 metadata:

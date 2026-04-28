@@ -89,7 +89,7 @@ func (o *GetOptions) printDetail(p *agenticv1alpha1.Proposal) {
 
 	fmt.Fprintf(w, "Name:              %s\n", p.Name)
 	fmt.Fprintf(w, "Namespace:         %s\n", p.Namespace)
-	fmt.Fprintf(w, "Workflow:           %s\n", p.Spec.Workflow.Name)
+	fmt.Fprintf(w, "Template:           %s\n", TemplateName(p))
 	fmt.Fprintf(w, "Phase:             %s\n", ColoredPhase(p.Status.Phase))
 	if p.Status.Attempt != nil {
 		maxAttempts := "-"

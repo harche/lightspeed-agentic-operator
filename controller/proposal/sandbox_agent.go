@@ -65,7 +65,7 @@ func phaseString(step agenticv1alpha1.SandboxStep) string {
 }
 
 func (s *SandboxAgentCaller) Analyze(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*AnalysisOutput, error) {
-	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepAnalysis), step, requestText, nil, buildAgentContext(proposal))
+	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepAnalysis), step, requestText, buildAgentContext(proposal))
 	if err != nil {
 		return nil, fmt.Errorf("analysis agent call: %w", err)
 	}
@@ -87,7 +87,7 @@ func (s *SandboxAgentCaller) Execute(ctx context.Context, proposal *agenticv1alp
 		agentCtx.ApprovedOption = option
 	}
 
-	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepExecution), step, proposal.Spec.Request, nil, agentCtx)
+	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepExecution), step, proposal.Spec.Request, agentCtx)
 	if err != nil {
 		return nil, fmt.Errorf("execution agent call: %w", err)
 	}
@@ -113,7 +113,7 @@ func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alph
 		agentCtx.ApprovedOption = option
 	}
 
-	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepVerification), step, proposal.Spec.Request, nil, agentCtx)
+	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepVerification), step, proposal.Spec.Request, agentCtx)
 	if err != nil {
 		return nil, fmt.Errorf("verification agent call: %w", err)
 	}
@@ -135,10 +135,9 @@ func (s *SandboxAgentCaller) callWithSandbox(
 	proposalName, phase string,
 	step resolvedStep,
 	query string,
-	outputSchema json.RawMessage,
 	agentCtx *agentContext,
 ) (json.RawMessage, error) {
-	templateName, err := EnsureAgentTemplate(ctx, s.K8sClient, s.BaseTemplateName, s.Namespace, phase, step.Agent, step.LLM, step.ComponentTools)
+	templateName, err := EnsureAgentTemplate(ctx, s.K8sClient, s.BaseTemplateName, s.Namespace, phase, step.Agent, step.LLM, step.Tools)
 	if err != nil {
 		return nil, fmt.Errorf("ensure agent template: %w", err)
 	}
@@ -168,13 +167,13 @@ func (s *SandboxAgentCaller) callWithSandbox(
 		agentURL = fmt.Sprintf("https://%s:8080", endpoint)
 	}
 
-	if step.ComponentTools == nil {
-		return nil, fmt.Errorf("ComponentTools is required for agent call but not resolved")
+	var schema json.RawMessage
+	if step.Tools != nil && step.Tools.OutputSchema != nil {
+		schema, _ = step.Tools.OutputSchema.MarshalJSON()
 	}
-	systemPrompt := step.ComponentTools.Spec.SystemPrompt
 
 	client := s.ClientFactory(agentURL)
-	resp, err := client.Query(ctx, phase, systemPrompt, query, outputSchema, agentCtx)
+	resp, err := client.Query(ctx, phase, "", query, schema, agentCtx)
 	if err != nil {
 		return nil, err
 	}

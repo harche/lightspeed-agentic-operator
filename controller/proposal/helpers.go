@@ -177,9 +177,12 @@ func attemptAlreadyRecorded(attempts []agenticv1alpha1.PreviousAttempt, num int3
 	return false
 }
 
-func (r *ProposalReconciler) maxAttempts(proposal *agenticv1alpha1.Proposal) int {
+func maxAttempts(proposal *agenticv1alpha1.Proposal, resolved *resolvedWorkflow) int {
 	if proposal.Spec.MaxAttempts != nil {
 		return int(*proposal.Spec.MaxAttempts)
+	}
+	if resolved != nil && resolved.MaxAttempts != nil {
+		return int(*resolved.MaxAttempts)
 	}
 	return defaultMaxAttempts
 }

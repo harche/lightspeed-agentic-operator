@@ -17,7 +17,7 @@ func testScheme() *runtime.Scheme {
 	return s
 }
 
-func testProposal(name, namespace, workflow string) *agenticv1alpha1.Proposal {
+func testProposal(name, namespace, template string) *agenticv1alpha1.Proposal {
 	return &agenticv1alpha1.Proposal{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              name,
@@ -26,7 +26,7 @@ func testProposal(name, namespace, workflow string) *agenticv1alpha1.Proposal {
 		},
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:          "Pod crashing in production",
-			Workflow:         agenticv1alpha1.WorkflowReference{Name: workflow},
+			TemplateRef:      &agenticv1alpha1.ProposalTemplateReference{Name: template},
 			TargetNamespaces: []string{"production"},
 		},
 	}

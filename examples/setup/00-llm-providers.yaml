@@ -1,7 +1,6 @@
 # LLM providers — cluster-scoped, define once, reference by name from Agent CRs.
 #
-# These are the foundation of the CRD chain:
-#   LLMProvider → Agent → Workflow → Proposal
+# CRD chain: LLMProvider → Agent → ProposalTemplate ← Proposal
 #
 # The credentialsSecret must include the namespace since LLMProvider is
 # cluster-scoped. See LLMProviderType docs for required secret keys per provider.

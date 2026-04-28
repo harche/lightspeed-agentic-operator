@@ -14,7 +14,7 @@ import (
 
 type CreateOptions struct {
 	configFlags      *genericclioptions.ConfigFlags
-	workflow         string
+	template         string
 	request          string
 	targetNamespaces []string
 	maxAttempts      int
@@ -36,11 +36,11 @@ func NewCreateCmd(streams genericclioptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a new Proposal",
-		Example: `  # Create a proposal using the remediation workflow
-  oc agentic proposal create --workflow=remediation --request="Fix crashloop in production"
+		Example: `  # Create a proposal using the remediation template
+  oc agentic proposal create --template=remediation --request="Fix crashloop in production"
 
   # Create a proposal with retry limit
-  oc agentic proposal create --workflow=upgrade --request="Upgrade to 4.22" --max-attempts=3`,
+  oc agentic proposal create --template=remediation --request="Upgrade to 4.22" --max-attempts=3`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -53,13 +53,13 @@ func NewCreateCmd(streams genericclioptions.IOStreams) *cobra.Command {
 	}
 
 	o.configFlags.AddFlags(cmd.Flags())
-	cmd.Flags().StringVar(&o.workflow, "workflow", "", "Workflow CR name (required)")
+	cmd.Flags().StringVar(&o.template, "template", "", "ProposalTemplate name (required)")
 	cmd.Flags().StringVar(&o.request, "request", "", "Description of what to do (required)")
 	cmd.Flags().StringSliceVar(&o.targetNamespaces, "target-namespaces", nil, "Target namespace(s), comma-separated")
 	cmd.Flags().IntVar(&o.maxAttempts, "max-attempts", -1, "Maximum retry attempts (0-20)")
 	cmd.Flags().StringVarP(&o.output, "output", "o", "", "Output format: json or yaml")
 
-	_ = cmd.MarkFlagRequired("workflow")
+	_ = cmd.MarkFlagRequired("template")
 	_ = cmd.MarkFlagRequired("request")
 
 	return cmd
@@ -79,8 +79,8 @@ func (o *CreateOptions) Validate() error {
 	if strings.TrimSpace(o.request) == "" {
 		return fmt.Errorf("--request must not be empty")
 	}
-	if strings.TrimSpace(o.workflow) == "" {
-		return fmt.Errorf("--workflow must not be empty")
+	if strings.TrimSpace(o.template) == "" {
+		return fmt.Errorf("--template must not be empty")
 	}
 	if o.maxAttempts != -1 && (o.maxAttempts < 0 || o.maxAttempts > 20) {
 		return fmt.Errorf("--max-attempts must be between 0 and 20")
@@ -95,7 +95,7 @@ func (o *CreateOptions) Run(ctx context.Context) error {
 			Namespace:    o.namespace,
 		},
 		Spec: agenticv1alpha1.ProposalSpec{
-			Workflow:         agenticv1alpha1.WorkflowReference{Name: o.workflow},
+			TemplateRef:      &agenticv1alpha1.ProposalTemplateReference{Name: o.template},
 			Request:          o.request,
 			TargetNamespaces: o.targetNamespaces,
 		},
