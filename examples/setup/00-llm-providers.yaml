@@ -1,0 +1,29 @@
+# LLM providers — cluster-scoped, define once, reference by name from Agent CRs.
+#
+# These are the foundation of the CRD chain:
+#   LLMProvider → Agent → Workflow → Proposal
+#
+# The credentialsSecret must include the namespace since LLMProvider is
+# cluster-scoped. See LLMProviderType docs for required secret keys per provider.
+---
+apiVersion: agentic.openshift.io/v1alpha1
+kind: LLMProvider
+metadata:
+  name: smart
+spec:
+  type: Vertex
+  model: claude-opus-4-6
+  credentialsSecret:
+    name: llm-credentials
+    namespace: openshift-lightspeed
+---
+apiVersion: agentic.openshift.io/v1alpha1
+kind: LLMProvider
+metadata:
+  name: fast
+spec:
+  type: Vertex
+  model: claude-haiku-4-5
+  credentialsSecret:
+    name: llm-credentials
+    namespace: openshift-lightspeed

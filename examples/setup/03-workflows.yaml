@@ -1,0 +1,89 @@
+# Workflows — namespace-scoped, define the 3-step pipeline.
+# Each step pairs an Agent tier with a ComponentTools configuration.
+# Steps are skipped by omitting them entirely (not with a skip field).
+---
+# Full lifecycle: analyze → approve → execute → verify
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Workflow
+metadata:
+  name: remediation
+  namespace: openshift-lightspeed
+spec:
+  analysis:
+    agent: smart
+    componentTools:
+      name: cluster-ops-analysis
+  execution:
+    agent: fast
+    componentTools:
+      name: cluster-ops-execution
+  verification:
+    agent: smart
+    componentTools:
+      name: cluster-ops-verification
+---
+# GitOps: analyze → approve → user applies via git → verify
+# (execution omitted — proposal transitions to AwaitingSync)
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Workflow
+metadata:
+  name: gitops-remediation
+  namespace: openshift-lightspeed
+spec:
+  analysis:
+    agent: smart
+    componentTools:
+      name: cluster-ops-analysis
+  verification:
+    agent: smart
+    componentTools:
+      name: cluster-ops-verification
+---
+# Advisory-only: analyze only, no execution or verification
+# (both execution and verification omitted)
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Workflow
+metadata:
+  name: advisory-only
+  namespace: openshift-lightspeed
+spec:
+  analysis:
+    agent: smart
+    componentTools:
+      name: cluster-ops-analysis
+---
+# Trust mode: analyze → execute, skip verification
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Workflow
+metadata:
+  name: trust-mode
+  namespace: openshift-lightspeed
+spec:
+  analysis:
+    agent: smart
+    componentTools:
+      name: cluster-ops-analysis
+  execution:
+    agent: fast
+    componentTools:
+      name: cluster-ops-execution
+---
+# Upgrade: specialized analysis and execution agents
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Workflow
+metadata:
+  name: upgrade
+  namespace: openshift-lightspeed
+spec:
+  analysis:
+    agent: smart
+    componentTools:
+      name: upgrade-analysis
+  execution:
+    agent: smart
+    componentTools:
+      name: upgrade-execution
+  verification:
+    agent: smart
+    componentTools:
+      name: cluster-ops-verification

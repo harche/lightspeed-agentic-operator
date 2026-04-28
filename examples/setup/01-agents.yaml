@@ -1,0 +1,47 @@
+# Agents — cluster-scoped tiers that pair an LLM provider with runtime settings.
+# Referenced by name from Workflow steps (agent field).
+#
+# Agents no longer carry skills or system prompts — those live in ComponentTools.
+# Think of agents as "infrastructure tiers" (smart vs fast) and ComponentTools
+# as "domain-specific tooling" (ACS tools, cluster-ops tools, etc.).
+---
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Agent
+metadata:
+  name: smart
+spec:
+  llmProvider:
+    name: smart
+  timeouts:
+    analysisSeconds: 300
+    executionSeconds: 600
+    verificationSeconds: 300
+  maxTurns: 200
+  providerSettings:
+    reasoningEffort: "high"
+---
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Agent
+metadata:
+  name: fast
+spec:
+  llmProvider:
+    name: fast
+  timeouts:
+    analysisSeconds: 120
+    executionSeconds: 300
+    verificationSeconds: 120
+  maxTurns: 100
+  providerSettings:
+    reasoningEffort: "low"
+---
+# The "default" agent must exist — the operator auto-links to it when a
+# Workflow step omits the agent field.
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Agent
+metadata:
+  name: default
+spec:
+  llmProvider:
+    name: smart
+  maxTurns: 200

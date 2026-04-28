@@ -1,0 +1,488 @@
+# OSSM (OpenShift Service Mesh) workflow setup.
+#
+# When Istio metrics detect service mesh issues (high error rates, latency
+# spikes, mTLS misconfigurations), the AlertManager adapter creates a
+# Proposal using this workflow.
+#
+# Requires: LLMProvider "smart" and "fast" from 00-llm-providers.yaml
+#           Agent "smart" and "fast" from 01-agents.yaml
+
+---
+# OSSM-specific ComponentTools
+apiVersion: agentic.openshift.io/v1alpha1
+kind: ComponentTools
+metadata:
+  name: ossm-analysis
+  namespace: openshift-lightspeed
+spec:
+  skills:
+    - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
+  systemPrompt: |
+    You are an expert service mesh engineer for OpenShift clusters with
+    Red Hat OpenShift Service Mesh (OSSM / Istio). You are investigating
+    a service mesh issue detected by Prometheus metrics from Istio sidecars.
+
+    ## Service Mesh Resources You Should Inspect
+    - VirtualService, DestinationRule, PeerAuthentication, AuthorizationPolicy
+
+    ## Key Istio Metrics
+    - response_code, destination_service_name, source_workload
+    - connection_security_policy, response_flags (UH, UO, NR)
+
+    ## Your Task
+    1. Investigate the alert described in the request
+    2. Query Istio metrics via Prometheus
+    3. Inspect Istio resources in the affected namespace
+    4. Identify the root cause
+    5. Propose one or more remediation options
+
+---
+# OSSM workflows
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Workflow
+metadata:
+  name: ossm-remediation
+  namespace: openshift-lightspeed
+spec:
+  analysis:
+    agent: smart
+    componentTools:
+      name: ossm-analysis
+  execution:
+    agent: fast
+    componentTools:
+      name: cluster-ops-execution
+  verification:
+    agent: fast
+    componentTools:
+      name: cluster-ops-verification
+---
+# Advisory only: analyze mesh issue, no action
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Workflow
+metadata:
+  name: ossm-advisory
+  namespace: openshift-lightspeed
+spec:
+  analysis:
+    agent: smart
+    componentTools:
+      name: ossm-analysis
+
+---
+# Demo fixtures
+#
+# Bookinfo namespace with Istio sidecar injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bookinfo
+  labels:
+    istio-injection: enabled
+---
+# SCC — allow Bookinfo images to run (they use runAsUser: 1000)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bookinfo-anyuid
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+- kind: Group
+  apiGroup: rbac.authorization.k8s.io
+  name: system:serviceaccounts:bookinfo
+
+---
+# Bookinfo services
+apiVersion: v1
+kind: Service
+metadata:
+  name: details
+  namespace: bookinfo
+  labels:
+    app: details
+spec:
+  ports:
+  - port: 9080
+    name: http
+  selector:
+    app: details
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratings
+  namespace: bookinfo
+  labels:
+    app: ratings
+spec:
+  ports:
+  - port: 9080
+    name: http
+  selector:
+    app: ratings
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews
+  namespace: bookinfo
+  labels:
+    app: reviews
+spec:
+  ports:
+  - port: 9080
+    name: http
+  selector:
+    app: reviews
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: productpage
+  namespace: bookinfo
+  labels:
+    app: productpage
+spec:
+  ports:
+  - port: 9080
+    name: http
+  selector:
+    app: productpage
+
+---
+# Bookinfo ServiceAccounts
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bookinfo-details
+  namespace: bookinfo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bookinfo-ratings
+  namespace: bookinfo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bookinfo-reviews
+  namespace: bookinfo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bookinfo-productpage
+  namespace: bookinfo
+
+---
+# Bookinfo Deployments
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: details-v1
+  namespace: bookinfo
+  labels:
+    app: details
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: details
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: details
+        version: v1
+    spec:
+      serviceAccountName: bookinfo-details
+      containers:
+      - name: details
+        image: docker.io/istio/examples-bookinfo-details-v1:1.20.2
+        ports:
+        - containerPort: 9080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratings-v1
+  namespace: bookinfo
+  labels:
+    app: ratings
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ratings
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: ratings
+        version: v1
+    spec:
+      serviceAccountName: bookinfo-ratings
+      containers:
+      - name: ratings
+        image: docker.io/istio/examples-bookinfo-ratings-v1:1.20.2
+        ports:
+        - containerPort: 9080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v1
+  namespace: bookinfo
+  labels:
+    app: reviews
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: reviews
+        version: v1
+    spec:
+      serviceAccountName: bookinfo-reviews
+      containers:
+      - name: reviews
+        image: docker.io/istio/examples-bookinfo-reviews-v1:1.20.2
+        env:
+        - name: LOG_DIR
+          value: "/tmp/logs"
+        ports:
+        - containerPort: 9080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v2
+  namespace: bookinfo
+  labels:
+    app: reviews
+    version: v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: reviews
+        version: v2
+    spec:
+      serviceAccountName: bookinfo-reviews
+      containers:
+      - name: reviews
+        image: docker.io/istio/examples-bookinfo-reviews-v2:1.20.2
+        env:
+        - name: LOG_DIR
+          value: "/tmp/logs"
+        ports:
+        - containerPort: 9080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v3
+  namespace: bookinfo
+  labels:
+    app: reviews
+    version: v3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews
+      version: v3
+  template:
+    metadata:
+      labels:
+        app: reviews
+        version: v3
+    spec:
+      serviceAccountName: bookinfo-reviews
+      containers:
+      - name: reviews
+        image: docker.io/istio/examples-bookinfo-reviews-v3:1.20.2
+        env:
+        - name: LOG_DIR
+          value: "/tmp/logs"
+        ports:
+        - containerPort: 9080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: productpage-v1
+  namespace: bookinfo
+  labels:
+    app: productpage
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: productpage
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: productpage
+        version: v1
+    spec:
+      serviceAccountName: bookinfo-productpage
+      containers:
+      - name: productpage
+        image: docker.io/istio/examples-bookinfo-productpage-v1:1.20.2
+        ports:
+        - containerPort: 9080
+
+---
+# Headless service for Prometheus to scrape Istio sidecar metrics.
+# OSSM 3.x injects sidecars via CNI without declaring container ports,
+# so PodMonitor portNumber can't match. This Service targets port 15020
+# (istio-agent merged prometheus endpoint) and the ServiceMonitor scrapes it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: istio-proxy-metrics
+  namespace: bookinfo
+  labels:
+    app.kubernetes.io/part-of: istio
+spec:
+  clusterIP: None
+  selector:
+    security.istio.io/tlsMode: istio
+  ports:
+  - name: http-envoy-prom
+    port: 15020
+    targetPort: 15020
+    protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: istio-proxies
+  namespace: bookinfo
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: istio
+  endpoints:
+  - port: http-envoy-prom
+    path: /stats/prometheus
+    interval: 15s
+
+---
+# Traffic generator — continuous requests to productpage
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-generator
+  namespace: bookinfo
+  labels:
+    app: traffic-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traffic-generator
+  template:
+    metadata:
+      labels:
+        app: traffic-generator
+      annotations:
+        sidecar.istio.io/inject: "true"
+    spec:
+      containers:
+      - name: load
+        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          while true; do
+            curl -s -o /dev/null -w "%{http_code}\n" http://productpage:9080/productpage
+            sleep 2
+          done
+
+---
+# Fault injection — VirtualService that injects HTTP 500 on 50% of
+# requests to ratings service. This is the "break" that creates
+# red lines in Kiali and fires the IstioHighErrorRate alert.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ratings
+  namespace: bookinfo
+spec:
+  host: ratings
+  subsets:
+  - name: v1
+    labels:
+      version: v1
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: ratings-fault
+  namespace: bookinfo
+spec:
+  hosts:
+  - ratings
+  http:
+  - fault:
+      abort:
+        httpStatus: 500
+        percentage:
+          value: 50.0
+    route:
+    - destination:
+        host: ratings
+        subset: v1
+
+---
+# PrometheusRule — fires IstioHighErrorRate when 5xx error rate
+# exceeds 5% for any service in the bookinfo namespace.
+# Fast firing (1m for demo).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: istio-mesh-alerts
+  namespace: bookinfo
+spec:
+  groups:
+  - name: istio-mesh
+    rules:
+    - alert: IstioHighErrorRate
+      annotations:
+        description: >-
+          Service {{ $labels.destination_service_name }} in namespace {{ $labels.namespace }}
+          has a 5xx error rate of {{ $value | humanizePercentage }} over the last 5 minutes.
+          This indicates the service is returning server errors for a significant portion
+          of requests within the service mesh.
+        summary: High 5xx error rate detected in service mesh.
+        runbook_url: https://istio.io/latest/docs/ops/common-problems/
+      expr: |
+        (
+          sum by (destination_service_name, namespace) (rate(istio_requests_total{response_code=~"5..",namespace="bookinfo"}[5m]))
+          /
+          sum by (destination_service_name, namespace) (rate(istio_requests_total{namespace="bookinfo"}[5m]))
+        ) > 0.05
+      for: 1m
+      labels:
+        severity: warning
+

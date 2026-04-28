@@ -1,0 +1,150 @@
+# AlertManager adapter — ComponentTools, workflows, and test fixtures.
+#
+# Requires: LLMProvider "smart" and "fast" from 00-llm-providers.yaml
+#           Agent "smart" and "fast" from 01-agents.yaml
+#           Base ComponentTools from 02-component-tools.yaml
+
+---
+# AlertManager-specific ComponentTools
+apiVersion: agentic.openshift.io/v1alpha1
+kind: ComponentTools
+metadata:
+  name: alertmanager-analysis
+  namespace: openshift-lightspeed
+spec:
+  skills:
+    - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
+  systemPrompt: |
+    You are an expert SRE agent for OpenShift clusters.
+    You are investigating an alert fired by Prometheus/AlertManager.
+
+    You have the following CLI tools available:
+    - `oc` — OpenShift CLI for inspecting cluster resources
+    - `promtool` — Prometheus tool for metric queries and rule validation
+    - `curl` — HTTP client for API calls
+
+    ## Your Task
+    1. Investigate the alert described in the request
+    2. Gather evidence from metrics, logs, events, and resource state
+    3. Identify the root cause with a confidence level
+    4. Propose one or more remediation options
+    5. Assess the risk of each option and whether it causes downtime
+
+    ## Investigation Steps
+    For crash-looping pods:
+    - Check pod status: `oc get pods -n <ns>`
+    - Check previous logs: `oc logs <pod> -n <ns> --previous`
+    - Check events: `oc get events -n <ns> --sort-by=.lastTimestamp`
+    - Check resource limits
+    - Query Prometheus for restart count trends
+
+    For resource alerts (CPU/memory):
+    - Query current usage via Prometheus
+    - Check resource requests vs limits
+    - Check HPA configuration
+    - Check node capacity
+
+    ## Rules
+    - ALWAYS gather evidence before forming a diagnosis
+    - Explain your reasoning and state your confidence: low, medium, or high
+    - If you cannot determine a root cause, say so — do not guess
+
+---
+# AlertManager workflows
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Workflow
+metadata:
+  name: alertmanager-remediation
+  namespace: openshift-lightspeed
+spec:
+  analysis:
+    agent: smart
+    componentTools:
+      name: alertmanager-analysis
+  execution:
+    agent: fast
+    componentTools:
+      name: cluster-ops-execution
+  verification:
+    agent: fast
+    componentTools:
+      name: cluster-ops-verification
+
+---
+# Test fixtures — PrometheusRule and JVM OOMKill demo
+#
+# Scenario: A Java app configured with -Xmx512m heap but the container
+# memory limit is only 256Mi. The JVM tries to allocate its heap on startup,
+# exceeds the cgroup memory limit, and gets OOMKilled by the kernel.
+# The pod enters CrashLoopBackOff with reason: OOMKilled.
+#
+# The fix is purely infrastructure — increase the container memory limit
+# to accommodate the JVM heap + overhead (~768Mi). No code changes needed.
+#
+# PrometheusRule: fires KubePodCrashLooping after 1 minute (fast for demos)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: lightspeed-demo-alerts
+  namespace: openshift-lightspeed
+spec:
+  groups:
+  - name: lightspeed-demo
+    rules:
+    - alert: KubePodCrashLooping
+      annotations:
+        description: >-
+          Pod {{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }})
+          is in a CrashLoopBackOff state and has restarted {{ $value }} times
+          in the last 5 minutes.
+        summary: Pod is crash-looping.
+        runbook_url: https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubepodcrashlooping
+      expr: |
+        rate(kube_pod_container_status_restarts_total{namespace="lightspeed-demo"}[5m]) * 60 * 5 > 0
+      for: 1m
+      labels:
+        severity: warning
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lightspeed-demo
+---
+# JVM OOMKill demo — container memory limit (256Mi) is too low for the JVM
+# footprint (256MB Xms + metaspace + threads ≈ 450MB). The JVM is OOMKilled on
+# startup. The app itself only needs 200MB heap — the fix is to increase the
+# container limit to 768Mi so the JVM fits. After the fix, the app starts and
+# prints "Service ready."
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jvm-oomkill-demo
+  namespace: lightspeed-demo
+  labels:
+    app: jvm-oomkill-demo
+  annotations:
+    description: "Demo app: JVM OOMKill due to container memory limit < JVM heap size"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jvm-oomkill-demo
+  template:
+    metadata:
+      labels:
+        app: jvm-oomkill-demo
+    spec:
+      containers:
+      - name: jvm
+        image: registry.access.redhat.com/ubi9/openjdk-21:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo 'public class App { public static void main(String[] a) throws Exception { System.out.println("Starting JVM service..."); byte[][] cache = new byte[200][]; for (int i = 0; i < 200; i++) { cache[i] = new byte[1024*1024]; } System.out.println("Cache loaded: 200MB. Service ready."); Thread.sleep(Long.MAX_VALUE); }}' > /tmp/App.java &&
+          java -Xms256m -Xmx512m /tmp/App.java
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 256Mi
