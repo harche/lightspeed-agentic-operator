@@ -126,15 +126,12 @@ type WorkflowStepOverride struct {
 type WorkflowOverride struct {
 	// analysis overrides the analysis step.
 	// +optional
-	// +kubebuilder:validation:MinProperties=1
 	Analysis WorkflowStepOverride `json:"analysis,omitzero"`
 	// execution overrides the execution step.
 	// +optional
-	// +kubebuilder:validation:MinProperties=1
 	Execution WorkflowStepOverride `json:"execution,omitzero"`
 	// verification overrides the verification step.
 	// +optional
-	// +kubebuilder:validation:MinProperties=1
 	Verification WorkflowStepOverride `json:"verification,omitzero"`
 }
 
@@ -200,7 +197,6 @@ type ProposalSpec struct {
 	// customizations like skipping execution on a normally full-lifecycle
 	// workflow, or swapping in a specialized agent.
 	// +optional
-	// +kubebuilder:validation:MinProperties=1
 	WorkflowOverride WorkflowOverride `json:"workflowOverride,omitzero"`
 
 	// parent references the parent proposal in an escalation chain.
@@ -263,7 +259,6 @@ type ProposalStatus struct {
 	// verification). Each step independently tracks its timing, sandbox
 	// info, and results.
 	// +optional
-	// +kubebuilder:validation:MinProperties=1
 	Steps StepsStatus `json:"steps,omitzero"`
 
 	// previousAttempts contains the failure history from earlier attempts.
@@ -354,7 +349,6 @@ type Proposal struct {
 
 	// status defines the observed state of Proposal.
 	// +optional
-	// +kubebuilder:validation:MinProperties=1
 	Status ProposalStatus `json:"status,omitzero"`
 }
 

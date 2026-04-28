@@ -57,7 +57,6 @@ type AgentSpec struct {
 
 	// timeouts configures per-step and per-turn timeout limits.
 	// +optional
-	// +kubebuilder:validation:MinProperties=1
 	Timeouts AgentTimeouts `json:"timeouts,omitzero"`
 
 	// maxTurns is the maximum number of tool-use turns the agent may take
@@ -72,7 +71,6 @@ type AgentSpec struct {
 	// temperature, reasoningEffort, topP, etc. The operator does not
 	// validate these keys — they are forwarded as-is to the SDK.
 	// +optional
-	// +kubebuilder:validation:MinProperties=1
 	ProviderSettings map[string]string `json:"providerSettings,omitempty"`
 }
 
@@ -136,7 +134,6 @@ type Agent struct {
 
 	// status defines the observed state of Agent.
 	// +optional
-	// +kubebuilder:validation:MinProperties=1
 	Status AgentStatus `json:"status,omitzero"`
 }
 

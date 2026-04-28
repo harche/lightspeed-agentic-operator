@@ -168,7 +168,6 @@ type ComponentTools struct {
 
 	// status defines the observed state of ComponentTools.
 	// +optional
-	// +kubebuilder:validation:MinProperties=1
 	Status ComponentToolsStatus `json:"status,omitzero"`
 }
 

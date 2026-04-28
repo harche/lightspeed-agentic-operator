@@ -59,7 +59,6 @@ const (
 // This is populated by the agent during the analysis step and stored in
 // the AnalysisStepStatus as part of a RemediationOption. Users see this
 // in the console UI when reviewing the proposal.
-// +kubebuilder:validation:MinProperties=1
 type DiagnosisResult struct {
 	// summary is a Markdown-formatted diagnosis summary explaining the
 	// problem, its symptoms, and the agent's findings. Maximum 8192 characters.
@@ -84,7 +83,6 @@ type DiagnosisResult struct {
 // ProposedAction describes a single discrete action the analysis agent
 // recommends as part of its remediation plan. Actions are displayed to
 // the user after analysis for review before approval.
-// +kubebuilder:validation:MinProperties=1
 type ProposedAction struct {
 	// type is the action category (e.g., "patch", "scale", "restart",
 	// "create", "delete", "rollout"). Free-form string to allow agents
@@ -116,7 +114,6 @@ const (
 // This is part of a RemediationOption and is presented to the user after
 // analysis, before approval. The risk and reversibility assessments help
 // users make informed approval decisions.
-// +kubebuilder:validation:MinProperties=1
 type ProposalResult struct {
 	// description is a Markdown-formatted summary of the overall remediation
 	// approach. Maximum 8192 characters.
@@ -159,7 +156,6 @@ type ProposalResult struct {
 // VerificationStep describes a single verification check that the
 // verification agent should run after execution. Populated by the
 // analysis agent as part of the RemediationOption.
-// +kubebuilder:validation:MinProperties=1
 type VerificationStep struct {
 	// name is a short identifier for this check (e.g., "pod-running").
 	// Must be 1-253 characters.
@@ -190,7 +186,6 @@ type VerificationStep struct {
 
 // RollbackPlan describes how to undo the remediation if execution fails
 // or causes unexpected issues. Populated by the analysis agent.
-// +kubebuilder:validation:MinProperties=1
 type RollbackPlan struct {
 	// description is a Markdown-formatted explanation of the rollback strategy.
 	// Must be 1-4096 characters.
@@ -210,7 +205,6 @@ type RollbackPlan struct {
 // remediation. Populated by the analysis agent as part of a
 // RemediationOption and used by the verification agent (if not skipped)
 // to validate the remediation.
-// +kubebuilder:validation:MinProperties=1
 type VerificationPlan struct {
 	// description is a Markdown-formatted summary of the verification approach.
 	// Maximum 4096 characters.
@@ -232,7 +226,6 @@ type VerificationPlan struct {
 // these requests against a 6-layer defense model before creating the
 // actual Role/ClusterRole bindings. Each rule must include a justification
 // so that users and policy can audit why the permission is needed.
-// +kubebuilder:validation:MinProperties=1
 type RBACRule struct {
 	// namespace is the target namespace for namespace-scoped rules.
 	// Must match one of the proposal's targetNamespaces. Ignored for
@@ -295,7 +288,6 @@ type RBACRule struct {
 // per proposal and binds these permissions via Role (namespace-scoped) or
 // ClusterRole (cluster-scoped) before launching the execution sandbox.
 // All RBAC resources are cleaned up after the proposal reaches a terminal state.
-// +kubebuilder:validation:MinProperties=1
 type RBACResult struct {
 	// namespaceScoped are rules that will be applied via Role + RoleBinding
 	// in the proposal's target namespaces. These are the most common rules.
@@ -327,7 +319,6 @@ type RBACResult struct {
 // data. For example, an ACS adapter might include violation details or
 // affected deployment information as components that the console plugin
 // renders with custom components.
-// +kubebuilder:validation:MinProperties=1
 type RemediationOption struct {
 	// title is a short Markdown-formatted name for this option
 	// (e.g., "Increase memory limit", "Restart with backoff").

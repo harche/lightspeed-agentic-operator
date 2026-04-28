@@ -89,7 +89,6 @@ type ExecutionAction struct {
 // before the formal verification step. This gives early signal on whether
 // the remediation worked. In trust-mode workflows (verification skipped),
 // this is the only verification that occurs.
-// +kubebuilder:validation:MinProperties=1
 type ExecutionVerification struct {
 	// conditionOutcome indicates whether the target condition improved
 	// after the remediation (e.g., pod is no longer CrashLoopBackOff).
@@ -107,7 +106,6 @@ type ExecutionVerification struct {
 // VerifyCheck is a single verification check result from the verification
 // agent. Each check corresponds to a VerificationStep from the analysis
 // agent's verification plan.
-// +kubebuilder:validation:MinProperties=1
 type VerifyCheck struct {
 	// name is the check identifier, matching the VerificationStep name.
 	// Maximum 253 characters.
@@ -137,7 +135,6 @@ type VerifyCheck struct {
 // creates a sandbox pod for each active step (analysis, execution,
 // verification) and records the claim details here. This enables the
 // console UI to stream sandbox pod logs in real time.
-// +kubebuilder:validation:MinProperties=1
 type SandboxInfo struct {
 	// claimName is the name of the SandboxClaim resource that owns the
 	// sandbox pod. Omit when no sandbox has been claimed; an empty string
@@ -162,7 +159,6 @@ type SandboxInfo struct {
 }
 
 // AnalysisStepStatus is the observed state of the analysis step.
-// +kubebuilder:validation:MinProperties=1
 type AnalysisStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -213,7 +209,6 @@ type AnalysisStepStatus struct {
 }
 
 // ExecutionStepStatus is the observed state of the execution step.
-// +kubebuilder:validation:MinProperties=1
 type ExecutionStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -259,7 +254,6 @@ type ExecutionStepStatus struct {
 }
 
 // VerificationStepStatus is the observed state of the verification step.
-// +kubebuilder:validation:MinProperties=1
 type VerificationStepStatus struct {
 	// conditions for this step.
 	// +listType=map
