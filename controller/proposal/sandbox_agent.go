@@ -9,6 +9,7 @@ import (
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
@@ -146,7 +147,11 @@ func (s *SandboxAgentCaller) callWithSandbox(
 	if err != nil {
 		return nil, fmt.Errorf("claim sandbox: %w", err)
 	}
-	defer func() { _ = s.Sandbox.Release(ctx, claimName) }()
+	defer func() {
+		if relErr := s.Sandbox.Release(ctx, claimName); relErr != nil {
+			logf.FromContext(ctx).Error(relErr, "failed to release sandbox", "claimName", claimName)
+		}
+	}()
 
 	timeout := s.Timeout
 	if timeout == 0 {
@@ -163,10 +168,10 @@ func (s *SandboxAgentCaller) callWithSandbox(
 		agentURL = fmt.Sprintf("https://%s:8080", endpoint)
 	}
 
-	var systemPrompt string
-	if step.ComponentTools != nil {
-		systemPrompt = step.ComponentTools.Spec.SystemPrompt
+	if step.ComponentTools == nil {
+		return nil, fmt.Errorf("ComponentTools is required for agent call but not resolved")
 	}
+	systemPrompt := step.ComponentTools.Spec.SystemPrompt
 
 	client := s.ClientFactory(agentURL)
 	resp, err := client.Query(ctx, phase, systemPrompt, query, outputSchema, agentCtx)

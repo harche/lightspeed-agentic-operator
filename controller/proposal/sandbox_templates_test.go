@@ -46,6 +46,15 @@ func emptyTemplate() *unstructured.Unstructured {
 	}
 }
 
+func mustHash(t *testing.T, llm *agenticv1alpha1.LLMProvider, skills []agenticv1alpha1.SkillsSource, mcpServers []agenticv1alpha1.MCPServerConfig, requiredSecrets []agenticv1alpha1.SecretRequirement, phase string) string {
+	t.Helper()
+	h, err := computeTemplateHash(llm, skills, mcpServers, requiredSecrets, phase)
+	if err != nil {
+		t.Fatalf("computeTemplateHash: %v", err)
+	}
+	return h
+}
+
 func getEnvVars(tmpl *unstructured.Unstructured) []map[string]any {
 	containers, _, _ := unstructured.NestedSlice(tmpl.Object, "spec", "podTemplate", "spec", "containers")
 	if len(containers) == 0 {
@@ -141,8 +150,8 @@ func TestComputeTemplateHash_Deterministic(t *testing.T) {
 	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1 := computeTemplateHash(llm, skills, nil, nil, "analysis")
-	h2 := computeTemplateHash(llm, skills, nil, nil, "analysis")
+	h1 := mustHash(t, llm, skills, nil, nil, "analysis")
+	h2 := mustHash(t, llm, skills, nil, nil, "analysis")
 
 	if h1 != h2 {
 		t.Errorf("same input produced different hashes: %q vs %q", h1, h2)
@@ -154,8 +163,8 @@ func TestComputeTemplateHash_Deterministic(t *testing.T) {
 
 func TestComputeTemplateHash_DifferentModel(t *testing.T) {
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
-	h1 := computeTemplateHash(testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6"), skills, nil, nil, "analysis")
-	h2 := computeTemplateHash(testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-sonnet-4-6"), skills, nil, nil, "analysis")
+	h1 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6"), skills, nil, nil, "analysis")
+	h2 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-sonnet-4-6"), skills, nil, nil, "analysis")
 
 	if h1 == h2 {
 		t.Error("different models should produce different hashes")
@@ -166,8 +175,8 @@ func TestComputeTemplateHash_DifferentPhase(t *testing.T) {
 	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1 := computeTemplateHash(llm, skills, nil, nil, "analysis")
-	h2 := computeTemplateHash(llm, skills, nil, nil, "execution")
+	h1 := mustHash(t, llm, skills, nil, nil, "analysis")
+	h2 := mustHash(t, llm, skills, nil, nil, "execution")
 
 	if h1 == h2 {
 		t.Error("different phases should produce different hashes")
@@ -180,8 +189,8 @@ func TestComputeTemplateHash_DifferentSecret(t *testing.T) {
 	llm2 := testLLMProvider(agenticv1alpha1.LLMProviderAnthropic, "claude-opus-4-6")
 	llm2.Spec.CredentialsSecret.Name = "different-secret"
 
-	h1 := computeTemplateHash(llm1, skills, nil, nil, "analysis")
-	h2 := computeTemplateHash(llm2, skills, nil, nil, "analysis")
+	h1 := mustHash(t, llm1, skills, nil, nil, "analysis")
+	h2 := mustHash(t, llm2, skills, nil, nil, "analysis")
 
 	if h1 == h2 {
 		t.Error("different secrets should produce different hashes")
@@ -192,8 +201,8 @@ func TestComputeTemplateHash_DifferentRequiredSecrets(t *testing.T) {
 	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1 := computeTemplateHash(llm, skills, nil, nil, "analysis")
-	h2 := computeTemplateHash(llm, skills, nil, []agenticv1alpha1.SecretRequirement{
+	h1 := mustHash(t, llm, skills, nil, nil, "analysis")
+	h2 := mustHash(t, llm, skills, nil, []agenticv1alpha1.SecretRequirement{
 		{Name: "my-token", MountAs: "MY_TOKEN"},
 	}, "analysis")
 
@@ -208,7 +217,9 @@ func TestPatchLLMCredentials_Anthropic(t *testing.T) {
 	tmpl := emptyTemplate()
 	llm := testLLMProviderWithURL(agenticv1alpha1.LLMProviderAnthropic, "claude-opus-4-6", "https://custom.api")
 
-	patchLLMCredentials(tmpl, llm)
+	if err := patchLLMCredentials(tmpl, llm); err != nil {
+		t.Fatalf("patchLLMCredentials: %v", err)
+	}
 
 	if !hasSecretEnvFrom(tmpl, "my-llm-secret") {
 		t.Error("missing envFrom secretRef for my-llm-secret")
@@ -232,7 +243,9 @@ func TestPatchLLMCredentials_Vertex(t *testing.T) {
 	tmpl := emptyTemplate()
 	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
 
-	patchLLMCredentials(tmpl, llm)
+	if err := patchLLMCredentials(tmpl, llm); err != nil {
+		t.Fatalf("patchLLMCredentials: %v", err)
+	}
 
 	if !hasSecretEnvFrom(tmpl, "my-llm-secret") {
 		t.Error("missing envFrom secretRef for my-llm-secret")
@@ -267,7 +280,9 @@ func TestPatchLLMCredentials_Bedrock(t *testing.T) {
 	tmpl := emptyTemplate()
 	llm := testLLMProvider(agenticv1alpha1.LLMProviderBedrock, "claude-opus-4-6")
 
-	patchLLMCredentials(tmpl, llm)
+	if err := patchLLMCredentials(tmpl, llm); err != nil {
+		t.Fatalf("patchLLMCredentials: %v", err)
+	}
 
 	envs := getEnvVars(tmpl)
 	if e, ok := findEnv(envs, "CLAUDE_CODE_USE_BEDROCK"); !ok {
@@ -281,9 +296,12 @@ func TestPatchLLMCredentials_Bedrock(t *testing.T) {
 
 func TestPatchRequiredSecrets_EnvVar(t *testing.T) {
 	tmpl := emptyTemplate()
-	patchRequiredSecrets(tmpl, []agenticv1alpha1.SecretRequirement{
+	err := patchRequiredSecrets(tmpl, []agenticv1alpha1.SecretRequirement{
 		{Name: "github-token", MountAs: "GH_TOKEN"},
 	})
+	if err != nil {
+		t.Fatalf("patchRequiredSecrets: %v", err)
+	}
 
 	envs := getEnvVars(tmpl)
 	e, ok := findEnv(envs, "GH_TOKEN")
@@ -299,9 +317,12 @@ func TestPatchRequiredSecrets_EnvVar(t *testing.T) {
 
 func TestPatchRequiredSecrets_FileMount(t *testing.T) {
 	tmpl := emptyTemplate()
-	patchRequiredSecrets(tmpl, []agenticv1alpha1.SecretRequirement{
+	err := patchRequiredSecrets(tmpl, []agenticv1alpha1.SecretRequirement{
 		{Name: "tls-cert", MountAs: "/etc/certs/tls.crt"},
 	})
+	if err != nil {
+		t.Fatalf("patchRequiredSecrets: %v", err)
+	}
 
 	volumes, _, _ := unstructured.NestedSlice(tmpl.Object, "spec", "podTemplate", "spec", "volumes")
 	if len(volumes) != 1 {
@@ -321,12 +342,48 @@ func TestPatchRequiredSecrets_FileMount(t *testing.T) {
 	}
 }
 
+// --- Error propagation tests ---
+
+func TestSetEnvVar_FailsOnNoContainers(t *testing.T) {
+	tmpl := &unstructured.Unstructured{
+		Object: map[string]any{
+			"spec": map[string]any{
+				"podTemplate": map[string]any{
+					"spec": map[string]any{},
+				},
+			},
+		},
+	}
+	err := setEnvVar(tmpl, "FOO", "bar")
+	if err == nil {
+		t.Error("expected error when no containers exist")
+	}
+}
+
+func TestEnsureAgentTemplate_NilAgent(t *testing.T) {
+	_, err := EnsureAgentTemplate(nil, nil, "base", "ns", "analysis", nil, testLLMProvider(agenticv1alpha1.LLMProviderVertex, "m"), nil)
+	if err == nil {
+		t.Error("expected error for nil agent")
+	}
+}
+
+func TestEnsureAgentTemplate_NilLLM(t *testing.T) {
+	_, err := EnsureAgentTemplate(nil, nil, "base", "ns", "analysis", testDefaultAgent(), nil, nil)
+	if err == nil {
+		t.Error("expected error for nil LLM")
+	}
+}
+
 // --- upsertEnv tests ---
 
 func TestUpsertEnv_UpdatesExisting(t *testing.T) {
 	tmpl := emptyTemplate()
-	setEnvVar(tmpl, "MY_VAR", "old")
-	setEnvVar(tmpl, "MY_VAR", "new")
+	if err := setEnvVar(tmpl, "MY_VAR", "old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setEnvVar(tmpl, "MY_VAR", "new"); err != nil {
+		t.Fatal(err)
+	}
 
 	envs := getEnvVars(tmpl)
 	count := 0
@@ -345,8 +402,12 @@ func TestUpsertEnv_UpdatesExisting(t *testing.T) {
 
 func TestAddEnvFromSecret_Idempotent(t *testing.T) {
 	tmpl := emptyTemplate()
-	addEnvFromSecret(tmpl, "my-secret")
-	addEnvFromSecret(tmpl, "my-secret")
+	if err := addEnvFromSecret(tmpl, "my-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := addEnvFromSecret(tmpl, "my-secret"); err != nil {
+		t.Fatal(err)
+	}
 
 	envFrom := getEnvFrom(tmpl)
 	if len(envFrom) != 1 {
@@ -358,10 +419,12 @@ func TestAddEnvFromSecret_Idempotent(t *testing.T) {
 
 func TestPatchSkillsPaths_SelectiveMounting(t *testing.T) {
 	tmpl := templateWithSkillsMount()
-	patchSkillsPaths(tmpl, []string{
+	if err := patchSkillsPaths(tmpl, []string{
 		"/skills/monitoring/prometheus",
 		"/skills/cluster-update/update-advisor",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	mounts := getVolumeMounts(tmpl)
 	if len(mounts) != 4 {
@@ -383,7 +446,9 @@ func TestPatchSkillsPaths_SelectiveMounting(t *testing.T) {
 func TestPatchSkillsPaths_NoPaths_NoChange(t *testing.T) {
 	tmpl := templateWithSkillsMount()
 	before := len(getVolumeMounts(tmpl))
-	patchSkillsPaths(tmpl, nil)
+	if err := patchSkillsPaths(tmpl, nil); err != nil {
+		t.Fatal(err)
+	}
 	if before != len(getVolumeMounts(tmpl)) {
 		t.Error("nil paths should not change mounts")
 	}
@@ -394,8 +459,8 @@ func TestPatchSkillsPaths_HashChangesWithPaths(t *testing.T) {
 	noPaths := []agenticv1alpha1.SkillsSource{{Image: "img:latest"}}
 	withPaths := []agenticv1alpha1.SkillsSource{{Image: "img:latest", Paths: []string{"/a", "/b"}}}
 
-	h1 := computeTemplateHash(llm, noPaths, nil, nil, "analysis")
-	h2 := computeTemplateHash(llm, withPaths, nil, nil, "analysis")
+	h1 := mustHash(t, llm, noPaths, nil, nil, "analysis")
+	h2 := mustHash(t, llm, withPaths, nil, nil, "analysis")
 
 	if h1 == h2 {
 		t.Error("hash should differ when paths are added")

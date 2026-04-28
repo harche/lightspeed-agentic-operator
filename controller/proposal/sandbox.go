@@ -108,7 +108,10 @@ func (m *SandboxManager) WaitReady(ctx context.Context, claimName string, timeou
 				continue
 			}
 
-			sandboxName, found, _ := unstructured.NestedString(claim.Object, "status", "sandbox", "Name")
+			sandboxName, found, nestedErr := unstructured.NestedString(claim.Object, "status", "sandbox", "Name")
+			if nestedErr != nil {
+				return "", fmt.Errorf("extract sandbox name from claim %q: %w", claimName, nestedErr)
+			}
 			if !found || sandboxName == "" {
 				continue
 			}
@@ -121,7 +124,10 @@ func (m *SandboxManager) WaitReady(ctx context.Context, claimName string, timeou
 				continue
 			}
 
-			conditions, found, _ := unstructured.NestedSlice(sandbox.Object, "status", "conditions")
+			conditions, found, nestedErr := unstructured.NestedSlice(sandbox.Object, "status", "conditions")
+			if nestedErr != nil {
+				return "", fmt.Errorf("extract conditions from sandbox %q: %w", sandboxName, nestedErr)
+			}
 			if !found {
 				continue
 			}
@@ -132,7 +138,10 @@ func (m *SandboxManager) WaitReady(ctx context.Context, claimName string, timeou
 					continue
 				}
 				if cond["type"] == "Ready" && cond["status"] == string(metav1.ConditionTrue) {
-					fqdn, fqdnFound, _ := unstructured.NestedString(sandbox.Object, "status", "serviceFQDN")
+					fqdn, fqdnFound, fqdnErr := unstructured.NestedString(sandbox.Object, "status", "serviceFQDN")
+					if fqdnErr != nil {
+						return "", fmt.Errorf("extract serviceFQDN from sandbox %q: %w", sandboxName, fqdnErr)
+					}
 					if !fqdnFound || fqdn == "" {
 						continue
 					}

@@ -43,11 +43,11 @@ const (
 )
 
 type templateHashInput struct {
-	LLM            agenticv1alpha1.LLMProviderSpec       `json:"llm"`
-	Skills         []agenticv1alpha1.SkillsSource         `json:"skills"`
-	MCPServers     []agenticv1alpha1.MCPServerConfig       `json:"mcpServers,omitempty"`
-	RequiredSecrets []agenticv1alpha1.SecretRequirement    `json:"requiredSecrets,omitempty"`
-	Phase          string                                  `json:"phase"`
+	LLM             agenticv1alpha1.LLMProviderSpec    `json:"llm"`
+	Skills          []agenticv1alpha1.SkillsSource     `json:"skills"`
+	MCPServers      []agenticv1alpha1.MCPServerConfig  `json:"mcpServers,omitempty"`
+	RequiredSecrets []agenticv1alpha1.SecretRequirement `json:"requiredSecrets,omitempty"`
+	Phase           string                              `json:"phase"`
 }
 
 func computeTemplateHash(
@@ -56,7 +56,7 @@ func computeTemplateHash(
 	mcpServers []agenticv1alpha1.MCPServerConfig,
 	requiredSecrets []agenticv1alpha1.SecretRequirement,
 	phase string,
-) string {
+) (string, error) {
 	input := templateHashInput{
 		LLM:             llm.Spec,
 		Skills:          skills,
@@ -66,10 +66,10 @@ func computeTemplateHash(
 	}
 	data, err := json.Marshal(input)
 	if err != nil {
-		data = []byte(fmt.Sprintf("%v", input))
+		return "", fmt.Errorf("marshal template hash input: %w", err)
 	}
 	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])[:10]
+	return hex.EncodeToString(sum[:])[:10], nil
 }
 
 func agentTemplateName(phase, agentName, hash string) string {
@@ -92,6 +92,13 @@ func EnsureAgentTemplate(
 ) (string, error) {
 	log := logf.FromContext(ctx).WithName("sandbox-templates")
 
+	if agent == nil {
+		return "", fmt.Errorf("agent is required for template generation")
+	}
+	if llm == nil {
+		return "", fmt.Errorf("LLMProvider is required for template generation")
+	}
+
 	var skills []agenticv1alpha1.SkillsSource
 	var mcpServers []agenticv1alpha1.MCPServerConfig
 	var requiredSecrets []agenticv1alpha1.SecretRequirement
@@ -101,12 +108,15 @@ func EnsureAgentTemplate(
 		requiredSecrets = ct.Spec.RequiredSecrets
 	}
 
-	hash := computeTemplateHash(llm, skills, mcpServers, requiredSecrets, phase)
+	hash, err := computeTemplateHash(llm, skills, mcpServers, requiredSecrets, phase)
+	if err != nil {
+		return "", fmt.Errorf("compute template hash: %w", err)
+	}
 	name := agentTemplateName(phase, agent.Name, hash)
 
 	existing := &unstructured.Unstructured{}
 	existing.SetGroupVersionKind(sandboxTemplateGVK)
-	err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, existing)
+	err = c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, existing)
 	if err == nil {
 		return name, nil
 	}
@@ -144,21 +154,33 @@ func EnsureAgentTemplate(
 	derived.SetLabels(lbls)
 
 	if len(skills) > 0 && skills[0].Image != "" {
-		patchSkillsImage(derived, skills[0].Image)
+		if err := patchSkillsImage(derived, skills[0].Image); err != nil {
+			return "", fmt.Errorf("patch skills image: %w", err)
+		}
 		if len(skills[0].Paths) > 0 {
-			patchSkillsPaths(derived, skills[0].Paths)
+			if err := patchSkillsPaths(derived, skills[0].Paths); err != nil {
+				return "", fmt.Errorf("patch skills paths: %w", err)
+			}
 		}
 	}
 
-	patchAgentMode(derived, phase)
-	patchLLMCredentials(derived, llm)
+	if err := patchAgentMode(derived, phase); err != nil {
+		return "", fmt.Errorf("patch agent mode: %w", err)
+	}
+	if err := patchLLMCredentials(derived, llm); err != nil {
+		return "", fmt.Errorf("patch LLM credentials: %w", err)
+	}
 
 	if len(mcpServers) > 0 {
-		patchMCPServers(derived, mcpServers)
+		if err := patchMCPServers(derived, mcpServers); err != nil {
+			return "", fmt.Errorf("patch MCP servers: %w", err)
+		}
 	}
 
 	if len(requiredSecrets) > 0 {
-		patchRequiredSecrets(derived, requiredSecrets)
+		if err := patchRequiredSecrets(derived, requiredSecrets); err != nil {
+			return "", fmt.Errorf("patch required secrets: %w", err)
+		}
 	}
 
 	if err := c.Create(ctx, derived); err != nil {
@@ -183,25 +205,42 @@ func EnsureAgentTemplate(
 	return name, nil
 }
 
-func patchLLMCredentials(tmpl *unstructured.Unstructured, llm *agenticv1alpha1.LLMProvider) {
+func patchLLMCredentials(tmpl *unstructured.Unstructured, llm *agenticv1alpha1.LLMProvider) error {
 	secretName := llm.Spec.CredentialsSecret.Name
 
-	addEnvFromSecret(tmpl, secretName)
-	setEnvVar(tmpl, "ANTHROPIC_MODEL", llm.Spec.Model)
+	if err := addEnvFromSecret(tmpl, secretName); err != nil {
+		return fmt.Errorf("add credentials envFrom: %w", err)
+	}
+	if err := setEnvVar(tmpl, "ANTHROPIC_MODEL", llm.Spec.Model); err != nil {
+		return fmt.Errorf("set ANTHROPIC_MODEL: %w", err)
+	}
 
 	if llm.Spec.URL != "" {
-		setEnvVar(tmpl, providerURLEnvVar(llm.Spec.Type), llm.Spec.URL)
+		if err := setEnvVar(tmpl, providerURLEnvVar(llm.Spec.Type), llm.Spec.URL); err != nil {
+			return fmt.Errorf("set provider URL: %w", err)
+		}
 	}
 
 	switch llm.Spec.Type {
 	case agenticv1alpha1.LLMProviderVertex:
-		setEnvVar(tmpl, "CLAUDE_CODE_USE_VERTEX", "1")
-		setEnvVar(tmpl, "GOOGLE_APPLICATION_CREDENTIALS", vertexCredsMountPath+"/"+vertexCredsFileName)
-		addSecretVolume(tmpl, llmCredsVolumeName, secretName)
-		addVolumeMount(tmpl, llmCredsVolumeName, vertexCredsMountPath, true)
+		if err := setEnvVar(tmpl, "CLAUDE_CODE_USE_VERTEX", "1"); err != nil {
+			return fmt.Errorf("set CLAUDE_CODE_USE_VERTEX: %w", err)
+		}
+		if err := setEnvVar(tmpl, "GOOGLE_APPLICATION_CREDENTIALS", vertexCredsMountPath+"/"+vertexCredsFileName); err != nil {
+			return fmt.Errorf("set GOOGLE_APPLICATION_CREDENTIALS: %w", err)
+		}
+		if err := addSecretVolume(tmpl, llmCredsVolumeName, secretName); err != nil {
+			return fmt.Errorf("add Vertex credentials volume: %w", err)
+		}
+		if err := addVolumeMount(tmpl, llmCredsVolumeName, vertexCredsMountPath, true); err != nil {
+			return fmt.Errorf("mount Vertex credentials: %w", err)
+		}
 	case agenticv1alpha1.LLMProviderBedrock:
-		setEnvVar(tmpl, "CLAUDE_CODE_USE_BEDROCK", "1")
+		if err := setEnvVar(tmpl, "CLAUDE_CODE_USE_BEDROCK", "1"); err != nil {
+			return fmt.Errorf("set CLAUDE_CODE_USE_BEDROCK: %w", err)
+		}
 	}
+	return nil
 }
 
 func providerURLEnvVar(t agenticv1alpha1.LLMProviderType) string {
@@ -215,17 +254,23 @@ func providerURLEnvVar(t agenticv1alpha1.LLMProviderType) string {
 	}
 }
 
-func patchRequiredSecrets(tmpl *unstructured.Unstructured, secrets []agenticv1alpha1.SecretRequirement) {
+func patchRequiredSecrets(tmpl *unstructured.Unstructured, secrets []agenticv1alpha1.SecretRequirement) error {
 	for _, s := range secrets {
 		if strings.HasPrefix(s.MountAs, "/") {
 			volName := "req-" + s.Name
-			addSecretVolume(tmpl, volName, s.Name)
-			addVolumeMount(tmpl, volName, s.MountAs, true)
+			if err := addSecretVolume(tmpl, volName, s.Name); err != nil {
+				return fmt.Errorf("add secret volume %q: %w", s.Name, err)
+			}
+			if err := addVolumeMount(tmpl, volName, s.MountAs, true); err != nil {
+				return fmt.Errorf("add volume mount %q: %w", s.MountAs, err)
+			}
 		} else {
-			setEnvVar(tmpl, s.MountAs, "")
-			addEnvVarFromSecret(tmpl, s.MountAs, s.Name, "token")
+			if err := addEnvVarFromSecret(tmpl, s.MountAs, s.Name, "token"); err != nil {
+				return fmt.Errorf("add env var from secret %q: %w", s.Name, err)
+			}
 		}
 	}
+	return nil
 }
 
 func gcOldTemplates(
@@ -273,21 +318,46 @@ func SandboxTemplateServiceAccount(ctx context.Context, c client.Client, templat
 	if err := c.Get(ctx, types.NamespacedName{Name: templateName, Namespace: namespace}, tmpl); err != nil {
 		return "", err
 	}
-	sa, _, _ := unstructured.NestedString(tmpl.Object, "spec", "podTemplate", "spec", "serviceAccountName")
+	sa, found, err := unstructured.NestedString(tmpl.Object, "spec", "podTemplate", "spec", "serviceAccountName")
+	if err != nil {
+		return "", fmt.Errorf("extract serviceAccountName from template %q: %w", templateName, err)
+	}
+	if !found || sa == "" {
+		return "", fmt.Errorf("template %q has no serviceAccountName", templateName)
+	}
 	return sa, nil
 }
 
 // --- Unstructured patch helpers ---
+func firstContainer(tmpl *unstructured.Unstructured) (map[string]any, []any, error) {
+	containers, found, err := unstructured.NestedSlice(tmpl.Object, "spec", "podTemplate", "spec", "containers")
+	if err != nil {
+		return nil, nil, fmt.Errorf("read containers: %w", err)
+	}
+	if !found || len(containers) == 0 {
+		return nil, nil, fmt.Errorf("template has no containers")
+	}
+	container, ok := containers[0].(map[string]any)
+	if !ok {
+		return nil, nil, fmt.Errorf("container[0] is not a map")
+	}
+	return container, containers, nil
+}
 
-func setEnvVar(tmpl *unstructured.Unstructured, name, value string) {
-	upsertEnv(tmpl, name, map[string]any{
+func writeContainers(tmpl *unstructured.Unstructured, container map[string]any, containers []any) error {
+	containers[0] = container
+	return unstructured.SetNestedSlice(tmpl.Object, containers, "spec", "podTemplate", "spec", "containers")
+}
+
+func setEnvVar(tmpl *unstructured.Unstructured, name, value string) error {
+	return upsertEnv(tmpl, name, map[string]any{
 		"name":  name,
 		"value": value,
 	})
 }
 
-func addEnvVarFromSecret(tmpl *unstructured.Unstructured, envName, secretName, key string) {
-	upsertEnv(tmpl, envName, map[string]any{
+func addEnvVarFromSecret(tmpl *unstructured.Unstructured, envName, secretName, key string) error {
+	return upsertEnv(tmpl, envName, map[string]any{
 		"name": envName,
 		"valueFrom": map[string]any{
 			"secretKeyRef": map[string]any{
@@ -299,14 +369,10 @@ func addEnvVarFromSecret(tmpl *unstructured.Unstructured, envName, secretName, k
 	})
 }
 
-func addEnvFromSecret(tmpl *unstructured.Unstructured, secretName string) {
-	containers, found, _ := unstructured.NestedSlice(tmpl.Object, "spec", "podTemplate", "spec", "containers")
-	if !found || len(containers) == 0 {
-		return
-	}
-	container, ok := containers[0].(map[string]any)
-	if !ok {
-		return
+func addEnvFromSecret(tmpl *unstructured.Unstructured, secretName string) error {
+	container, containers, err := firstContainer(tmpl)
+	if err != nil {
+		return fmt.Errorf("addEnvFromSecret: %w", err)
 	}
 	envFromList, _, _ := unstructured.NestedSlice(container, "envFrom")
 	for _, e := range envFromList {
@@ -316,7 +382,7 @@ func addEnvFromSecret(tmpl *unstructured.Unstructured, secretName string) {
 		}
 		ref, _ := entry["secretRef"].(map[string]any)
 		if ref != nil && ref["name"] == secretName {
-			return
+			return nil
 		}
 	}
 	envFromList = append(envFromList, map[string]any{
@@ -324,19 +390,16 @@ func addEnvFromSecret(tmpl *unstructured.Unstructured, secretName string) {
 			"name": secretName,
 		},
 	})
-	_ = unstructured.SetNestedSlice(container, envFromList, "envFrom")
-	containers[0] = container
-	_ = unstructured.SetNestedSlice(tmpl.Object, containers, "spec", "podTemplate", "spec", "containers")
+	if err := unstructured.SetNestedSlice(container, envFromList, "envFrom"); err != nil {
+		return fmt.Errorf("set envFrom: %w", err)
+	}
+	return writeContainers(tmpl, container, containers)
 }
 
-func upsertEnv(tmpl *unstructured.Unstructured, name string, entry map[string]any) {
-	containers, found, _ := unstructured.NestedSlice(tmpl.Object, "spec", "podTemplate", "spec", "containers")
-	if !found || len(containers) == 0 {
-		return
-	}
-	container, ok := containers[0].(map[string]any)
-	if !ok {
-		return
+func upsertEnv(tmpl *unstructured.Unstructured, name string, entry map[string]any) error {
+	container, containers, err := firstContainer(tmpl)
+	if err != nil {
+		return fmt.Errorf("upsertEnv(%s): %w", name, err)
 	}
 	envList, _, _ := unstructured.NestedSlice(container, "env")
 
@@ -356,12 +419,13 @@ func upsertEnv(tmpl *unstructured.Unstructured, name string, entry map[string]an
 		envList = append(envList, entry)
 	}
 
-	_ = unstructured.SetNestedSlice(container, envList, "env")
-	containers[0] = container
-	_ = unstructured.SetNestedSlice(tmpl.Object, containers, "spec", "podTemplate", "spec", "containers")
+	if err := unstructured.SetNestedSlice(container, envList, "env"); err != nil {
+		return fmt.Errorf("set env: %w", err)
+	}
+	return writeContainers(tmpl, container, containers)
 }
 
-func addSecretVolume(tmpl *unstructured.Unstructured, volumeName, secretName string) {
+func addSecretVolume(tmpl *unstructured.Unstructured, volumeName, secretName string) error {
 	volumes, _, _ := unstructured.NestedSlice(tmpl.Object, "spec", "podTemplate", "spec", "volumes")
 	vol := map[string]any{
 		"name": volumeName,
@@ -376,22 +440,17 @@ func addSecretVolume(tmpl *unstructured.Unstructured, volumeName, secretName str
 		}
 		if existing["name"] == volumeName {
 			volumes[i] = vol
-			_ = unstructured.SetNestedSlice(tmpl.Object, volumes, "spec", "podTemplate", "spec", "volumes")
-			return
+			return unstructured.SetNestedSlice(tmpl.Object, volumes, "spec", "podTemplate", "spec", "volumes")
 		}
 	}
 	volumes = append(volumes, vol)
-	_ = unstructured.SetNestedSlice(tmpl.Object, volumes, "spec", "podTemplate", "spec", "volumes")
+	return unstructured.SetNestedSlice(tmpl.Object, volumes, "spec", "podTemplate", "spec", "volumes")
 }
 
-func addVolumeMount(tmpl *unstructured.Unstructured, name, mountPath string, readOnly bool) {
-	containers, found, _ := unstructured.NestedSlice(tmpl.Object, "spec", "podTemplate", "spec", "containers")
-	if !found || len(containers) == 0 {
-		return
-	}
-	container, ok := containers[0].(map[string]any)
-	if !ok {
-		return
+func addVolumeMount(tmpl *unstructured.Unstructured, name, mountPath string, readOnly bool) error {
+	container, containers, err := firstContainer(tmpl)
+	if err != nil {
+		return fmt.Errorf("addVolumeMount: %w", err)
 	}
 	mounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
 	mount := map[string]any{
@@ -406,22 +465,26 @@ func addVolumeMount(tmpl *unstructured.Unstructured, name, mountPath string, rea
 		}
 		if existing["mountPath"] == mountPath {
 			mounts[i] = mount
-			_ = unstructured.SetNestedSlice(container, mounts, "volumeMounts")
-			containers[0] = container
-			_ = unstructured.SetNestedSlice(tmpl.Object, containers, "spec", "podTemplate", "spec", "containers")
-			return
+			if err := unstructured.SetNestedSlice(container, mounts, "volumeMounts"); err != nil {
+				return err
+			}
+			return writeContainers(tmpl, container, containers)
 		}
 	}
 	mounts = append(mounts, mount)
-	_ = unstructured.SetNestedSlice(container, mounts, "volumeMounts")
-	containers[0] = container
-	_ = unstructured.SetNestedSlice(tmpl.Object, containers, "spec", "podTemplate", "spec", "containers")
+	if err := unstructured.SetNestedSlice(container, mounts, "volumeMounts"); err != nil {
+		return err
+	}
+	return writeContainers(tmpl, container, containers)
 }
 
-func patchSkillsImage(tmpl *unstructured.Unstructured, image string) {
-	volumes, found, _ := unstructured.NestedSlice(tmpl.Object, "spec", "podTemplate", "spec", "volumes")
+func patchSkillsImage(tmpl *unstructured.Unstructured, image string) error {
+	volumes, found, err := unstructured.NestedSlice(tmpl.Object, "spec", "podTemplate", "spec", "volumes")
+	if err != nil {
+		return fmt.Errorf("read volumes: %w", err)
+	}
 	if !found {
-		return
+		return fmt.Errorf("template has no volumes")
 	}
 	for i, v := range volumes {
 		vol, ok := v.(map[string]any)
@@ -432,24 +495,24 @@ func patchSkillsImage(tmpl *unstructured.Unstructured, image string) {
 		if volName != "skills" {
 			continue
 		}
-		_ = unstructured.SetNestedField(vol, image, "image", "reference")
-		_ = unstructured.SetNestedField(vol, "Always", "image", "pullPolicy")
+		if err := unstructured.SetNestedField(vol, image, "image", "reference"); err != nil {
+			return fmt.Errorf("set skills image reference: %w", err)
+		}
+		if err := unstructured.SetNestedField(vol, "Always", "image", "pullPolicy"); err != nil {
+			return fmt.Errorf("set skills image pullPolicy: %w", err)
+		}
 		volumes[i] = vol
 	}
-	_ = unstructured.SetNestedSlice(tmpl.Object, volumes, "spec", "podTemplate", "spec", "volumes")
+	return unstructured.SetNestedSlice(tmpl.Object, volumes, "spec", "podTemplate", "spec", "volumes")
 }
 
-func patchSkillsPaths(tmpl *unstructured.Unstructured, paths []string) {
+func patchSkillsPaths(tmpl *unstructured.Unstructured, paths []string) error {
 	if len(paths) == 0 {
-		return
+		return nil
 	}
-	containers, found, _ := unstructured.NestedSlice(tmpl.Object, "spec", "podTemplate", "spec", "containers")
-	if !found || len(containers) == 0 {
-		return
-	}
-	container, ok := containers[0].(map[string]any)
-	if !ok {
-		return
+	container, containers, err := firstContainer(tmpl)
+	if err != nil {
+		return fmt.Errorf("patchSkillsPaths: %w", err)
 	}
 	mounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
 
@@ -482,13 +545,14 @@ func patchSkillsPaths(tmpl *unstructured.Unstructured, paths []string) {
 		})
 	}
 
-	_ = unstructured.SetNestedSlice(container, filtered, "volumeMounts")
-	containers[0] = container
-	_ = unstructured.SetNestedSlice(tmpl.Object, containers, "spec", "podTemplate", "spec", "containers")
+	if err := unstructured.SetNestedSlice(container, filtered, "volumeMounts"); err != nil {
+		return fmt.Errorf("set volumeMounts: %w", err)
+	}
+	return writeContainers(tmpl, container, containers)
 }
 
-func patchAgentMode(tmpl *unstructured.Unstructured, mode string) {
-	setEnvVar(tmpl, agentModeEnvVar, mode)
+func patchAgentMode(tmpl *unstructured.Unstructured, mode string) error {
+	return setEnvVar(tmpl, agentModeEnvVar, mode)
 }
 
 // --- MCP Server patching ---
@@ -506,7 +570,7 @@ type mcpHeaderEnvEntry struct {
 	SecretName string `json:"secretName,omitempty"`
 }
 
-func patchMCPServers(tmpl *unstructured.Unstructured, servers []agenticv1alpha1.MCPServerConfig) {
+func patchMCPServers(tmpl *unstructured.Unstructured, servers []agenticv1alpha1.MCPServerConfig) error {
 	entries := make([]mcpServerEnvEntry, 0, len(servers))
 	for _, s := range servers {
 		entry := mcpServerEnvEntry{
@@ -521,8 +585,12 @@ func patchMCPServers(tmpl *unstructured.Unstructured, servers []agenticv1alpha1.
 			}
 			if h.ValueFrom.Type == agenticv1alpha1.MCPHeaderSourceTypeSecret {
 				he.SecretName = h.ValueFrom.Secret.Name
-				addSecretVolume(tmpl, "mcp-header-"+h.ValueFrom.Secret.Name, h.ValueFrom.Secret.Name)
-				addVolumeMount(tmpl, "mcp-header-"+h.ValueFrom.Secret.Name, mcpHeadersMountRoot+"/"+h.ValueFrom.Secret.Name, true)
+				if err := addSecretVolume(tmpl, "mcp-header-"+h.ValueFrom.Secret.Name, h.ValueFrom.Secret.Name); err != nil {
+					return fmt.Errorf("add MCP header secret volume: %w", err)
+				}
+				if err := addVolumeMount(tmpl, "mcp-header-"+h.ValueFrom.Secret.Name, mcpHeadersMountRoot+"/"+h.ValueFrom.Secret.Name, true); err != nil {
+					return fmt.Errorf("add MCP header volume mount: %w", err)
+				}
 			}
 			entry.Headers = append(entry.Headers, he)
 		}
@@ -531,8 +599,7 @@ func patchMCPServers(tmpl *unstructured.Unstructured, servers []agenticv1alpha1.
 
 	data, err := json.Marshal(entries)
 	if err != nil {
-		logf.Log.Error(err, "failed to marshal MCP server config for env var")
-		return
+		return fmt.Errorf("marshal MCP server config: %w", err)
 	}
-	setEnvVar(tmpl, mcpServersEnvVar, string(data))
+	return setEnvVar(tmpl, mcpServersEnvVar, string(data))
 }
