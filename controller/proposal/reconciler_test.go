@@ -70,50 +70,47 @@ func fullWorkflow() *agenticv1alpha1.Workflow {
 	return &agenticv1alpha1.Workflow{
 		ObjectMeta: metav1.ObjectMeta{Name: "remediation", Namespace: "default"},
 		Spec: agenticv1alpha1.WorkflowSpec{
-			Analysis:     agenticv1alpha1.AgentReference{Name: "analyzer"},
-			Execution:    agenticv1alpha1.AgentReference{Name: "executor"},
-			Verification: agenticv1alpha1.AgentReference{Name: "verifier"},
+			Analysis: agenticv1alpha1.WorkflowStep{
+				Agent:          "default",
+				ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
+			},
+			Execution: &agenticv1alpha1.WorkflowStep{
+				Agent:          "default",
+				ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
+			},
+			Verification: &agenticv1alpha1.WorkflowStep{
+				Agent:          "default",
+				ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
+			},
 		},
 	}
 }
 
-func testAnalyzerAgent() *agenticv1alpha1.Agent {
+func testDefaultAgent() *agenticv1alpha1.Agent {
 	return &agenticv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "analyzer", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		Spec: agenticv1alpha1.AgentSpec{
 			LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "smart"},
-			Skills:      []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
 		},
 	}
 }
 
-func testExecutorAgent() *agenticv1alpha1.Agent {
-	return &agenticv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "executor", Namespace: "default"},
-		Spec: agenticv1alpha1.AgentSpec{
-			LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "fast"},
-			Skills:      []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
-		},
-	}
-}
-
-func testVerifierAgent() *agenticv1alpha1.Agent {
-	return &agenticv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "verifier", Namespace: "default"},
-		Spec: agenticv1alpha1.AgentSpec{
-			LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "smart"},
-			Skills:      []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
+func testComponentTools() *agenticv1alpha1.ComponentTools {
+	return &agenticv1alpha1.ComponentTools{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-tools", Namespace: "default"},
+		Spec: agenticv1alpha1.ComponentToolsSpec{
+			Skills: []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
 		},
 	}
 }
 
 func testLLM(name string) *agenticv1alpha1.LLMProvider {
 	return &agenticv1alpha1.LLMProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: agenticv1alpha1.LLMProviderSpec{
 			Type:              agenticv1alpha1.LLMProviderVertex,
 			Model:             "claude-opus-4-6",
-			CredentialsSecret: agenticv1alpha1.SecretReference{Name: "llm-secret"},
+			CredentialsSecret: agenticv1alpha1.NamespacedSecretReference{Name: "llm-secret", Namespace: "lightspeed"},
 		},
 	}
 }
@@ -126,6 +123,14 @@ func testProposal(workflowName string) *agenticv1alpha1.Proposal {
 			Workflow:         agenticv1alpha1.WorkflowReference{Name: workflowName},
 			TargetNamespaces: []string{"production"},
 		},
+	}
+}
+
+// defaultObjects returns the standard set of cluster-scoped and namespaced
+// objects needed to resolve a full workflow.
+func defaultObjects() []client.Object {
+	return []client.Object{
+		testDefaultAgent(), testLLM("smart"), testComponentTools(),
 	}
 }
 
@@ -168,10 +173,9 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 		},
 	}
 
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 

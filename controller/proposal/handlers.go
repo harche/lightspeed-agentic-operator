@@ -88,14 +88,14 @@ func (r *ProposalReconciler) handleRevision(
 		return ctrl.Result{}, fmt.Errorf("update to Analyzing (revision): %w", err)
 	}
 
-	agentCopy := resolved.Analysis.Agent.DeepCopy()
+	ctCopy := resolved.Analysis.ComponentTools.DeepCopy()
 	revisionSuffix := buildRevisionContext(proposal)
-	if agentCopy.Spec.SystemPrompt != "" {
-		agentCopy.Spec.SystemPrompt = agentCopy.Spec.SystemPrompt + "\n\n" + revisionSuffix
+	if ctCopy.Spec.SystemPrompt != "" {
+		ctCopy.Spec.SystemPrompt = ctCopy.Spec.SystemPrompt + "\n\n" + revisionSuffix
 	} else {
-		agentCopy.Spec.SystemPrompt = revisionSuffix
+		ctCopy.Spec.SystemPrompt = revisionSuffix
 	}
-	revisionStep := resolvedStep{Agent: agentCopy, LLM: resolved.Analysis.LLM}
+	revisionStep := resolvedStep{Agent: resolved.Analysis.Agent, LLM: resolved.Analysis.LLM, ComponentTools: ctCopy}
 
 	analysisResult, err := r.Agent.Analyze(ctx, proposal, revisionStep, proposal.Spec.Request)
 	if err != nil {

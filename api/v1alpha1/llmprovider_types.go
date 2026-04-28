@@ -62,12 +62,13 @@ type LLMProviderSpec struct {
 	// +required
 	Type LLMProviderType `json:"type,omitempty"`
 
-	// credentialsSecret references a Secret in the operator's namespace
-	// containing the provider credentials. The required keys depend on the
-	// provider type (see LLMProviderType for details). The operator reads this
-	// secret and injects the credentials into agent sandbox pods at runtime.
+	// credentialsSecret references a Secret containing the provider credentials.
+	// Since LLMProvider is cluster-scoped, both name and namespace must be
+	// specified. The required keys depend on the provider type (see
+	// LLMProviderType for details). The operator reads this secret and injects
+	// the credentials into agent sandbox pods at runtime.
 	// +required
-	CredentialsSecret SecretReference `json:"credentialsSecret,omitzero"`
+	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
 
 	// model is the LLM model identifier as recognized by the provider
 	// (e.g., "claude-opus-4-6", "claude-haiku-4-5", "gpt-4o").
@@ -95,7 +96,7 @@ type LLMProviderSpec struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
 // +kubebuilder:printcolumn:name="Model",type=string,JSONPath=`.spec.model`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -104,9 +105,9 @@ type LLMProviderSpec struct {
 // the CRD chain (LLMProvider -> Agent -> Workflow -> Proposal) and is
 // referenced by Agent resources via spec.llmProvider.
 //
-// LLMProvider is namespace-scoped for multi-tenancy. The operator uses the
-// credentials and model to configure the LLM client inside agent sandbox
-// pods. All resources in the CRD chain must be in the same namespace.
+// LLMProvider is cluster-scoped — the cluster admin manages LLM infrastructure
+// centrally. The operator uses the credentials and model to configure the LLM
+// client inside agent sandbox pods.
 //
 // Typically you create a small number of providers representing different
 // capability/cost tiers (e.g., "smart" for complex analysis, "fast" for
@@ -123,6 +124,7 @@ type LLMProviderSpec struct {
 //	  model: claude-opus-4-6
 //	  credentialsSecret:
 //	    name: llm-credentials
+//	    namespace: lightspeed-operator
 //
 // Example — a fast, cost-efficient provider for execution tasks:
 //
@@ -135,6 +137,7 @@ type LLMProviderSpec struct {
 //	  model: claude-haiku-4-5
 //	  credentialsSecret:
 //	    name: llm-credentials
+//	    namespace: lightspeed-operator
 type LLMProvider struct {
 	metav1.TypeMeta `json:",inline"`
 

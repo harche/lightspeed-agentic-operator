@@ -32,25 +32,24 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 	tests := []struct {
 		name      string
 		workflow  *agenticv1alpha1.Workflow
-		objects   []client.Object
 		wantPhase agenticv1alpha1.ProposalPhase
 	}{
 		{
-			name:     "full_lifecycle_reaches_verifying",
-			workflow: fullWorkflow(),
-			objects: []client.Object{
-				testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-				testLLM("smart"), testLLM("fast"),
-			},
+			name:      "full_lifecycle_reaches_verifying",
+			workflow:  fullWorkflow(),
 			wantPhase: agenticv1alpha1.ProposalPhaseVerifying,
 		},
 		{
 			name: "advisory_only_completes",
 			workflow: &agenticv1alpha1.Workflow{
 				ObjectMeta: metav1.ObjectMeta{Name: "advisory", Namespace: "default"},
-				Spec:       agenticv1alpha1.WorkflowSpec{Analysis: agenticv1alpha1.AgentReference{Name: "analyzer"}},
+				Spec: agenticv1alpha1.WorkflowSpec{
+					Analysis: agenticv1alpha1.WorkflowStep{
+						Agent:          "default",
+						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
+					},
+				},
 			},
-			objects:   []client.Object{testAnalyzerAgent(), testLLM("smart")},
 			wantPhase: agenticv1alpha1.ProposalPhaseCompleted,
 		},
 		{
@@ -58,11 +57,16 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 			workflow: &agenticv1alpha1.Workflow{
 				ObjectMeta: metav1.ObjectMeta{Name: "gitops", Namespace: "default"},
 				Spec: agenticv1alpha1.WorkflowSpec{
-					Analysis:     agenticv1alpha1.AgentReference{Name: "analyzer"},
-					Verification: agenticv1alpha1.AgentReference{Name: "verifier"},
+					Analysis: agenticv1alpha1.WorkflowStep{
+						Agent:          "default",
+						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
+					},
+					Verification: &agenticv1alpha1.WorkflowStep{
+						Agent:          "default",
+						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
+					},
 				},
 			},
-			objects:   []client.Object{testAnalyzerAgent(), testVerifierAgent(), testLLM("smart")},
 			wantPhase: agenticv1alpha1.ProposalPhaseAwaitingSync,
 		},
 		{
@@ -70,13 +74,15 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 			workflow: &agenticv1alpha1.Workflow{
 				ObjectMeta: metav1.ObjectMeta{Name: "trust", Namespace: "default"},
 				Spec: agenticv1alpha1.WorkflowSpec{
-					Analysis:  agenticv1alpha1.AgentReference{Name: "analyzer"},
-					Execution: agenticv1alpha1.AgentReference{Name: "executor"},
+					Analysis: agenticv1alpha1.WorkflowStep{
+						Agent:          "default",
+						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
+					},
+					Execution: &agenticv1alpha1.WorkflowStep{
+						Agent:          "default",
+						ComponentTools: agenticv1alpha1.ComponentToolsReference{Name: "test-tools"},
+					},
 				},
-			},
-			objects: []client.Object{
-				testAnalyzerAgent(), testExecutorAgent(),
-				testLLM("smart"), testLLM("fast"),
 			},
 			wantPhase: agenticv1alpha1.ProposalPhaseCompleted,
 		},
@@ -87,7 +93,7 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 			scheme := testScheme()
 			proposal := testProposal(tt.workflow.Name)
 
-			objs := append([]client.Object{proposal, tt.workflow}, tt.objects...)
+			objs := append([]client.Object{proposal, tt.workflow}, defaultObjects()...)
 			fc := fake.NewClientBuilder().WithScheme(scheme).
 				WithObjects(objs...).
 				WithStatusSubresource(proposal).Build()
@@ -118,10 +124,10 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -183,10 +189,9 @@ func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
 	scheme := testScheme()
 
 	proposal := testProposal("remediation")
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -222,10 +227,9 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 	proposal := testProposal("remediation")
 	proposal.Spec.MaxAttempts = &maxAttempts
 
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -291,10 +295,9 @@ func TestReconcile_SystemFailure_Execution_Terminal(t *testing.T) {
 	scheme := testScheme()
 
 	proposal := testProposal("remediation")
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -329,10 +332,9 @@ func TestReconcile_SystemFailure_Verification_Terminal(t *testing.T) {
 	scheme := testScheme()
 
 	proposal := testProposal("remediation")
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -371,10 +373,9 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	proposal := testProposal("remediation")
 	proposal.Spec.MaxAttempts = &maxAttempts
 
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -429,10 +430,10 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 func TestReconcile_RevisionHappyPath(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -479,10 +480,10 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -517,10 +518,10 @@ func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -560,10 +561,10 @@ func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 func TestReconcile_RevisionResetsSelectedOption(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -596,10 +597,9 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -670,10 +670,9 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -762,10 +761,9 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal("remediation")
 
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		proposal, fullWorkflow(), testAnalyzerAgent(), testExecutorAgent(), testVerifierAgent(),
-		testLLM("smart"), testLLM("fast"),
-	).WithStatusSubresource(proposal).Build()
+	objs := append([]client.Object{proposal, fullWorkflow()}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 

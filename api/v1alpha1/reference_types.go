@@ -26,19 +26,36 @@ type SecretReference struct {
 	Name string `json:"name,omitempty"`
 }
 
-// AgentReference references an Agent CR by name within the same namespace.
-type AgentReference struct {
-	// name of the Agent.
+// NamespacedSecretReference references a Kubernetes Secret by name and
+// namespace. Used by cluster-scoped resources (LLMProvider) that cannot
+// assume same-namespace resolution.
+type NamespacedSecretReference struct {
+	// name of the Secret.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name,omitempty"`
+
+	// namespace of the Secret.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// LLMProviderReference references a cluster-scoped LLMProvider CR by name.
+type LLMProviderReference struct {
+	// name of the LLMProvider.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name,omitempty"`
 }
 
-// LLMProviderReference references an LLMProvider CR by name within the same
-// namespace.
-type LLMProviderReference struct {
-	// name of the LLMProvider.
+// ComponentToolsReference references a ComponentTools CR by name within the
+// same namespace.
+type ComponentToolsReference struct {
+	// name of the ComponentTools.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253

@@ -29,6 +29,7 @@ type ProposalReconciler struct {
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=workflows,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=agents,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=llmproviders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=agentic.openshift.io,resources=componenttools,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;create;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;create;delete
 

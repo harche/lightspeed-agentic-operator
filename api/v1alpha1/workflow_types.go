@@ -20,6 +20,26 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// WorkflowStep defines a single step in the workflow, pairing an Agent tier
+// with a ComponentTools configuration.
+type WorkflowStep struct {
+	// agent is the name of the cluster-scoped Agent (tier) to use for this step.
+	// Defaults to "default" when omitted. The cluster admin creates Agent
+	// resources (e.g., "default", "smart", "fast"); the component owner
+	// references them by name here.
+	// +optional
+	// +kubebuilder:default="default"
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Agent string `json:"agent,omitempty"`
+
+	// componentTools references the ComponentTools CR (in the same namespace
+	// as the Workflow) that provides skills, MCP servers, system prompt, and
+	// output schema for this step.
+	// +required
+	ComponentTools ComponentToolsReference `json:"componentTools,omitzero"`
+}
+
 // WorkflowSpec defines the desired state of Workflow.
 //
 // A workflow is a 3-step pipeline template. The steps always run in order:
@@ -27,50 +47,50 @@ import (
 // the proposal pauses for user approval (unless the operator is configured
 // for auto-approve). Steps are skipped by omitting them.
 type WorkflowSpec struct {
-	// analysis references an Agent for the analysis step. The analysis
+	// analysis defines the analysis step configuration. The analysis
 	// agent examines the cluster state, produces a diagnosis (root cause,
 	// confidence), a remediation proposal (actions, risk, reversibility),
 	// a verification plan, and RBAC permissions needed for execution.
 	// +required
-	Analysis AgentReference `json:"analysis,omitzero"`
+	Analysis WorkflowStep `json:"analysis,omitzero"`
 
-	// execution references an Agent for the execution step. The execution
+	// execution defines the execution step configuration. The execution
 	// agent carries out the approved remediation plan using the RBAC
 	// permissions granted by the operator.
 	//
-	// When omitted, the proposal transitions to AwaitingSync after
+	// When omitted (nil), the proposal transitions to AwaitingSync after
 	// approval, making it advisory-only. The user is expected to apply
 	// changes manually or via GitOps.
 	// +optional
-	Execution AgentReference `json:"execution,omitzero"`
+	Execution *WorkflowStep `json:"execution,omitempty"`
 
-	// verification references an Agent for the verification step. The
+	// verification defines the verification step configuration. The
 	// verification agent checks whether the remediation was successful
 	// by running the verification plan produced during analysis.
 	//
-	// When omitted, the proposal completes immediately after execution
+	// When omitted (nil), the proposal completes immediately after execution
 	// without a verification check. Useful for trust-mode workflows where
 	// the execution agent's inline verification is sufficient.
 	// +optional
-	Verification AgentReference `json:"verification,omitzero"`
+	Verification *WorkflowStep `json:"verification,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Namespaced
-// +kubebuilder:printcolumn:name="Analysis",type=string,JSONPath=`.spec.analysis.name`
-// +kubebuilder:printcolumn:name="Execution",type=string,JSONPath=`.spec.execution.name`
-// +kubebuilder:printcolumn:name="Verification",type=string,JSONPath=`.spec.verification.name`
+// +kubebuilder:printcolumn:name="Analysis",type=string,JSONPath=`.spec.analysis.componentTools.name`
+// +kubebuilder:printcolumn:name="Execution",type=string,JSONPath=`.spec.execution.componentTools.name`
+// +kubebuilder:printcolumn:name="Verification",type=string,JSONPath=`.spec.verification.componentTools.name`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Workflow defines a reusable 3-step pipeline template that controls which
-// agents handle analysis, execution, and verification. It is the third link
-// in the CRD chain (LLMProvider -> Agent -> Workflow -> Proposal) and is
-// referenced by Proposal resources via spec.workflow.
+// agent tier and component tools handle analysis, execution, and verification.
+// It is owned by the component team and lives in their namespace alongside
+// ComponentTools and Proposals.
 //
-// Workflow is namespace-scoped for multi-tenancy. You create workflows representing different
+// Workflow is namespace-scoped. You create workflows representing different
 // operational patterns and then reference them from proposals. Per-proposal
 // overrides (WorkflowOverride in the Proposal spec) allow swapping agents
-// for individual steps without creating a new Workflow.
+// or component tools for individual steps without creating a new Workflow.
 //
 // Example — full remediation (analyze, execute, verify):
 //
@@ -80,11 +100,16 @@ type WorkflowSpec struct {
 //	  name: remediation
 //	spec:
 //	  analysis:
-//	    name: analyzer
+//	    agent: smart
+//	    componentTools:
+//	      name: my-tools
 //	  execution:
-//	    name: executor
+//	    componentTools:
+//	      name: my-tools
 //	  verification:
-//	    name: verifier
+//	    agent: fast
+//	    componentTools:
+//	      name: my-tools
 //
 // Example — advisory-only (analyze only, no execution or verification):
 //
@@ -94,7 +119,8 @@ type WorkflowSpec struct {
 //	  name: advisory-only
 //	spec:
 //	  analysis:
-//	    name: analyzer
+//	    componentTools:
+//	      name: my-tools
 //
 // Example — gitops (analyze, skip execution, verify after user applies via git):
 //
@@ -104,9 +130,11 @@ type WorkflowSpec struct {
 //	  name: gitops-remediation
 //	spec:
 //	  analysis:
-//	    name: analyzer
+//	    componentTools:
+//	      name: my-tools
 //	  verification:
-//	    name: verifier
+//	    componentTools:
+//	      name: my-tools
 //
 // Example — trust-mode (analyze, execute, skip verification):
 //
@@ -116,9 +144,11 @@ type WorkflowSpec struct {
 //	  name: trust-mode
 //	spec:
 //	  analysis:
-//	    name: analyzer
+//	    componentTools:
+//	      name: my-tools
 //	  execution:
-//	    name: executor
+//	    componentTools:
+//	      name: my-tools
 type Workflow struct {
 	metav1.TypeMeta `json:",inline"`
 

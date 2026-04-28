@@ -11,8 +11,9 @@ import (
 )
 
 type resolvedStep struct {
-	Agent *agenticv1alpha1.Agent
-	LLM   *agenticv1alpha1.LLMProvider
+	Agent          *agenticv1alpha1.Agent
+	LLM            *agenticv1alpha1.LLMProvider
+	ComponentTools *agenticv1alpha1.ComponentTools
 }
 
 type resolvedWorkflow struct {
@@ -21,8 +22,20 @@ type resolvedWorkflow struct {
 	Verification *resolvedStep // nil = skip verification
 }
 
+func effectiveStepConfig(step agenticv1alpha1.WorkflowStep, override agenticv1alpha1.WorkflowStepOverride) (agentName, ctName string) {
+	agentName = step.Agent
+	if override.Agent != "" {
+		agentName = override.Agent
+	}
+	ctName = step.ComponentTools.Name
+	if override.ComponentTools.Name != "" {
+		ctName = override.ComponentTools.Name
+	}
+	return agentName, ctName
+}
+
 // resolveWorkflow fetches the Workflow CR, applies per-proposal overrides,
-// and resolves each step's Agent + LLMProvider.
+// and resolves each step's Agent + LLMProvider + ComponentTools.
 func resolveWorkflow(ctx context.Context, c client.Client, proposal *agenticv1alpha1.Proposal) (*resolvedWorkflow, error) {
 	ns := proposal.Namespace
 
@@ -31,47 +44,58 @@ func resolveWorkflow(ctx context.Context, c client.Client, proposal *agenticv1al
 		return nil, fmt.Errorf("get Workflow %q: %w", proposal.Spec.Workflow.Name, err)
 	}
 
-	// Determine effective agent names, applying per-proposal overrides.
-	analysisAgentName := wf.Spec.Analysis.Name
-	if proposal.Spec.WorkflowOverride.Analysis.Name != "" {
-		analysisAgentName = proposal.Spec.WorkflowOverride.Analysis.Name
-	}
+	agentCache := map[string]*agenticv1alpha1.Agent{}
+	llmCache := map[string]*agenticv1alpha1.LLMProvider{}
 
-	var executionAgentName string
-	if wf.Spec.Execution.Name != "" {
-		executionAgentName = wf.Spec.Execution.Name
-	}
-	if proposal.Spec.WorkflowOverride.Execution.Name != "" {
-		executionAgentName = proposal.Spec.WorkflowOverride.Execution.Name
-	}
+	resolveStepCached := func(agentName, componentToolsName string) (*resolvedStep, error) {
+		agent, ok := agentCache[agentName]
+		if !ok {
+			agent = &agenticv1alpha1.Agent{}
+			if err := c.Get(ctx, types.NamespacedName{Name: agentName}, agent); err != nil {
+				return nil, fmt.Errorf("get Agent %q: %w", agentName, err)
+			}
+			agentCache[agentName] = agent
+		}
 
-	var verificationAgentName string
-	if wf.Spec.Verification.Name != "" {
-		verificationAgentName = wf.Spec.Verification.Name
-	}
-	if proposal.Spec.WorkflowOverride.Verification.Name != "" {
-		verificationAgentName = proposal.Spec.WorkflowOverride.Verification.Name
+		llmName := agent.Spec.LLMProvider.Name
+		llm, ok := llmCache[llmName]
+		if !ok {
+			llm = &agenticv1alpha1.LLMProvider{}
+			if err := c.Get(ctx, types.NamespacedName{Name: llmName}, llm); err != nil {
+				return nil, fmt.Errorf("get LLMProvider %q (referenced by Agent %q): %w", llmName, agentName, err)
+			}
+			llmCache[llmName] = llm
+		}
+
+		var ct agenticv1alpha1.ComponentTools
+		if err := c.Get(ctx, types.NamespacedName{Name: componentToolsName, Namespace: ns}, &ct); err != nil {
+			return nil, fmt.Errorf("get ComponentTools %q: %w", componentToolsName, err)
+		}
+
+		return &resolvedStep{Agent: agent, LLM: llm, ComponentTools: &ct}, nil
 	}
 
 	resolved := &resolvedWorkflow{}
 
-	// Analysis is always required.
-	step, err := resolveStep(ctx, c, ns, analysisAgentName)
+	agent, ct := effectiveStepConfig(wf.Spec.Analysis, proposal.Spec.WorkflowOverride.Analysis)
+	step, err := resolveStepCached(agent, ct)
 	if err != nil {
 		return nil, fmt.Errorf("resolve analysis step: %w", err)
 	}
 	resolved.Analysis = *step
 
-	if executionAgentName != "" {
-		step, err := resolveStep(ctx, c, ns, executionAgentName)
+	if wf.Spec.Execution != nil {
+		agent, ct := effectiveStepConfig(*wf.Spec.Execution, proposal.Spec.WorkflowOverride.Execution)
+		step, err := resolveStepCached(agent, ct)
 		if err != nil {
 			return nil, fmt.Errorf("resolve execution step: %w", err)
 		}
 		resolved.Execution = step
 	}
 
-	if verificationAgentName != "" {
-		step, err := resolveStep(ctx, c, ns, verificationAgentName)
+	if wf.Spec.Verification != nil {
+		agent, ct := effectiveStepConfig(*wf.Spec.Verification, proposal.Spec.WorkflowOverride.Verification)
+		step, err := resolveStepCached(agent, ct)
 		if err != nil {
 			return nil, fmt.Errorf("resolve verification step: %w", err)
 		}
@@ -79,18 +103,4 @@ func resolveWorkflow(ctx context.Context, c client.Client, proposal *agenticv1al
 	}
 
 	return resolved, nil
-}
-
-func resolveStep(ctx context.Context, c client.Client, ns, agentName string) (*resolvedStep, error) {
-	var agent agenticv1alpha1.Agent
-	if err := c.Get(ctx, types.NamespacedName{Name: agentName, Namespace: ns}, &agent); err != nil {
-		return nil, fmt.Errorf("get Agent %q: %w", agentName, err)
-	}
-
-	var llm agenticv1alpha1.LLMProvider
-	if err := c.Get(ctx, types.NamespacedName{Name: agent.Spec.LLMProvider.Name, Namespace: ns}, &llm); err != nil {
-		return nil, fmt.Errorf("get LLMProvider %q (referenced by Agent %q): %w", agent.Spec.LLMProvider.Name, agentName, err)
-	}
-
-	return &resolvedStep{Agent: &agent, LLM: &llm}, nil
 }

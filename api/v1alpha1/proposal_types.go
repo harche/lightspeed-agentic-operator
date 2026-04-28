@@ -98,25 +98,41 @@ const (
 	ProposalConditionEscalated string = "Escalated"
 )
 
+// WorkflowStepOverride allows overriding the agent tier and/or componentTools
+// for a single workflow step in a per-proposal override.
+type WorkflowStepOverride struct {
+	// agent overrides the Agent tier for this step.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Agent string `json:"agent,omitempty"`
+
+	// componentTools overrides the ComponentTools reference for this step.
+	// +optional
+	ComponentTools ComponentToolsReference `json:"componentTools,omitzero"`
+}
+
 // WorkflowOverride allows per-proposal overrides of the referenced workflow.
-// This is useful for swapping in a specialized agent for a specific proposal
-// without creating a new Workflow CR.
+// This is useful for swapping in a specialized agent tier or component tools
+// for a specific proposal without creating a new Workflow CR.
 //
-// Example — use a specialized ACS analyzer agent for one proposal:
+// Example — use the smart agent and ACS-specific tools for analysis:
 //
 //	workflowOverride:
 //	  analysis:
-//	    name: acs-analyzer
+//	    agent: smart
+//	    componentTools:
+//	      name: acs-tools
 type WorkflowOverride struct {
-	// analysis overrides the agent for the analysis step.
+	// analysis overrides the analysis step.
 	// +optional
-	Analysis AgentReference `json:"analysis,omitzero"`
-	// execution overrides the agent for the execution step.
+	Analysis WorkflowStepOverride `json:"analysis,omitzero"`
+	// execution overrides the execution step.
 	// +optional
-	Execution AgentReference `json:"execution,omitzero"`
-	// verification overrides the agent for the verification step.
+	Execution WorkflowStepOverride `json:"execution,omitzero"`
+	// verification overrides the verification step.
 	// +optional
-	Verification AgentReference `json:"verification,omitzero"`
+	Verification WorkflowStepOverride `json:"verification,omitzero"`
 }
 
 // PreviousAttempt captures the state of a failed attempt. When a proposal
@@ -293,7 +309,7 @@ type ProposalStatus struct {
 //	  targetNamespaces:
 //	    - production
 //
-// Example — use a specialized agent via workflowOverride:
+// Example — use a specialized agent tier and tools via workflowOverride:
 //
 //	apiVersion: agentic.openshift.io/v1alpha1
 //	kind: Proposal
@@ -307,7 +323,9 @@ type ProposalStatus struct {
 //	    - production
 //	  workflowOverride:
 //	    analysis:
-//	      name: acs-analyzer
+//	      agent: smart
+//	      componentTools:
+//	        name: acs-tools
 //
 // Example — an upgrade proposal with limited retries:
 //
