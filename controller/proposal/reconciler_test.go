@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -165,24 +166,64 @@ func approveProposal(t *testing.T, fc client.WithWatch, name string) {
 
 // --- Sandbox-based reconciler helpers ---
 
+func fakeBaseTemplate() *unstructured.Unstructured {
+	return &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "extensions.agents.x-k8s.io/v1alpha1",
+			"kind":       "SandboxTemplate",
+			"metadata": map[string]any{
+				"name":      "test-template",
+				"namespace": "test-ns",
+			},
+			"spec": map[string]any{
+				"podTemplate": map[string]any{
+					"spec": map[string]any{
+						"serviceAccountName": "lightspeed-agent",
+						"containers": []any{
+							map[string]any{
+								"name":  "agent",
+								"image": "test-agent:latest",
+								"env":   []any{},
+							},
+						},
+						"volumes": []any{
+							map[string]any{"name": "skills", "image": map[string]any{"reference": "placeholder:latest"}},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func fakeK8sClientWithBaseTemplate() client.Client {
+	return fake.NewClientBuilder().
+		WithScheme(testScheme()).
+		Build()
+}
+
 func newMockSandboxAgent(analysisJSON, executionJSON, verificationJSON string) (*SandboxAgentCaller, *mockSandboxProvider) {
 	sandbox := &mockSandboxProvider{claimName: "ls-test-claim", endpoint: "http://sandbox:8080"}
+
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+	_ = fc.Create(context.Background(), fakeBaseTemplate())
 
 	callCount := 0
 	responses := []string{analysisJSON, executionJSON, verificationJSON}
 
 	httpClient := &mockHTTPClient{}
 	caller := &SandboxAgentCaller{
-		Sandbox: sandbox,
+		Sandbox:   sandbox,
+		K8sClient: fc,
 		ClientFactory: func(_ string) AgentHTTPClientInterface {
 			resp := responses[callCount%len(responses)]
 			callCount++
 			httpClient.response = &agentQueryResponse{Response: json.RawMessage(resp)}
 			return httpClient
 		},
-		Namespace:    "test-ns",
-		TemplateName: "test-template",
-		Timeout:      5 * time.Minute,
+		Namespace:        "test-ns",
+		BaseTemplateName: "test-template",
+		Timeout:          5 * time.Minute,
 	}
 	return caller, sandbox
 }

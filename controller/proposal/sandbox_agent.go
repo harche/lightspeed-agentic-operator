@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
@@ -34,24 +35,27 @@ type verificationResponse struct {
 // SandboxAgentCaller implements AgentCaller by claiming a sandbox pod,
 // calling the agent HTTP service, and releasing the sandbox on completion.
 type SandboxAgentCaller struct {
-	Sandbox       SandboxProvider
-	ClientFactory func(endpoint string) AgentHTTPClientInterface
-	Namespace     string
-	TemplateName  string
-	Timeout       time.Duration
+	Sandbox          SandboxProvider
+	K8sClient        client.Client
+	ClientFactory    func(endpoint string) AgentHTTPClientInterface
+	Namespace        string
+	BaseTemplateName string
+	Timeout          time.Duration
 }
 
 func NewSandboxAgentCaller(
 	sandbox SandboxProvider,
+	k8sClient client.Client,
 	clientFactory func(endpoint string) AgentHTTPClientInterface,
-	namespace, templateName string,
+	namespace, baseTemplateName string,
 ) *SandboxAgentCaller {
 	return &SandboxAgentCaller{
-		Sandbox:       sandbox,
-		ClientFactory: clientFactory,
-		Namespace:     namespace,
-		TemplateName:  templateName,
-		Timeout:       defaultSandboxTimeout,
+		Sandbox:          sandbox,
+		K8sClient:        k8sClient,
+		ClientFactory:    clientFactory,
+		Namespace:        namespace,
+		BaseTemplateName: baseTemplateName,
+		Timeout:          defaultSandboxTimeout,
 	}
 }
 
@@ -133,7 +137,12 @@ func (s *SandboxAgentCaller) callWithSandbox(
 	outputSchema json.RawMessage,
 	agentCtx *agentContext,
 ) (json.RawMessage, error) {
-	claimName, err := s.Sandbox.Claim(ctx, proposalName, phase, s.TemplateName)
+	templateName, err := EnsureAgentTemplate(ctx, s.K8sClient, s.BaseTemplateName, s.Namespace, phase, step.Agent, step.LLM, step.ComponentTools)
+	if err != nil {
+		return nil, fmt.Errorf("ensure agent template: %w", err)
+	}
+
+	claimName, err := s.Sandbox.Claim(ctx, proposalName, phase, templateName)
 	if err != nil {
 		return nil, fmt.Errorf("claim sandbox: %w", err)
 	}

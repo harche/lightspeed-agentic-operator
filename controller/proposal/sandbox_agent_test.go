@@ -8,6 +8,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
@@ -54,12 +55,15 @@ func (m *mockHTTPClient) Query(_ context.Context, phase, systemPrompt, query str
 }
 
 func newTestSandboxAgentCaller(sandbox *mockSandboxProvider, httpClient *mockHTTPClient) *SandboxAgentCaller {
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+	_ = fc.Create(context.Background(), fakeBaseTemplate())
 	return &SandboxAgentCaller{
-		Sandbox:       sandbox,
-		ClientFactory: func(_ string) AgentHTTPClientInterface { return httpClient },
-		Namespace:     "test-ns",
-		TemplateName:  "test-template",
-		Timeout:       5 * time.Minute,
+		Sandbox:          sandbox,
+		K8sClient:        fc,
+		ClientFactory:    func(_ string) AgentHTTPClientInterface { return httpClient },
+		Namespace:        "test-ns",
+		BaseTemplateName: "test-template",
+		Timeout:          5 * time.Minute,
 	}
 }
 
@@ -72,9 +76,12 @@ func testSandboxProposal() *agenticv1alpha1.Proposal {
 
 func testSandboxStep() resolvedStep {
 	return resolvedStep{
+		Agent: testDefaultAgent(),
+		LLM:   testLLM("smart"),
 		ComponentTools: &agenticv1alpha1.ComponentTools{
 			Spec: agenticv1alpha1.ComponentToolsSpec{
 				SystemPrompt: "You are an SRE agent",
+				Skills:       []agenticv1alpha1.SkillsSource{{Image: "registry.example.com/skills:latest"}},
 			},
 		},
 	}
@@ -291,13 +298,8 @@ func TestSandboxAgentCaller_SystemPromptForwarded(t *testing.T) {
 	}
 
 	caller := newTestSandboxAgentCaller(sandbox, httpClient)
-	step := resolvedStep{
-		ComponentTools: &agenticv1alpha1.ComponentTools{
-			Spec: agenticv1alpha1.ComponentToolsSpec{
-				SystemPrompt: "Custom system prompt for analysis",
-			},
-		},
-	}
+	step := testSandboxStep()
+	step.ComponentTools.Spec.SystemPrompt = "Custom system prompt for analysis"
 	_, _ = caller.Analyze(context.Background(), testSandboxProposal(), step, "test")
 
 	if httpClient.lastPrompt != "Custom system prompt for analysis" {
