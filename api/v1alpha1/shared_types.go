@@ -163,7 +163,7 @@ type SkillsSource struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +kubebuilder:validation:XValidation:rule="self.matches('^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])((\\\\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))+)?(:[0-9]+)?\\\\b')",message="must start with a valid domain. valid domains must be alphanumeric characters (lowercase and uppercase) separated by the '.' character."
-	// +kubebuilder:validation:XValidation:rule="self.find('(\\/[a-z0-9]+((([._]|__|[-]*)[a-z0-9]+)+)?((\\/[a-z0-9]+((([._]|__|[-]*)[a-z0-9]+)+)?)+)?)') != ''",message="a valid name is required. valid names must contain lowercase alphanumeric characters separated only by the '.', '_', '__', '-' characters."
+	// +kubebuilder:validation:XValidation:rule="self.find('(/[a-z0-9]+((([._]|__|[-]*)[a-z0-9]+)+)?((/[a-z0-9]+((([._]|__|[-]*)[a-z0-9]+)+)?)+)?)') != ''",message="a valid name is required. valid names must contain lowercase alphanumeric characters separated only by the '.', '_', '__', '-' characters."
 	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') != '' || self.find(':.*$') != ''",message="must end with a digest or a tag"
 	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') == '' ? (self.find(':.*$') != '' ? self.find(':.*$').substring(1).size() <= 127 : true) : true",message="tag must not be more than 127 characters"
 	// +kubebuilder:validation:XValidation:rule="self.find('(@.*:)') == '' ? (self.find(':.*$') != '' ? self.find(':.*$').matches(':[\\\\w][\\\\w.-]*$') : true) : true",message="tag is invalid. valid tags must begin with a word character followed by word characters, '.', or '-'"
