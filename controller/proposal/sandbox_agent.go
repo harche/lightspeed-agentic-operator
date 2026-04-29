@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -65,7 +66,7 @@ func phaseString(step agenticv1alpha1.SandboxStep) string {
 }
 
 func (s *SandboxAgentCaller) Analyze(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*AnalysisOutput, error) {
-	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepAnalysis), step, requestText, buildAgentContext(proposal))
+	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepAnalysis), step, requestText, buildAgentContext(proposal))
 	if err != nil {
 		return nil, fmt.Errorf("analysis agent call: %w", err)
 	}
@@ -87,7 +88,7 @@ func (s *SandboxAgentCaller) Execute(ctx context.Context, proposal *agenticv1alp
 		agentCtx.ApprovedOption = option
 	}
 
-	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepExecution), step, proposal.Spec.Request, agentCtx)
+	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepExecution), step, proposal.Spec.Request, agentCtx)
 	if err != nil {
 		return nil, fmt.Errorf("execution agent call: %w", err)
 	}
@@ -113,7 +114,7 @@ func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alph
 		agentCtx.ApprovedOption = option
 	}
 
-	raw, err := s.callWithSandbox(ctx, proposal.Name, phaseString(agenticv1alpha1.SandboxStepVerification), step, proposal.Spec.Request, agentCtx)
+	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepVerification), step, proposal.Spec.Request, agentCtx)
 	if err != nil {
 		return nil, fmt.Errorf("verification agent call: %w", err)
 	}
@@ -132,7 +133,8 @@ func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alph
 
 func (s *SandboxAgentCaller) callWithSandbox(
 	ctx context.Context,
-	proposalName, phase string,
+	proposal *agenticv1alpha1.Proposal,
+	phase string,
 	step resolvedStep,
 	query string,
 	agentCtx *agentContext,
@@ -142,10 +144,15 @@ func (s *SandboxAgentCaller) callWithSandbox(
 		return nil, fmt.Errorf("ensure agent template: %w", err)
 	}
 
-	claimName, err := s.Sandbox.Claim(ctx, proposalName, phase, templateName)
+	claimName, err := s.Sandbox.Claim(ctx, proposal.Name, phase, templateName)
 	if err != nil {
 		return nil, fmt.Errorf("claim sandbox: %w", err)
 	}
+
+	// Write sandbox info immediately so the console can stream logs
+	// while the sandbox is still starting up
+	s.patchSandboxInfo(ctx, proposal, phase, claimName)
+
 	defer func() {
 		if relErr := s.Sandbox.Release(ctx, claimName); relErr != nil {
 			logf.FromContext(ctx).Error(relErr, "failed to release sandbox", "claimName", claimName)
@@ -179,6 +186,37 @@ func (s *SandboxAgentCaller) callWithSandbox(
 	}
 
 	return resp.Response, nil
+}
+
+func (s *SandboxAgentCaller) patchSandboxInfo(ctx context.Context, proposal *agenticv1alpha1.Proposal, phase, claimName string) {
+	log := logf.FromContext(ctx)
+
+	var current agenticv1alpha1.Proposal
+	if err := s.K8sClient.Get(ctx, client.ObjectKeyFromObject(proposal), &current); err != nil {
+		log.Error(err, "failed to get proposal for sandbox info patch")
+		return
+	}
+
+	base := current.DeepCopy()
+	now := metav1.Now()
+	info := agenticv1alpha1.SandboxInfo{
+		ClaimName: claimName,
+		Namespace: s.Namespace,
+		StartTime: &now,
+	}
+
+	switch phase {
+	case "analysis":
+		current.Status.Steps.Analysis.Sandbox = info
+	case "execution":
+		current.Status.Steps.Execution.Sandbox = info
+	case "verification":
+		current.Status.Steps.Verification.Sandbox = info
+	}
+
+	if err := s.K8sClient.Status().Patch(ctx, &current, client.MergeFrom(base)); err != nil {
+		log.Error(err, "failed to patch sandbox info", "phase", phase, "claimName", claimName)
+	}
 }
 
 func buildAgentContext(proposal *agenticv1alpha1.Proposal) *agentContext {

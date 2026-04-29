@@ -8,6 +8,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
@@ -56,6 +57,22 @@ func (m *mockHTTPClient) Query(_ context.Context, phase, systemPrompt, query str
 
 func newTestSandboxAgentCaller(sandbox *mockSandboxProvider, httpClient *mockHTTPClient) *SandboxAgentCaller {
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+	_ = fc.Create(context.Background(), fakeBaseTemplate())
+	return &SandboxAgentCaller{
+		Sandbox:          sandbox,
+		K8sClient:        fc,
+		ClientFactory:    func(_ string) AgentHTTPClientInterface { return httpClient },
+		Namespace:        "test-ns",
+		BaseTemplateName: "test-template",
+		Timeout:          5 * time.Minute,
+	}
+}
+
+func newTestSandboxAgentCallerWithProposal(sandbox *mockSandboxProvider, httpClient *mockHTTPClient, proposal *agenticv1alpha1.Proposal) *SandboxAgentCaller {
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(proposal).
+		WithStatusSubresource(proposal).
+		Build()
 	_ = fc.Create(context.Background(), fakeBaseTemplate())
 	return &SandboxAgentCaller{
 		Sandbox:          sandbox,
@@ -346,5 +363,110 @@ func TestSandboxAgentCaller_ExecutePassesApprovedOption(t *testing.T) {
 	}
 	if httpClient.lastCtx.ApprovedOption.Title != "Scale up replicas" {
 		t.Errorf("approvedOption.title = %q", httpClient.lastCtx.ApprovedOption.Title)
+	}
+}
+
+// --- Sandbox info patching tests ---
+
+func TestSandboxAgentCaller_Analyze_PatchesSandboxInfo(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "ls-analysis-fix-crash", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{
+			Response: json.RawMessage(`{"options": [{"title": "Fix it", "diagnosis": {"summary": "broken", "confidence": "High", "rootCause": "bug"}, "proposal": {"description": "fix", "actions": [{"type": "patch", "description": "patch"}], "risk": "Low"}}]}`),
+		},
+	}
+
+	proposal := testSandboxProposal()
+	caller := newTestSandboxAgentCallerWithProposal(sandbox, httpClient, proposal)
+
+	_, err := caller.Analyze(context.Background(), proposal, testSandboxStep(), "Pod crashing")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updated agenticv1alpha1.Proposal
+	if err := caller.K8sClient.Get(context.Background(), client.ObjectKeyFromObject(proposal), &updated); err != nil {
+		t.Fatalf("get proposal: %v", err)
+	}
+
+	if updated.Status.Steps.Analysis.Sandbox.ClaimName != "ls-analysis-fix-crash" {
+		t.Errorf("sandbox claimName = %q, want %q", updated.Status.Steps.Analysis.Sandbox.ClaimName, "ls-analysis-fix-crash")
+	}
+	if updated.Status.Steps.Analysis.Sandbox.Namespace != "test-ns" {
+		t.Errorf("sandbox namespace = %q, want %q", updated.Status.Steps.Analysis.Sandbox.Namespace, "test-ns")
+	}
+	if updated.Status.Steps.Analysis.Sandbox.StartTime == nil {
+		t.Error("sandbox startTime should be set")
+	}
+}
+
+func TestSandboxAgentCaller_Execute_PatchesSandboxInfo(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "ls-execution-fix-crash", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{
+			Response: json.RawMessage(`{"actionsTaken": [{"type": "patch", "description": "patched deploy"}]}`),
+		},
+	}
+
+	proposal := testSandboxProposal()
+	caller := newTestSandboxAgentCallerWithProposal(sandbox, httpClient, proposal)
+
+	_, err := caller.Execute(context.Background(), proposal, testSandboxStep(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updated agenticv1alpha1.Proposal
+	if err := caller.K8sClient.Get(context.Background(), client.ObjectKeyFromObject(proposal), &updated); err != nil {
+		t.Fatalf("get proposal: %v", err)
+	}
+
+	if updated.Status.Steps.Execution.Sandbox.ClaimName != "ls-execution-fix-crash" {
+		t.Errorf("sandbox claimName = %q, want %q", updated.Status.Steps.Execution.Sandbox.ClaimName, "ls-execution-fix-crash")
+	}
+}
+
+func TestSandboxAgentCaller_Verify_PatchesSandboxInfo(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "ls-verification-fix-crash", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{
+			Response: json.RawMessage(`{"checks": [{"name": "pod-running", "source": "oc", "value": "Running", "passed": true}], "summary": "All checks passed"}`),
+		},
+	}
+
+	proposal := testSandboxProposal()
+	caller := newTestSandboxAgentCallerWithProposal(sandbox, httpClient, proposal)
+
+	_, err := caller.Verify(context.Background(), proposal, testSandboxStep(), nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updated agenticv1alpha1.Proposal
+	if err := caller.K8sClient.Get(context.Background(), client.ObjectKeyFromObject(proposal), &updated); err != nil {
+		t.Fatalf("get proposal: %v", err)
+	}
+
+	if updated.Status.Steps.Verification.Sandbox.ClaimName != "ls-verification-fix-crash" {
+		t.Errorf("sandbox claimName = %q, want %q", updated.Status.Steps.Verification.Sandbox.ClaimName, "ls-verification-fix-crash")
+	}
+}
+
+func TestSandboxAgentCaller_SandboxInfoPatch_DoesNotBlockOnError(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "ls-analysis-fix-crash", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{
+			Response: json.RawMessage(`{"options": []}`),
+		},
+	}
+
+	// Use caller WITHOUT proposal in the fake client — patchSandboxInfo will fail to Get
+	// but the analysis call should still succeed
+	caller := newTestSandboxAgentCaller(sandbox, httpClient)
+	proposal := testSandboxProposal()
+
+	_, err := caller.Analyze(context.Background(), proposal, testSandboxStep(), "test")
+	if err != nil {
+		t.Fatalf("analysis should succeed even when sandbox info patch fails: %v", err)
 	}
 }
