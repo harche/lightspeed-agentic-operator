@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
 func TestAgentHTTPClient_QuerySuccess(t *testing.T) {
@@ -65,6 +67,85 @@ func TestAgentHTTPClient_QueryConnectionError(t *testing.T) {
 	_, err := client.Query(context.Background(), "verification", "", "test", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for connection failure")
+	}
+}
+
+func TestAgentHTTPClient_QueryWithExecutionResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req agentQueryRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if req.Context == nil {
+			t.Fatal("expected context to be set")
+		}
+		if req.Context.ExecutionResult == nil {
+			t.Fatal("expected executionResult in context")
+		}
+		if !req.Context.ExecutionResult.Success {
+			t.Error("executionResult.success should be true")
+		}
+		if len(req.Context.ExecutionResult.ActionsTaken) != 1 {
+			t.Fatalf("actionsTaken count = %d, want 1", len(req.Context.ExecutionResult.ActionsTaken))
+		}
+		if req.Context.ExecutionResult.ActionsTaken[0].Description != "Patched deployment" {
+			t.Errorf("actionsTaken[0].description = %q", req.Context.ExecutionResult.ActionsTaken[0].Description)
+		}
+		if req.Context.ExecutionResult.Verification == nil {
+			t.Fatal("expected verification in executionResult")
+		}
+		if req.Context.ExecutionResult.Verification.Summary != "Pod running" {
+			t.Errorf("verification.summary = %q", req.Context.ExecutionResult.Verification.Summary)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"success": true}`))
+	}))
+	defer server.Close()
+
+	client := NewAgentHTTPClient(server.URL)
+	agentCtx := &agentContext{
+		TargetNamespaces: []string{"production"},
+		ExecutionResult: &agentExecutionResult{
+			Success: true,
+			ActionsTaken: []agenticv1alpha1.ExecutionAction{
+				{Type: "patch", Description: "Patched deployment", Outcome: "Succeeded"},
+			},
+			Verification: &agenticv1alpha1.ExecutionVerification{
+				ConditionOutcome: "Improved",
+				Summary:          "Pod running",
+			},
+		},
+	}
+	_, err := client.Query(context.Background(), "verification", "", "test", nil, agentCtx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAgentHTTPClient_QueryWithoutExecutionResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req agentQueryRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if req.Context != nil && req.Context.ExecutionResult != nil {
+			t.Error("executionResult should not be present for analysis phase")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"success": true}`))
+	}))
+	defer server.Close()
+
+	client := NewAgentHTTPClient(server.URL)
+	agentCtx := &agentContext{
+		TargetNamespaces: []string{"production"},
+		Attempt:          1,
+	}
+	_, err := client.Query(context.Background(), "analysis", "", "test", nil, agentCtx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

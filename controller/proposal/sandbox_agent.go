@@ -118,6 +118,16 @@ func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alph
 	if option != nil {
 		agentCtx.ApprovedOption = option
 	}
+	if exec != nil {
+		agentCtx.ExecutionResult = &agentExecutionResult{
+			Success:      exec.Success,
+			ActionsTaken: exec.ActionsTaken,
+			Components:   exec.Components,
+		}
+		if exec.Verification.Summary != "" || exec.Verification.ConditionOutcome != "" {
+			agentCtx.ExecutionResult.Verification = &exec.Verification
+		}
+	}
 
 	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepVerification), step, proposal.Spec.Request, agentCtx)
 	if err != nil {

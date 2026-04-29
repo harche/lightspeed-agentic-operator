@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"time"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
@@ -32,6 +34,14 @@ type agentContext struct {
 	Attempt          int32                           `json:"attempt,omitempty"`
 	PreviousAttempts []agentPreviousAttempt          `json:"previousAttempts,omitempty"`
 	ApprovedOption   *agenticv1alpha1.RemediationOption `json:"approvedOption,omitempty"`
+	ExecutionResult  *agentExecutionResult           `json:"executionResult,omitempty"`
+}
+
+type agentExecutionResult struct {
+	Success      bool                                  `json:"success"`
+	ActionsTaken []agenticv1alpha1.ExecutionAction      `json:"actionsTaken"`
+	Verification *agenticv1alpha1.ExecutionVerification `json:"verification,omitempty"`
+	Components   []apiextensionsv1.JSON                 `json:"components,omitempty"`
 }
 
 type agentPreviousAttempt struct {

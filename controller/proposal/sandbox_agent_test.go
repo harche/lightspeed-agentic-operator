@@ -348,6 +348,95 @@ func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 	}
 }
 
+func TestSandboxAgentCaller_VerifyPassesExecutionResult(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "checks": [], "summary": "ok"}`)},
+	}
+
+	caller := newTestSandboxAgentCaller(sandbox, httpClient)
+	option := &agenticv1alpha1.RemediationOption{Title: "Scale up replicas"}
+	exec := &ExecutionOutput{
+		Success: true,
+		ActionsTaken: []agenticv1alpha1.ExecutionAction{
+			{Type: "patch", Description: "Patched deployment", Outcome: agenticv1alpha1.ActionOutcomeSucceeded, Output: "deployment.apps/nginx patched"},
+			{Type: "scale", Description: "Scaled to 3 replicas", Outcome: agenticv1alpha1.ActionOutcomeSucceeded},
+		},
+		Verification: agenticv1alpha1.ExecutionVerification{
+			ConditionOutcome: agenticv1alpha1.ConditionOutcomeImproved,
+			Summary:          "Pod running after patch",
+		},
+	}
+
+	_, _ = caller.Verify(context.Background(), testSandboxProposal(), testSandboxStep(), option, exec)
+
+	if httpClient.lastCtx == nil {
+		t.Fatal("expected context to be set")
+	}
+	if httpClient.lastCtx.ApprovedOption == nil || httpClient.lastCtx.ApprovedOption.Title != "Scale up replicas" {
+		t.Errorf("approvedOption.title = %v", httpClient.lastCtx.ApprovedOption)
+	}
+	if httpClient.lastCtx.ExecutionResult == nil {
+		t.Fatal("expected executionResult in context")
+	}
+	if !httpClient.lastCtx.ExecutionResult.Success {
+		t.Error("executionResult.success should be true")
+	}
+	if len(httpClient.lastCtx.ExecutionResult.ActionsTaken) != 2 {
+		t.Errorf("executionResult.actionsTaken count = %d, want 2", len(httpClient.lastCtx.ExecutionResult.ActionsTaken))
+	}
+	if httpClient.lastCtx.ExecutionResult.ActionsTaken[0].Description != "Patched deployment" {
+		t.Errorf("actionsTaken[0].description = %q", httpClient.lastCtx.ExecutionResult.ActionsTaken[0].Description)
+	}
+	if httpClient.lastCtx.ExecutionResult.Verification == nil {
+		t.Fatal("executionResult.verification should be set")
+	}
+	if httpClient.lastCtx.ExecutionResult.Verification.ConditionOutcome != agenticv1alpha1.ConditionOutcomeImproved {
+		t.Errorf("verification.conditionOutcome = %q", httpClient.lastCtx.ExecutionResult.Verification.ConditionOutcome)
+	}
+}
+
+func TestSandboxAgentCaller_VerifyNilExecLeavesExecutionResultNil(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "checks": [], "summary": "ok"}`)},
+	}
+
+	caller := newTestSandboxAgentCaller(sandbox, httpClient)
+	_, _ = caller.Verify(context.Background(), testSandboxProposal(), testSandboxStep(), nil, nil)
+
+	if httpClient.lastCtx == nil {
+		t.Fatal("expected context to be set")
+	}
+	if httpClient.lastCtx.ExecutionResult != nil {
+		t.Errorf("executionResult should be nil when exec is nil, got %+v", httpClient.lastCtx.ExecutionResult)
+	}
+}
+
+func TestSandboxAgentCaller_VerifyExecWithoutInlineVerification(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "checks": [], "summary": "ok"}`)},
+	}
+
+	caller := newTestSandboxAgentCaller(sandbox, httpClient)
+	exec := &ExecutionOutput{
+		Success: true,
+		ActionsTaken: []agenticv1alpha1.ExecutionAction{
+			{Type: "apply", Description: "Applied manifest", Outcome: agenticv1alpha1.ActionOutcomeSucceeded},
+		},
+	}
+
+	_, _ = caller.Verify(context.Background(), testSandboxProposal(), testSandboxStep(), nil, exec)
+
+	if httpClient.lastCtx.ExecutionResult == nil {
+		t.Fatal("expected executionResult in context")
+	}
+	if httpClient.lastCtx.ExecutionResult.Verification != nil {
+		t.Error("executionResult.verification should be nil when exec has zero-value verification")
+	}
+}
+
 func TestSandboxAgentCaller_ExecutePassesApprovedOption(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
