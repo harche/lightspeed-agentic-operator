@@ -43,6 +43,9 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// --- Deletion ---
 	if !proposal.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&proposal, proposalFinalizer) {
+			if err := r.Agent.ReleaseSandboxes(ctx, &proposal); err != nil {
+				log.Error(err, "sandbox cleanup failed during deletion")
+			}
 			if err := cleanupExecutionRBAC(ctx, r.Client, &proposal); err != nil {
 				log.Error(err, "RBAC cleanup failed, retrying")
 				return ctrl.Result{}, err
@@ -94,6 +97,11 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case agenticv1alpha1.ProposalPhaseCompleted,
 		agenticv1alpha1.ProposalPhaseDenied,
 		agenticv1alpha1.ProposalPhaseAwaitingSync:
+		if hasSandboxClaims(&proposal) {
+			if err := r.Agent.ReleaseSandboxes(ctx, &proposal); err != nil {
+				log.Error(err, "sandbox cleanup failed at terminal phase")
+			}
+		}
 		return ctrl.Result{}, nil
 
 	case agenticv1alpha1.ProposalPhaseProposed:

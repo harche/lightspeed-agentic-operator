@@ -18,17 +18,20 @@ import (
 const defaultSandboxTimeout = 5 * time.Minute
 
 type analysisResponse struct {
+	Success    bool                                `json:"success"`
 	Options    []agenticv1alpha1.RemediationOption `json:"options"`
 	Components []apiextensionsv1.JSON              `json:"components,omitempty"`
 }
 
 type executionResponse struct {
+	Success      bool                                  `json:"success"`
 	ActionsTaken []agenticv1alpha1.ExecutionAction      `json:"actionsTaken"`
 	Verification *agenticv1alpha1.ExecutionVerification `json:"verification,omitempty"`
 	Components   []apiextensionsv1.JSON                 `json:"components,omitempty"`
 }
 
 type verificationResponse struct {
+	Success    bool                         `json:"success"`
 	Checks     []agenticv1alpha1.VerifyCheck `json:"checks"`
 	Summary    string                        `json:"summary"`
 	Components []apiextensionsv1.JSON        `json:"components,omitempty"`
@@ -77,6 +80,7 @@ func (s *SandboxAgentCaller) Analyze(ctx context.Context, proposal *agenticv1alp
 	}
 
 	return &AnalysisOutput{
+		Success:    resp.Success,
 		Options:    resp.Options,
 		Components: resp.Components,
 	}, nil
@@ -99,6 +103,7 @@ func (s *SandboxAgentCaller) Execute(ctx context.Context, proposal *agenticv1alp
 	}
 
 	out := &ExecutionOutput{
+		Success:      resp.Success,
 		ActionsTaken: resp.ActionsTaken,
 		Components:   resp.Components,
 	}
@@ -125,6 +130,7 @@ func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alph
 	}
 
 	return &VerificationOutput{
+		Success:    resp.Success,
 		Checks:     resp.Checks,
 		Summary:    resp.Summary,
 		Components: resp.Components,
@@ -153,12 +159,6 @@ func (s *SandboxAgentCaller) callWithSandbox(
 	// while the sandbox is still starting up
 	s.patchSandboxInfo(ctx, proposal, phase, claimName)
 
-	defer func() {
-		if relErr := s.Sandbox.Release(ctx, claimName); relErr != nil {
-			logf.FromContext(ctx).Error(relErr, "failed to release sandbox", "claimName", claimName)
-		}
-	}()
-
 	timeout := s.Timeout
 	if timeout == 0 {
 		timeout = defaultSandboxTimeout
@@ -174,7 +174,7 @@ func (s *SandboxAgentCaller) callWithSandbox(
 		agentURL = fmt.Sprintf("http://%s:8080", endpoint)
 	}
 
-	var schema json.RawMessage
+	schema := defaultOutputSchemas[phase]
 	if step.Tools != nil && step.Tools.OutputSchema != nil {
 		schema, _ = step.Tools.OutputSchema.MarshalJSON()
 	}
@@ -186,6 +186,28 @@ func (s *SandboxAgentCaller) callWithSandbox(
 	}
 
 	return resp.Response, nil
+}
+
+func (s *SandboxAgentCaller) ReleaseSandboxes(ctx context.Context, proposal *agenticv1alpha1.Proposal) error {
+	log := logf.FromContext(ctx)
+	var firstErr error
+
+	for _, info := range []agenticv1alpha1.SandboxInfo{
+		proposal.Status.Steps.Analysis.Sandbox,
+		proposal.Status.Steps.Execution.Sandbox,
+		proposal.Status.Steps.Verification.Sandbox,
+	} {
+		if info.ClaimName == "" {
+			continue
+		}
+		if err := s.Sandbox.Release(ctx, info.ClaimName); err != nil {
+			log.Error(err, "failed to release sandbox", "claimName", info.ClaimName)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
 }
 
 func (s *SandboxAgentCaller) patchSandboxInfo(ctx context.Context, proposal *agenticv1alpha1.Proposal, phase, claimName string) {

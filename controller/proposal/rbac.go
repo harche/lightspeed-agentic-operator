@@ -187,10 +187,24 @@ func rbacRulesToPolicyRules(rules []agenticv1alpha1.RBACRule) []rbacv1.PolicyRul
 	out := make([]rbacv1.PolicyRule, len(rules))
 	for i, r := range rules {
 		out[i] = rbacv1.PolicyRule{
-			APIGroups:     r.APIGroups,
+			APIGroups:     normalizeCoreAPIGroup(r.APIGroups),
 			Resources:     r.Resources,
 			ResourceNames: r.ResourceNames,
 			Verbs:         r.Verbs,
+		}
+	}
+	return out
+}
+
+// normalizeCoreAPIGroup maps "core" to "" for the Kubernetes core API group.
+// The output schema requires minLength=1 so the LLM uses "core" instead of "".
+func normalizeCoreAPIGroup(groups []string) []string {
+	out := make([]string, len(groups))
+	for i, g := range groups {
+		if g == "core" {
+			out[i] = ""
+		} else {
+			out[i] = g
 		}
 	}
 	return out

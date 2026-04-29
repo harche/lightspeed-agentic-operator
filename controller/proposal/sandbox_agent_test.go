@@ -106,7 +106,7 @@ func TestSandboxAgentCaller_Analyze_HappyPath(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "ls-analysis-fix-crash", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
 		response: &agentQueryResponse{
-			Response: json.RawMessage(`{"options": [{"title": "Increase memory", "diagnosis": {"summary": "OOM", "confidence": "High", "rootCause": "memory limit"}, "proposal": {"description": "Bump memory", "actions": [{"type": "patch", "description": "patch deploy"}], "risk": "Low"}}]}`),
+			Response: json.RawMessage(`{"success": true, "options": [{"title": "Increase memory", "diagnosis": {"summary": "OOM", "confidence": "High", "rootCause": "memory limit"}, "proposal": {"description": "Bump memory", "actions": [{"type": "patch", "description": "patch deploy"}], "risk": "Low"}}]}`),
 		},
 	}
 
@@ -130,7 +130,7 @@ func TestSandboxAgentCaller_Execute_HappyPath(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "ls-execution-fix-crash", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
 		response: &agentQueryResponse{
-			Response: json.RawMessage(`{"actionsTaken": [{"type": "patch", "description": "Patched deployment", "outcome": "Succeeded"}], "verification": {"conditionOutcome": "Improved", "summary": "Pod running"}}`),
+			Response: json.RawMessage(`{"success": true, "actionsTaken": [{"type": "patch", "description": "Patched deployment", "outcome": "Succeeded"}], "verification": {"conditionOutcome": "Improved", "summary": "Pod running"}}`),
 		},
 	}
 
@@ -155,7 +155,7 @@ func TestSandboxAgentCaller_Verify_HappyPath(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "ls-verification-fix-crash", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
 		response: &agentQueryResponse{
-			Response: json.RawMessage(`{"checks": [{"name": "pod-running", "source": "oc", "value": "Running", "result": "Passed"}], "summary": "All checks passed"}`),
+			Response: json.RawMessage(`{"success": true, "checks": [{"name": "pod-running", "source": "oc", "value": "Running", "result": "Passed"}], "summary": "All checks passed"}`),
 		},
 	}
 
@@ -203,8 +203,8 @@ func TestSandboxAgentCaller_WaitReadyError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if sandbox.releaseCalls != 1 {
-		t.Errorf("Release should be called via defer, got %d calls", sandbox.releaseCalls)
+	if sandbox.releaseCalls != 0 {
+		t.Errorf("Release calls = %d, want 0 (reconciler handles release)", sandbox.releaseCalls)
 	}
 }
 
@@ -217,8 +217,8 @@ func TestSandboxAgentCaller_HTTPError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if sandbox.releaseCalls != 1 {
-		t.Errorf("Release should be called via defer, got %d calls", sandbox.releaseCalls)
+	if sandbox.releaseCalls != 0 {
+		t.Errorf("Release calls = %d, want 0 (reconciler handles release)", sandbox.releaseCalls)
 	}
 }
 
@@ -233,15 +233,15 @@ func TestSandboxAgentCaller_ParseError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
-	if sandbox.releaseCalls != 1 {
-		t.Errorf("Release should be called via defer, got %d calls", sandbox.releaseCalls)
+	if sandbox.releaseCalls != 0 {
+		t.Errorf("Release calls = %d, want 0 (reconciler handles release)", sandbox.releaseCalls)
 	}
 }
 
-func TestSandboxAgentCaller_ReleaseAlwaysCalled(t *testing.T) {
+func TestSandboxAgentCaller_SandboxNotReleasedAfterCall(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
-		response: &agentQueryResponse{Response: json.RawMessage(`{"options": []}`)},
+		response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "options": []}`)},
 	}
 
 	caller := newTestSandboxAgentCaller(sandbox, httpClient)
@@ -250,8 +250,8 @@ func TestSandboxAgentCaller_ReleaseAlwaysCalled(t *testing.T) {
 	if sandbox.claimCalls != 1 {
 		t.Errorf("Claim calls = %d, want 1", sandbox.claimCalls)
 	}
-	if sandbox.releaseCalls != 1 {
-		t.Errorf("Release calls = %d, want 1", sandbox.releaseCalls)
+	if sandbox.releaseCalls != 0 {
+		t.Errorf("Release calls = %d, want 0 (reconciler handles release at terminal phase)", sandbox.releaseCalls)
 	}
 }
 
@@ -293,7 +293,7 @@ func TestSandboxAgentCaller_CorrectPhase(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
 			httpClient := &mockHTTPClient{
-				response: &agentQueryResponse{Response: json.RawMessage(`{"options":[],"checks":[],"actionsTaken":[],"summary":""}`)},
+				response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "options":[],"checks":[],"actionsTaken":[],"summary":""}`)},
 			}
 			caller := newTestSandboxAgentCaller(sandbox, httpClient)
 			_ = tt.call(caller)
@@ -307,7 +307,7 @@ func TestSandboxAgentCaller_CorrectPhase(t *testing.T) {
 func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
-		response: &agentQueryResponse{Response: json.RawMessage(`{"options": []}`)},
+		response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "options": []}`)},
 	}
 
 	caller := newTestSandboxAgentCaller(sandbox, httpClient)
@@ -351,7 +351,7 @@ func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 func TestSandboxAgentCaller_ExecutePassesApprovedOption(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
-		response: &agentQueryResponse{Response: json.RawMessage(`{"actionsTaken": []}`)},
+		response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "actionsTaken": []}`)},
 	}
 
 	caller := newTestSandboxAgentCaller(sandbox, httpClient)
@@ -372,7 +372,7 @@ func TestSandboxAgentCaller_Analyze_PatchesSandboxInfo(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "ls-analysis-fix-crash", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
 		response: &agentQueryResponse{
-			Response: json.RawMessage(`{"options": [{"title": "Fix it", "diagnosis": {"summary": "broken", "confidence": "High", "rootCause": "bug"}, "proposal": {"description": "fix", "actions": [{"type": "patch", "description": "patch"}], "risk": "Low"}}]}`),
+			Response: json.RawMessage(`{"success": true, "options": [{"title": "Fix it", "diagnosis": {"summary": "broken", "confidence": "High", "rootCause": "bug"}, "proposal": {"description": "fix", "actions": [{"type": "patch", "description": "patch"}], "risk": "Low"}}]}`),
 		},
 	}
 
@@ -404,7 +404,7 @@ func TestSandboxAgentCaller_Execute_PatchesSandboxInfo(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "ls-execution-fix-crash", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
 		response: &agentQueryResponse{
-			Response: json.RawMessage(`{"actionsTaken": [{"type": "patch", "description": "patched deploy"}]}`),
+			Response: json.RawMessage(`{"success": true, "actionsTaken": [{"type": "patch", "description": "patched deploy"}]}`),
 		},
 	}
 
@@ -430,7 +430,7 @@ func TestSandboxAgentCaller_Verify_PatchesSandboxInfo(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "ls-verification-fix-crash", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
 		response: &agentQueryResponse{
-			Response: json.RawMessage(`{"checks": [{"name": "pod-running", "source": "oc", "value": "Running", "passed": true}], "summary": "All checks passed"}`),
+			Response: json.RawMessage(`{"success": true, "checks": [{"name": "pod-running", "source": "oc", "value": "Running", "result": "Passed"}], "summary": "All checks passed"}`),
 		},
 	}
 
@@ -456,7 +456,7 @@ func TestSandboxAgentCaller_SandboxInfoPatch_DoesNotBlockOnError(t *testing.T) {
 	sandbox := &mockSandboxProvider{claimName: "ls-analysis-fix-crash", endpoint: "http://sandbox:8080"}
 	httpClient := &mockHTTPClient{
 		response: &agentQueryResponse{
-			Response: json.RawMessage(`{"options": []}`),
+			Response: json.RawMessage(`{"success": true, "options": []}`),
 		},
 	}
 
@@ -469,4 +469,125 @@ func TestSandboxAgentCaller_SandboxInfoPatch_DoesNotBlockOnError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("analysis should succeed even when sandbox info patch fails: %v", err)
 	}
+}
+
+func TestReleaseSandboxes_ReleasesAllSteps(t *testing.T) {
+	releasedClaims := []string{}
+	tracker := &trackingMockSandbox{released: &releasedClaims}
+
+	caller := &SandboxAgentCaller{
+		Sandbox:   tracker,
+		Namespace: "test-ns",
+	}
+
+	proposal := &agenticv1alpha1.Proposal{
+		Status: agenticv1alpha1.ProposalStatus{
+			Steps: agenticv1alpha1.StepsStatus{
+				Analysis: agenticv1alpha1.AnalysisStepStatus{
+					Sandbox: agenticv1alpha1.SandboxInfo{ClaimName: "claim-analysis"},
+				},
+				Execution: agenticv1alpha1.ExecutionStepStatus{
+					Sandbox: agenticv1alpha1.SandboxInfo{ClaimName: "claim-execution"},
+				},
+				Verification: agenticv1alpha1.VerificationStepStatus{
+					Sandbox: agenticv1alpha1.SandboxInfo{ClaimName: "claim-verification"},
+				},
+			},
+		},
+	}
+
+	err := caller.ReleaseSandboxes(context.Background(), proposal)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(*tracker.released) != 3 {
+		t.Fatalf("expected 3 releases, got %d", len(*tracker.released))
+	}
+	expected := []string{"claim-analysis", "claim-execution", "claim-verification"}
+	for i, name := range expected {
+		if (*tracker.released)[i] != name {
+			t.Errorf("release[%d] = %q, want %q", i, (*tracker.released)[i], name)
+		}
+	}
+}
+
+func TestReleaseSandboxes_SkipsEmptyClaims(t *testing.T) {
+	releasedClaims := []string{}
+	tracker := &trackingMockSandbox{released: &releasedClaims}
+
+	caller := &SandboxAgentCaller{Sandbox: tracker, Namespace: "test-ns"}
+
+	proposal := &agenticv1alpha1.Proposal{
+		Status: agenticv1alpha1.ProposalStatus{
+			Steps: agenticv1alpha1.StepsStatus{
+				Analysis: agenticv1alpha1.AnalysisStepStatus{
+					Sandbox: agenticv1alpha1.SandboxInfo{ClaimName: "claim-analysis"},
+				},
+			},
+		},
+	}
+
+	err := caller.ReleaseSandboxes(context.Background(), proposal)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(*tracker.released) != 1 {
+		t.Fatalf("expected 1 release, got %d", len(*tracker.released))
+	}
+}
+
+func TestReleaseSandboxes_ContinuesOnError(t *testing.T) {
+	releasedClaims := []string{}
+	tracker := &trackingMockSandbox{
+		released: &releasedClaims,
+		errOnClaim: "claim-execution",
+	}
+
+	caller := &SandboxAgentCaller{Sandbox: tracker, Namespace: "test-ns"}
+
+	proposal := &agenticv1alpha1.Proposal{
+		Status: agenticv1alpha1.ProposalStatus{
+			Steps: agenticv1alpha1.StepsStatus{
+				Analysis: agenticv1alpha1.AnalysisStepStatus{
+					Sandbox: agenticv1alpha1.SandboxInfo{ClaimName: "claim-analysis"},
+				},
+				Execution: agenticv1alpha1.ExecutionStepStatus{
+					Sandbox: agenticv1alpha1.SandboxInfo{ClaimName: "claim-execution"},
+				},
+				Verification: agenticv1alpha1.VerificationStepStatus{
+					Sandbox: agenticv1alpha1.SandboxInfo{ClaimName: "claim-verification"},
+				},
+			},
+		},
+	}
+
+	err := caller.ReleaseSandboxes(context.Background(), proposal)
+	if err == nil {
+		t.Fatal("expected error from failing release")
+	}
+	// Should still attempt all three
+	if len(*tracker.released) != 3 {
+		t.Fatalf("expected 3 release attempts, got %d", len(*tracker.released))
+	}
+}
+
+type trackingMockSandbox struct {
+	released   *[]string
+	errOnClaim string
+}
+
+func (m *trackingMockSandbox) Claim(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (m *trackingMockSandbox) WaitReady(_ context.Context, _ string, _ time.Duration) (string, error) {
+	return "", nil
+}
+func (m *trackingMockSandbox) Release(_ context.Context, claimName string) error {
+	*m.released = append(*m.released, claimName)
+	if m.errOnClaim != "" && claimName == m.errOnClaim {
+		return fmt.Errorf("simulated release error for %s", claimName)
+	}
+	return nil
 }

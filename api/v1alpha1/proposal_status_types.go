@@ -228,6 +228,9 @@ type ExecutionStepStatus struct {
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+	// success indicates whether the execution agent reported overall success.
+	// +optional
+	Success *bool `json:"success,omitempty"`
 	// actionsTaken lists what the agent did.
 	// +optional
 	// +listType=atomic
@@ -273,6 +276,9 @@ type VerificationStepStatus struct {
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+	// success indicates whether the verification agent reported overall success.
+	// +optional
+	Success *bool `json:"success,omitempty"`
 	// checks contains individual verification check results.
 	// +optional
 	// +listType=atomic

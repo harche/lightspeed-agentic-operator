@@ -226,6 +226,7 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 
 	// Make verification fail (objective failure, not system error)
 	agent.verifyResult = &VerificationOutput{
+		Success: false,
 		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "CrashLoopBackOff", Result: agenticv1alpha1.CheckResultFailed}},
 		Summary: "Pod still crashing",
 	}
@@ -388,6 +389,7 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 
 	// Admin submits revision
 	agent.verifyResult = &VerificationOutput{
+		Success: true,
 		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "Running", Result: agenticv1alpha1.CheckResultPassed}},
 		Summary: "Pod running",
 	}
@@ -625,6 +627,7 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 	agent := newTestAgentCaller()
 	agent.analyzeResult = &AnalysisOutput{
+		Success: true,
 		Options: []agenticv1alpha1.RemediationOption{{
 			Title: "Increase memory",
 			Diagnosis: agenticv1alpha1.DiagnosisResult{
@@ -724,6 +727,7 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 	agent := newTestAgentCaller()
 	agent.analyzeResult = &AnalysisOutput{
+		Success: true,
 		Options: []agenticv1alpha1.RemediationOption{{
 			Title: "Fix it",
 			Diagnosis: agenticv1alpha1.DiagnosisResult{
@@ -797,6 +801,7 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 // the real agent caller implementation works through the reconciler.
 func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	analysisJSON, _ := json.Marshal(analysisResponse{
+		Success: true,
 		Options: []agenticv1alpha1.RemediationOption{{
 			Title: "Increase memory limit",
 			Diagnosis: agenticv1alpha1.DiagnosisResult{
@@ -814,6 +819,7 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	})
 
 	executionJSON, _ := json.Marshal(executionResponse{
+		Success: true,
 		ActionsTaken: []agenticv1alpha1.ExecutionAction{{
 			Type:        "patch",
 			Description: "Patched deployment/web memory limit to 512Mi",
@@ -826,7 +832,8 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	})
 
 	verificationJSON, _ := json.Marshal(verificationResponse{
-		Checks: []agenticv1alpha1.VerifyCheck{{
+		Success: true,
+		Checks:  []agenticv1alpha1.VerifyCheck{{
 			Name:   "pod-running",
 			Source: "oc",
 			Value:  "Running",
@@ -907,11 +914,109 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 		t.Errorf("check result = %q", p.Status.Steps.Verification.Checks[0].Result)
 	}
 
-	// Verify sandbox was claimed and released for each phase
+	// Verify sandbox was claimed for each phase (release is deferred to terminal phase)
 	if sandbox.claimCalls != 3 {
 		t.Errorf("sandbox claim calls = %d, want 3 (analysis + execution + verification)", sandbox.claimCalls)
 	}
-	if sandbox.releaseCalls != 3 {
-		t.Errorf("sandbox release calls = %d, want 3", sandbox.releaseCalls)
+	if sandbox.releaseCalls != 0 {
+		t.Errorf("sandbox release calls = %d, want 0 (reconciler releases at terminal phase)", sandbox.releaseCalls)
+	}
+}
+
+func TestReconcile_ExecutingPhase_DoesNotReExecute(t *testing.T) {
+	scheme := testScheme()
+	proposal := testProposal("remediation")
+
+	objs := append([]client.Object{proposal}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
+
+	agent := newTestAgentCaller()
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
+
+	// Run analysis
+	reconcileOnce(r, "fix-crash")
+
+	// Approve → execution runs → phase should be Verifying
+	approveProposal(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+
+	p, _ := getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying after execution, got %s", p.Status.Phase)
+	}
+
+	// Simulate the bug: manually set phase back to Executing (as if status patch raced)
+	base := p.DeepCopy()
+	p.Status.Phase = agenticv1alpha1.ProposalPhaseExecuting
+	if err := fc.Status().Patch(context.Background(), p, client.MergeFrom(base)); err != nil {
+		t.Fatalf("patch phase to Executing: %v", err)
+	}
+
+	// Reconcile again — should NOT re-execute, should go to Verifying via re-entry guard
+	reconcileOnce(r, "fix-crash")
+
+	p, _ = getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying from re-entry guard, got %s", p.Status.Phase)
+	}
+}
+
+func TestReconcile_ExecutionSuccessFalse_FailsStep(t *testing.T) {
+	scheme := testScheme()
+	proposal := testProposal("remediation")
+
+	objs := append([]client.Object{proposal}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
+
+	agent := newTestAgentCaller()
+	agent.executeResult = &ExecutionOutput{
+		Success:      false,
+		ActionsTaken: []agenticv1alpha1.ExecutionAction{{Type: "patch", Description: "Failed patch", Outcome: agenticv1alpha1.ActionOutcomeFailed}},
+	}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
+
+	// Analysis → Proposed
+	reconcileOnce(r, "fix-crash")
+	// Approve
+	approveProposal(t, fc, "fix-crash")
+	// Execution with success=false → Failed
+	reconcileOnce(r, "fix-crash")
+
+	p, _ := getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed when execution success=false, got %s", p.Status.Phase)
+	}
+}
+
+func TestReconcile_VerificationSuccessFalse_RetriesExecution(t *testing.T) {
+	scheme := testScheme()
+	proposal := testProposal("remediation")
+
+	objs := append([]client.Object{proposal}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal).Build()
+
+	agent := newTestAgentCaller()
+	agent.verifyResult = &VerificationOutput{
+		Success: false,
+		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "health", Result: agenticv1alpha1.CheckResultFailed}},
+		Summary: "Health check failed",
+	}
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
+
+	// Analysis → Proposed → Approve → Execute → Verify (fail) → retry
+	reconcileOnce(r, "fix-crash")
+	approveProposal(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash") // execution
+	reconcileOnce(r, "fix-crash") // verification → retry
+
+	p, _ := getProposal(r, "fix-crash")
+	if p.Status.Phase != agenticv1alpha1.ProposalPhaseApproved {
+		t.Fatalf("expected Approved (retry) when verification success=false, got %s", p.Status.Phase)
+	}
+	if p.Status.Steps.Execution.RetryCount == nil || *p.Status.Steps.Execution.RetryCount != 1 {
+		t.Fatal("retryCount should be 1")
 	}
 }

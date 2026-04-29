@@ -43,11 +43,12 @@ const (
 )
 
 type templateHashInput struct {
-	LLM             agenticv1alpha1.LLMProviderSpec     `json:"llm"`
-	Skills          []agenticv1alpha1.SkillsSource      `json:"skills"`
-	MCPServers      []agenticv1alpha1.MCPServerConfig   `json:"mcpServers,omitempty"`
-	RequiredSecrets []agenticv1alpha1.SecretRequirement `json:"requiredSecrets,omitempty"`
-	Phase           string                              `json:"phase"`
+	LLM                    agenticv1alpha1.LLMProviderSpec     `json:"llm"`
+	Skills                 []agenticv1alpha1.SkillsSource      `json:"skills"`
+	MCPServers             []agenticv1alpha1.MCPServerConfig   `json:"mcpServers,omitempty"`
+	RequiredSecrets        []agenticv1alpha1.SecretRequirement `json:"requiredSecrets,omitempty"`
+	Phase                  string                              `json:"phase"`
+	BaseResourceVersion    string                              `json:"baseRV"`
 }
 
 func computeTemplateHash(
@@ -56,13 +57,15 @@ func computeTemplateHash(
 	mcpServers []agenticv1alpha1.MCPServerConfig,
 	requiredSecrets []agenticv1alpha1.SecretRequirement,
 	phase string,
+	baseResourceVersion string,
 ) (string, error) {
 	input := templateHashInput{
-		LLM:             llm.Spec,
-		Skills:          skills,
-		MCPServers:      mcpServers,
-		RequiredSecrets: requiredSecrets,
-		Phase:           phase,
+		LLM:                 llm.Spec,
+		Skills:              skills,
+		MCPServers:          mcpServers,
+		RequiredSecrets:     requiredSecrets,
+		Phase:               phase,
+		BaseResourceVersion: baseResourceVersion,
 	}
 	data, err := json.Marshal(input)
 	if err != nil {
@@ -99,6 +102,12 @@ func EnsureAgentTemplate(
 		return "", fmt.Errorf("LLMProvider is required for template generation")
 	}
 
+	base := &unstructured.Unstructured{}
+	base.SetGroupVersionKind(sandboxTemplateGVK)
+	if err := c.Get(ctx, types.NamespacedName{Name: baseTemplateName, Namespace: namespace}, base); err != nil {
+		return "", fmt.Errorf("failed to read base sandbox template %q: %w", baseTemplateName, err)
+	}
+
 	var skills []agenticv1alpha1.SkillsSource
 	var mcpServers []agenticv1alpha1.MCPServerConfig
 	var requiredSecrets []agenticv1alpha1.SecretRequirement
@@ -108,7 +117,7 @@ func EnsureAgentTemplate(
 		requiredSecrets = tools.RequiredSecrets
 	}
 
-	hash, err := computeTemplateHash(llm, skills, mcpServers, requiredSecrets, phase)
+	hash, err := computeTemplateHash(llm, skills, mcpServers, requiredSecrets, phase, base.GetResourceVersion())
 	if err != nil {
 		return "", fmt.Errorf("compute template hash: %w", err)
 	}
@@ -122,12 +131,6 @@ func EnsureAgentTemplate(
 	}
 	if !apierrors.IsNotFound(err) {
 		return "", fmt.Errorf("failed to check template %q: %w", name, err)
-	}
-
-	base := &unstructured.Unstructured{}
-	base.SetGroupVersionKind(sandboxTemplateGVK)
-	if err := c.Get(ctx, types.NamespacedName{Name: baseTemplateName, Namespace: namespace}, base); err != nil {
-		return "", fmt.Errorf("failed to read base sandbox template %q: %w", baseTemplateName, err)
 	}
 
 	derived := base.DeepCopy()

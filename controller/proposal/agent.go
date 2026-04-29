@@ -10,12 +10,14 @@ import (
 
 // AnalysisOutput holds the analysis agent's output.
 type AnalysisOutput struct {
+	Success    bool
 	Options    []agenticv1alpha1.RemediationOption
 	Components []apiextensionsv1.JSON
 }
 
 // ExecutionOutput holds the execution agent's output.
 type ExecutionOutput struct {
+	Success      bool
 	ActionsTaken []agenticv1alpha1.ExecutionAction
 	Verification agenticv1alpha1.ExecutionVerification
 	Components   []apiextensionsv1.JSON
@@ -23,6 +25,7 @@ type ExecutionOutput struct {
 
 // VerificationOutput holds the verification agent's output.
 type VerificationOutput struct {
+	Success    bool
 	Checks     []agenticv1alpha1.VerifyCheck
 	Summary    string
 	Components []apiextensionsv1.JSON
@@ -40,6 +43,7 @@ type AgentCaller interface {
 	Analyze(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*AnalysisOutput, error)
 	Execute(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption) (*ExecutionOutput, error)
 	Verify(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption, exec *ExecutionOutput) (*VerificationOutput, error)
+	ReleaseSandboxes(ctx context.Context, proposal *agenticv1alpha1.Proposal) error
 }
 
 // StubAgentCaller returns canned success results. Wire in a real
@@ -48,6 +52,7 @@ type StubAgentCaller struct{}
 
 func (s *StubAgentCaller) Analyze(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ string) (*AnalysisOutput, error) {
 	return &AnalysisOutput{
+		Success: true,
 		Options: []agenticv1alpha1.RemediationOption{{
 			Title: "Stub remediation",
 			Diagnosis: agenticv1alpha1.DiagnosisResult{
@@ -67,6 +72,7 @@ func (s *StubAgentCaller) Analyze(_ context.Context, _ *agenticv1alpha1.Proposal
 
 func (s *StubAgentCaller) Execute(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption) (*ExecutionOutput, error) {
 	return &ExecutionOutput{
+		Success: true,
 		ActionsTaken: []agenticv1alpha1.ExecutionAction{{
 			Type:        "stub",
 			Description: "Stub execution action",
@@ -79,9 +85,14 @@ func (s *StubAgentCaller) Execute(_ context.Context, _ *agenticv1alpha1.Proposal
 	}, nil
 }
 
+func (s *StubAgentCaller) ReleaseSandboxes(_ context.Context, _ *agenticv1alpha1.Proposal) error {
+	return nil
+}
+
 func (s *StubAgentCaller) Verify(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption, _ *ExecutionOutput) (*VerificationOutput, error) {
 	return &VerificationOutput{
-		Checks: []agenticv1alpha1.VerifyCheck{{
+		Success: true,
+		Checks:  []agenticv1alpha1.VerifyCheck{{
 			Name:   "stub-check",
 			Source: "stub",
 			Value:  "ok",

@@ -103,10 +103,10 @@ const (
 // tools field provides per-step tools that replace the shared spec.tools.
 type ProposalStep struct {
 	// agent is the name of the cluster-scoped Agent to use for this step.
-	// Only meaningful when the Proposal defines steps inline (no templateRef).
+	// When templateRef is set, overrides the template's agent for this step.
+	// When templateRef is not set (inline), selects the agent tier directly.
 	// +optional
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Enum=default;smart;fast
 	Agent string `json:"agent,omitempty"`
 
 	// tools provides per-step tools that replace the shared spec.tools
@@ -144,31 +144,42 @@ type PreviousAttempt struct {
 // must be provided, but not both.
 //
 // +kubebuilder:validation:XValidation:rule="has(self.templateRef) || has(self.analysis)",message="either templateRef or inline analysis must be provided"
-// +kubebuilder:validation:XValidation:rule="!(has(self.templateRef) && has(self.analysis) && has(self.analysis.agent) && self.analysis.agent != '')",message="templateRef and inline analysis.agent are mutually exclusive"
-// +kubebuilder:validation:XValidation:rule="!(has(self.templateRef) && has(self.execution) && has(self.execution.agent) && self.execution.agent != '')",message="templateRef and inline execution.agent are mutually exclusive"
-// +kubebuilder:validation:XValidation:rule="!(has(self.templateRef) && has(self.verification) && has(self.verification.agent) && self.verification.agent != '')",message="templateRef and inline verification.agent are mutually exclusive"
 type ProposalSpec struct {
 	// request is the user's original request, alert description, or a
 	// description of what triggered this proposal. This text is passed to
 	// the analysis agent as the primary input.
+	//
+	// Immutable: Proposals are run-to-completion (like Jobs). To change
+	// the request, create a new Proposal. Use spec.revision for iterative
+	// feedback on an existing analysis.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="request is immutable after creation"
 	Request string `json:"request,omitempty"`
 
 	// templateRef references a cluster-scoped ProposalTemplate that
 	// defines the workflow shape (which steps run, which agent tier
 	// handles each step).
+	//
+	// Immutable: the workflow shape is fixed at creation. A different
+	// template requires a new Proposal.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="templateRef is immutable after creation"
 	TemplateRef *ProposalTemplateReference `json:"templateRef,omitempty"`
 
 	// targetNamespaces are the Kubernetes namespace(s) this proposal
 	// operates on. Used for RBAC scoping and context to the analysis agent.
+	//
+	// Immutable: RBAC scoping is fixed at creation. Changing target
+	// namespaces mid-flight would invalidate the analysis and any
+	// granted execution RBAC.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="self.all(ns, !format.dns1123Label().validate(ns).hasValue())",message="each namespace must be a valid DNS label"
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="targetNamespaces is immutable after creation"
 	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=63
 	TargetNamespaces []string `json:"targetNamespaces,omitempty"`
@@ -177,32 +188,53 @@ type ProposalSpec struct {
 	// required secrets, and output schema. Per-step tools
 	// (analysis.tools, execution.tools, verification.tools) replace
 	// this default for individual steps.
+	//
+	// Immutable: the skills and secrets available to the agent are
+	// fixed at creation. Changing tools mid-flight could violate the
+	// assumptions of an in-progress analysis or execution.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="tools is immutable after creation"
 	Tools ToolsSpec `json:"tools,omitzero"`
 
 	// analysis defines per-step configuration for the analysis step.
 	// When templateRef is not set, analysis.agent selects the agent tier
 	// (inline workflow definition). When templateRef is set, only
 	// analysis.tools is meaningful (per-step tools override).
+	//
+	// Immutable: agent tier and per-step tools are fixed at creation.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="analysis is immutable after creation"
 	Analysis *ProposalStep `json:"analysis,omitempty"`
 
 	// execution defines per-step configuration for the execution step.
 	// Only execution.tools is meaningful (per-step tools override).
+	//
+	// Immutable: agent tier and per-step tools are fixed at creation.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="execution is immutable after creation"
 	Execution *ProposalStep `json:"execution,omitempty"`
 
 	// verification defines per-step configuration for the verification step.
 	// Only verification.tools is meaningful (per-step tools override).
+	//
+	// Immutable: agent tier and per-step tools are fixed at creation.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="verification is immutable after creation"
 	Verification *ProposalStep `json:"verification,omitempty"`
 
 	// parent references the parent proposal in an escalation chain.
-	// Set automatically by the operator when creating a child proposal.
+	// Set at creation by the operator (auto-escalation) or console
+	// (manual escalation). Component teams should not set this field.
+	//
+	// Immutable: the escalation lineage cannot change after creation.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="parent is immutable after creation"
 	Parent ProposalReference `json:"parent,omitzero"`
 
 	// maxAttempts overrides the template's retry limit for this proposal.
+	//
+	// Mutable: the console UI patches this at approval time so the user
+	// can set a custom retry limit before execution begins.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=20
@@ -210,6 +242,10 @@ type ProposalSpec struct {
 
 	// revision is incremented by the user (or console UI) each time they
 	// submit revision feedback for the analysis.
+	//
+	// Mutable: this is the designated mutation point for iterative
+	// feedback. Incrementing revision triggers re-analysis with the
+	// user's revision context appended to the original request.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Revision *int32 `json:"revision,omitempty"`

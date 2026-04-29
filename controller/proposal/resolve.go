@@ -83,14 +83,16 @@ func resolveFromTemplate(
 
 	resolved := &resolvedWorkflow{MaxAttempts: tmpl.Spec.MaxAttempts}
 
-	agent, llm, err := resolveAgent(tmpl.Spec.Analysis.Agent)
+	analysisAgent := overrideAgent(proposal.Spec.Analysis, tmpl.Spec.Analysis.Agent)
+	agent, llm, err := resolveAgent(analysisAgent)
 	if err != nil {
 		return nil, fmt.Errorf("resolve analysis step: %w", err)
 	}
 	resolved.Analysis = resolvedStep{Agent: agent, LLM: llm, Tools: toolsForStep(proposal.Spec.Analysis)}
 
 	if tmpl.Spec.Execution != nil {
-		agent, llm, err := resolveAgent(tmpl.Spec.Execution.Agent)
+		execAgent := overrideAgent(proposal.Spec.Execution, tmpl.Spec.Execution.Agent)
+		agent, llm, err := resolveAgent(execAgent)
 		if err != nil {
 			return nil, fmt.Errorf("resolve execution step: %w", err)
 		}
@@ -98,7 +100,8 @@ func resolveFromTemplate(
 	}
 
 	if tmpl.Spec.Verification != nil {
-		agent, llm, err := resolveAgent(tmpl.Spec.Verification.Agent)
+		verifyAgent := overrideAgent(proposal.Spec.Verification, tmpl.Spec.Verification.Agent)
+		agent, llm, err := resolveAgent(verifyAgent)
 		if err != nil {
 			return nil, fmt.Errorf("resolve verification step: %w", err)
 		}
@@ -106,6 +109,13 @@ func resolveFromTemplate(
 	}
 
 	return resolved, nil
+}
+
+func overrideAgent(step *agenticv1alpha1.ProposalStep, templateAgent string) string {
+	if step != nil && step.Agent != "" {
+		return step.Agent
+	}
+	return templateAgent
 }
 
 func stepAgentName(step *agenticv1alpha1.ProposalStep) string {

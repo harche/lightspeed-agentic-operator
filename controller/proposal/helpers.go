@@ -91,6 +91,12 @@ func (r *ProposalReconciler) statusPatch(ctx context.Context, proposal *agenticv
 	return r.Status().Patch(ctx, proposal, client.MergeFrom(base))
 }
 
+func hasSandboxClaims(proposal *agenticv1alpha1.Proposal) bool {
+	return proposal.Status.Steps.Analysis.Sandbox.ClaimName != "" ||
+		proposal.Status.Steps.Execution.Sandbox.ClaimName != "" ||
+		proposal.Status.Steps.Verification.Sandbox.ClaimName != ""
+}
+
 func isTerminal(phase agenticv1alpha1.ProposalPhase) bool {
 	switch phase {
 	case agenticv1alpha1.ProposalPhaseCompleted, agenticv1alpha1.ProposalPhaseDenied, agenticv1alpha1.ProposalPhaseEscalated:
@@ -127,12 +133,14 @@ func applyAnalysisResult(step *agenticv1alpha1.AnalysisStepStatus, result *Analy
 }
 
 func applyExecutionResult(step *agenticv1alpha1.ExecutionStepStatus, result *ExecutionOutput) {
+	step.Success = &result.Success
 	step.ActionsTaken = result.ActionsTaken
 	step.Verification = result.Verification
 	step.Components = result.Components
 }
 
 func applyVerificationResult(step *agenticv1alpha1.VerificationStepStatus, result *VerificationOutput) {
+	step.Success = &result.Success
 	step.Checks = result.Checks
 	step.Summary = result.Summary
 	step.Components = result.Components

@@ -588,7 +588,7 @@ func TestRBACTargetNamespaces(t *testing.T) {
 func TestRBACRulesToPolicyRules(t *testing.T) {
 	t.Run("converts_all_fields", func(t *testing.T) {
 		rules := []agenticv1alpha1.RBACRule{{
-			APIGroups:     []string{"apps", ""},
+			APIGroups:     []string{"apps", "core"},
 			Resources:     []string{"deployments", "pods"},
 			ResourceNames: []string{"web-frontend"},
 			Verbs:         []string{"get", "patch", "delete"},
@@ -599,8 +599,8 @@ func TestRBACRulesToPolicyRules(t *testing.T) {
 			t.Fatalf("expected 1 rule, got %d", len(got))
 		}
 		r := got[0]
-		if len(r.APIGroups) != 2 || r.APIGroups[0] != "apps" {
-			t.Fatalf("APIGroups: %v", r.APIGroups)
+		if len(r.APIGroups) != 2 || r.APIGroups[0] != "apps" || r.APIGroups[1] != "" {
+			t.Fatalf("APIGroups: %v, want [apps, \"\"] (core mapped to empty)", r.APIGroups)
 		}
 		if len(r.Resources) != 2 {
 			t.Fatalf("Resources: %v", r.Resources)
@@ -623,11 +623,32 @@ func TestRBACRulesToPolicyRules(t *testing.T) {
 	t.Run("multiple_rules", func(t *testing.T) {
 		rules := []agenticv1alpha1.RBACRule{
 			{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get"}},
-			{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"delete"}},
+			{APIGroups: []string{"core"}, Resources: []string{"pods"}, Verbs: []string{"delete"}},
 		}
 		got := rbacRulesToPolicyRules(rules)
 		if len(got) != 2 {
 			t.Fatalf("expected 2 rules, got %d", len(got))
+		}
+		if got[1].APIGroups[0] != "" {
+			t.Errorf("core should be mapped to empty string, got %q", got[1].APIGroups[0])
+		}
+	})
+
+	t.Run("core_api_group_normalization", func(t *testing.T) {
+		rules := []agenticv1alpha1.RBACRule{
+			{APIGroups: []string{"core"}, Resources: []string{"pods"}, Verbs: []string{"get"}},
+			{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"get"}},
+			{APIGroups: []string{"core", "batch"}, Resources: []string{"pods", "jobs"}, Verbs: []string{"list"}},
+		}
+		got := rbacRulesToPolicyRules(rules)
+		if got[0].APIGroups[0] != "" {
+			t.Errorf("rule[0] core → \"\", got %q", got[0].APIGroups[0])
+		}
+		if got[1].APIGroups[0] != "apps" {
+			t.Errorf("rule[1] apps should be unchanged, got %q", got[1].APIGroups[0])
+		}
+		if got[2].APIGroups[0] != "" || got[2].APIGroups[1] != "batch" {
+			t.Errorf("rule[2] got %v, want [\"\", \"batch\"]", got[2].APIGroups)
 		}
 	})
 }

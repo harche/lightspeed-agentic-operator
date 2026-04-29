@@ -58,6 +58,9 @@ func (ta *testAgentCaller) Verify(_ context.Context, _ *agenticv1alpha1.Proposal
 	}
 	return ta.verifyResult, nil
 }
+func (ta *testAgentCaller) ReleaseSandboxes(_ context.Context, _ *agenticv1alpha1.Proposal) error {
+	return nil
+}
 
 // --- Test fixtures ---
 

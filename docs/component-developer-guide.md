@@ -1,0 +1,573 @@
+# Component Developer Guide
+
+How to integrate your product with the OpenShift Lightspeed agentic platform.
+
+## Who is this for?
+
+You are a **component team** (ACS, CVO, CMO, OSSM, or any product team) that wants Lightspeed to automatically analyze, remediate, or advise on issues your product detects. You ship:
+
+1. A **skills image** (OCI) containing Claude Code Skills your agent should use.
+2. An **adapter** (webhook, event source, controller) that creates `Proposal` CRs at runtime.
+
+You interact with **one CRD**: `Proposal`. Everything else (LLM infrastructure, agent tiers, workflow templates) is managed by the cluster admin.
+
+## Architecture overview
+
+```
+Your Adapter                      Cluster Admin (Day 0)
+    |                                  |
+    | creates                          | creates
+    v                                  v
+ Proposal ----templateRef----> ProposalTemplate
+ (namespaced)                  (cluster-scoped)
+    |                                  |
+    | spec.tools                       | references
+    v                                  v
+ Skills Image                       Agent ----> LLMProvider
+ + Secrets                      (cluster-scoped)  (cluster-scoped)
+```
+
+Your adapter creates a `Proposal` in your namespace. The Proposal references a `ProposalTemplate` by name (e.g., `remediation`, `advisory`, `assisted`) and provides your domain-specific tools (skills image, secrets). The operator resolves the template, picks the right agent tier, and runs the workflow.
+
+You do not need to know how `LLMProvider`, `Agent`, or `ProposalTemplate` work internally. You reference templates and agents by name string only.
+
+## Quick start
+
+### 1. Get RBAC access
+
+Ask the cluster admin to bind `lightspeed-component-owner` to your adapter's ServiceAccount:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: my-product-lightspeed-access
+  namespace: my-product-namespace
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: lightspeed-component-owner
+subjects:
+  - kind: ServiceAccount
+    name: my-product-adapter
+    namespace: my-product-namespace
+```
+
+This grants your adapter permission to create and manage Proposals in `my-product-namespace`, and read-only access to ProposalTemplates (to discover available workflow shapes).
+
+### 2. Ask the cluster admin to create runtime secrets
+
+If your agent needs API tokens or credentials at runtime (e.g., an ACS API token, a GitHub PAT), the cluster admin creates these as Kubernetes Secrets in your namespace:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-api-token
+  namespace: my-product-namespace
+type: Opaque
+stringData:
+  token: "your-token-here"
+```
+
+Your Proposal references these by name. Proposals can only reference Secrets in their own namespace — standard Kubernetes RBAC enforces isolation.
+
+### 3. Create a Proposal
+
+```yaml
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Proposal
+metadata:
+  name: fix-my-issue-123
+  namespace: my-product-namespace
+  labels:
+    agentic.openshift.io/source: my-product
+spec:
+  request: |
+    Describe the problem here. Include as much context as possible:
+    what happened, what resources are affected, what namespace,
+    any error messages or alert details.
+  templateRef:
+    name: remediation
+  targetNamespaces:
+    - affected-namespace
+  tools:
+    skills:
+      - image: registry.redhat.io/my-product/lightspeed-skills:latest
+    requiredSecrets:
+      - name: my-api-token
+        mountAs: MY_API_TOKEN
+```
+
+That's it. The operator picks it up and runs the workflow.
+
+## Lifecycle
+
+```
+                          +---------+
+                          | Pending |
+                          +----+----+
+                               |
+                          +----v-----+
+                          | Analyzing|
+                          +----+-----+
+                               |
+                          +----v-----+     +--------+
+                          | Proposed +---->| Denied |
+                          +----+-----+     +--------+
+                               |
+                          +----v-----+
+                          | Approved |
+                          +----+-----+
+                               |
+                    +----------+-----------+
+                    |                      |
+              +-----v------+      +-------v-------+
+              | Executing  |      | AwaitingSync  |
+              +-----+------+      | (no execution)|
+                    |              +-------+-------+
+              +-----v------+              |
+              | Verifying  |<-------------+
+              +-----+------+
+                    |
+          +---------+---------+
+          |                   |
+    +-----v------+    +------v----+    +-----------+
+    | Completed  |    |  Failed   +--->| Escalated |
+    +------------+    +-----------+    +-----------+
+```
+
+- **Pending** -- Proposal created, waiting for reconciliation.
+- **Analyzing** -- Agent is examining cluster state and producing a diagnosis.
+- **Proposed** -- Analysis complete. Remediation options are available for review. Waiting for user approval.
+- **Approved** -- User approved. Execution (or AwaitingSync) begins.
+- **Denied** -- User denied. Terminal.
+- **Executing** -- Agent is applying the remediation.
+- **AwaitingSync** -- Execution was skipped (assisted/advisory templates). User applies changes manually.
+- **Verifying** -- Agent is checking whether the remediation worked.
+- **Completed** -- Verification passed. Terminal (success).
+- **Failed** -- A step failed. May retry (up to `maxAttempts`) or escalate.
+- **Escalated** -- Max retries exhausted. A child Proposal is created with failure history.
+
+### Watching for completion
+
+Use a standard Kubernetes watch on the `status.phase` field or the `Verified` condition:
+
+```go
+// Go example
+watch, _ := client.Watch(ctx, &v1alpha1.ProposalList{}, ...)
+for event := range watch.ResultChan() {
+    proposal := event.Object.(*v1alpha1.Proposal)
+    switch proposal.Status.Phase {
+    case v1alpha1.ProposalPhaseCompleted:
+        // Remediation succeeded
+    case v1alpha1.ProposalPhaseFailed:
+        // Check proposal.Status.PreviousAttempts for failure details
+    case v1alpha1.ProposalPhaseEscalated:
+        // Max retries exhausted, child proposal created
+    }
+}
+```
+
+## Tools
+
+The `tools` block tells the operator what to mount into the agent's sandbox pod.
+
+### Skills images
+
+Skills are OCI images containing Claude Code Skills. The operator mounts them as Kubernetes image volumes (requires K8s 1.34+).
+
+```yaml
+tools:
+  skills:
+    # Mount the entire image
+    - image: registry.redhat.io/my-product/lightspeed-skills:latest
+
+    # Or selectively mount specific skill directories
+    - image: registry.redhat.io/my-product/lightspeed-skills:latest
+      paths:
+        - /skills/my-skill-a
+        - /skills/my-skill-b
+```
+
+When `paths` is omitted, the entire image is mounted. When specified, only those directories are mounted (each as a separate subPath). Use selective paths when your image has many skills but a particular proposal only needs a subset.
+
+### Required secrets
+
+Declare secrets the agent needs at runtime. The cluster admin creates the actual Secret objects in your namespace.
+
+```yaml
+tools:
+  requiredSecrets:
+    - name: acs-api-token
+      description: "ACS Central API token for querying violations"
+      mountAs: ACS_API_TOKEN    # exposed as env var
+
+    - name: tls-cert
+      description: "Client TLS certificate for mTLS endpoints"
+      mountAs: /etc/secrets/tls  # mounted as file
+```
+
+`mountAs` determines how the secret is exposed:
+- An env-var style name (e.g., `ACS_API_TOKEN`) injects it as an environment variable.
+- A file path (e.g., `/etc/secrets/tls`) mounts it as a file.
+
+### Output schema
+
+Optionally define a JSON Schema for structured output beyond the base fields (diagnosis, proposal, RBAC, verification plan):
+
+```yaml
+tools:
+  outputSchema:
+    type: object
+    properties:
+      affectedCVEs:
+        type: array
+        items:
+          type: string
+      patchedImage:
+        type: string
+```
+
+### Per-step tools
+
+When different steps need different skills from the same image, use per-step tools. Per-step tools **replace** (not merge with) the shared `spec.tools` for that step.
+
+```yaml
+spec:
+  # Shared secrets available to all steps
+  tools:
+    requiredSecrets:
+      - name: acs-api-token
+        mountAs: ACS_API_TOKEN
+
+  # Analysis gets remediation + compliance skills
+  analysis:
+    tools:
+      skills:
+        - image: registry.redhat.io/acs/lightspeed-skills:latest
+          paths: [/skills/acs-remediation, /skills/acs-compliance]
+
+  # Execution gets only remediation skills
+  execution:
+    tools:
+      skills:
+        - image: registry.redhat.io/acs/lightspeed-skills:latest
+          paths: [/skills/acs-remediation]
+
+  # Verification gets only compliance skills
+  verification:
+    tools:
+      skills:
+        - image: registry.redhat.io/acs/lightspeed-skills:latest
+          paths: [/skills/acs-compliance]
+```
+
+Note that per-step `tools` replaces the shared `spec.tools` entirely for that step. In the example above, `requiredSecrets` from `spec.tools` are **not** automatically inherited by steps that define their own tools. If a step needs the secret, include it in the step's tools block.
+
+## Workflow templates
+
+The cluster admin creates ProposalTemplates. You reference them by name. Common templates:
+
+| Template | Steps | Use when |
+|----------|-------|----------|
+| `remediation` | analyze, execute, verify | Agent should fix the issue directly. |
+| `assisted` | analyze, verify (no execute) | Agent analyzes and proposes a fix, user applies it (e.g., via GitOps), then agent verifies. |
+| `advisory` | analyze only | Agent investigates and reports findings. No execution. |
+
+To discover available templates:
+
+```bash
+oc get proposaltemplates
+```
+
+### Overriding the template's agent
+
+When using `templateRef`, you can override the agent for individual steps without creating a new template:
+
+```yaml
+spec:
+  templateRef:
+    name: remediation        # template defaults: smart / default / fast
+  analysis:
+    agent: fast              # override just analysis to use fast
+  tools:
+    skills:
+      - image: registry.redhat.io/my-product/lightspeed-skills:latest
+```
+
+This uses the `remediation` template's workflow shape (analyze → execute → verify) but swaps the analysis agent from `smart` to `fast`. Execution and verification keep the template defaults.
+
+### Inline workflows (no template)
+
+For one-off investigations or when no existing template fits, define the workflow shape directly on the Proposal. You must specify at least `analysis.agent`:
+
+```yaml
+spec:
+  request: "Investigate why pod foo is crashlooping"
+  targetNamespaces:
+    - production
+  tools:
+    skills:
+      - image: registry.redhat.io/my-product/lightspeed-skills:latest
+  analysis:
+    agent: smart
+```
+
+Omit `execution` and `verification` to skip them (advisory pattern). Include them to run the full pipeline:
+
+```yaml
+spec:
+  analysis:
+    agent: smart
+  execution:
+    agent: default
+  verification:
+    agent: fast
+```
+
+To discover available agent tiers:
+
+```bash
+oc get agents
+```
+
+## Writing a good request
+
+The `request` field is the primary input to the analysis agent. The better the context you provide, the better the diagnosis and remediation will be.
+
+**Include:**
+- What happened (alert name, error message, violation type).
+- Which resources are affected (deployment name, pod name, namespace).
+- Relevant metrics or symptoms (error rate, latency, crash count).
+- Any constraints ("this namespace is managed by ArgoCD", "do not restart the database").
+
+**Example (ACS violation):**
+```yaml
+request: |
+  ACS policy violation: Fixable CVSS >= 7 (severity: CRITICAL_SEVERITY)
+  Policy description: Alert on deployments with fixable vulnerabilities
+  Lifecycle stage: DEPLOY
+  Affected deployment: staging/nginx-frontend
+  Affected images: nginx:1.21
+  Violations:
+    - CVE-2023-44487 (CVSS 7.5) — HTTP/2 rapid reset attack
+    - CVE-2024-24790 (CVSS 9.8) — path traversal
+```
+
+**Example (AlertManager):**
+```yaml
+request: |
+  AlertManager alert fired: IstioHighErrorRate (critical)
+  Service payment-service in namespace istio-system has 15% error rate
+  (5xx responses) over the last 10 minutes.
+  Source workload: checkout-frontend
+  Labels: severity=critical, destination_service=payment-service
+```
+
+## Labels
+
+Use labels to help with filtering and observability:
+
+```yaml
+metadata:
+  labels:
+    # Identify the source system
+    agentic.openshift.io/source: acs
+
+    # Your product-specific categorization
+    agentic.openshift.io/policy: fixable-cve-critical
+    agentic.openshift.io/component: ossm
+```
+
+## Building an adapter
+
+An adapter is any code that creates `Proposal` CRs in response to external events. Common patterns:
+
+### Webhook adapter
+
+Your product fires an HTTP webhook when it detects an issue. The adapter receives the webhook, translates the payload into a Proposal, and creates it via the Kubernetes API.
+
+```go
+func handleViolation(w http.ResponseWriter, r *http.Request) {
+    var violation ACSViolation
+    json.NewDecoder(r.Body).Decode(&violation)
+
+    proposal := &v1alpha1.Proposal{
+        ObjectMeta: metav1.ObjectMeta{
+            GenerateName: "acs-fix-",
+            Namespace:    "stackrox",
+            Labels: map[string]string{
+                "agentic.openshift.io/source": "acs",
+            },
+        },
+        Spec: v1alpha1.ProposalSpec{
+            Request: formatViolation(violation),
+            TemplateRef: &v1alpha1.ProposalTemplateReference{
+                Name: "remediation",
+            },
+            TargetNamespaces: []string{violation.Namespace},
+            Tools: v1alpha1.ToolsSpec{
+                Skills: []v1alpha1.SkillsSource{{
+                    Image: "registry.redhat.io/acs/lightspeed-skills:latest",
+                }},
+                RequiredSecrets: []v1alpha1.SecretRequirement{{
+                    Name:    "acs-api-token",
+                    MountAs: "ACS_API_TOKEN",
+                }},
+            },
+        },
+    }
+
+    client.Create(ctx, proposal)
+}
+```
+
+### AlertManager adapter
+
+An AlertManager adapter is an external webhook server that receives AlertManager notifications and creates Proposals. Like any other adapter, it runs independently from the operator — the operator only reconciles the resulting Proposal CRs.
+
+### Controller / watch adapter
+
+Write a Kubernetes controller that watches your product's resources and creates Proposals when conditions are met:
+
+```go
+func (r *MyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    var myResource MyResource
+    r.Get(ctx, req.NamespacedName, &myResource)
+
+    if myResource.NeedsRemediation() {
+        proposal := buildProposal(myResource)
+        r.Create(ctx, proposal)
+    }
+    return ctrl.Result{}, nil
+}
+```
+
+## Deduplication
+
+The platform does not deduplicate Proposals automatically. Your adapter should implement deduplication to avoid creating multiple proposals for the same issue. Common strategies:
+
+- **Name-based:** Use a deterministic name derived from the issue (e.g., `acs-fix-nginx-cve-2024-1234`). Kubernetes will reject the create if a Proposal with that name already exists.
+- **Label-based:** Before creating, list proposals with matching labels and check for active (non-terminal) ones.
+- **Cooldown:** Track when the last proposal was created for a given issue and skip if within a cooldown window.
+
+## Secret isolation
+
+Proposals can only reference Secrets in their own namespace. A Proposal in namespace `stackrox` cannot access a Secret in namespace `openshift-cluster-version`. This is enforced by standard Kubernetes RBAC — no custom logic required.
+
+```
+stackrox/                          openshift-cluster-version/
+  Secret: acs-api-token              Secret: github-token
+  Proposal: fix-nginx-cve            Proposal: upgrade-risk
+    tools.requiredSecrets:             tools.requiredSecrets:
+      - acs-api-token    <-- OK          - github-token    <-- OK
+      - github-token     <-- DENIED      - acs-api-token   <-- DENIED
+```
+
+## What your adapter does NOT do
+
+- **Pick agent tiers.** The ProposalTemplate controls which agent handles each step. Your adapter just references a template by name.
+- **Manage LLM credentials.** The cluster admin configures LLMProvider and Agent CRs. Your adapter never touches these.
+- **Create RBAC for execution.** The analysis agent requests RBAC permissions as part of its output. The operator's policy engine validates and creates the actual Kubernetes RBAC resources.
+- **Manage the sandbox pod.** The operator creates and manages sandbox pods for each step.
+
+## API reference
+
+### ProposalSpec
+
+```go
+type ProposalSpec struct {
+    // Primary input to the analysis agent.
+    // Immutable after creation. Max 32768 chars.
+    Request string
+
+    // References a cluster-scoped ProposalTemplate by name.
+    // Immutable. Mutually exclusive with inline analysis.agent.
+    TemplateRef *ProposalTemplateReference
+
+    // Namespace(s) this proposal operates on.
+    // Immutable. Used for RBAC scoping. Max 50 namespaces.
+    TargetNamespaces []string
+
+    // Default tools for all steps.
+    // Immutable. Per-step tools replace this for individual steps.
+    Tools ToolsSpec
+
+    // Per-step overrides. When using templateRef, .agent overrides the
+    // template's agent for that step, and .tools replaces spec.tools.
+    // When inline (no templateRef), .agent selects the agent tier directly.
+    // All immutable after creation.
+    Analysis     *ProposalStep
+    Execution    *ProposalStep
+    Verification *ProposalStep
+
+    // Mutable fields — the designated mutation points.
+    MaxAttempts *int32  // Override retry limit (patched at approval).
+    Revision    *int32  // Increment to trigger re-analysis with feedback.
+}
+```
+
+### ProposalStep
+
+```go
+type ProposalStep struct {
+    // Name of the cluster-scoped Agent to use for this step.
+    // When templateRef is set, overrides the template's agent.
+    // When inline (no templateRef), selects the agent tier directly.
+    // Must be one of: default, smart, fast.
+    Agent string
+
+    // Per-step tools that replace spec.tools for this step.
+    // Use when different steps need different skills.
+    Tools *ToolsSpec
+}
+```
+
+### ToolsSpec
+
+```go
+type ToolsSpec struct {
+    // OCI images containing skills. Max 20 images.
+    Skills []SkillsSource
+
+    // Secrets the sandbox needs at runtime. Max 20 secrets.
+    // Must exist in the same namespace as the Proposal.
+    RequiredSecrets []SecretRequirement
+
+    // External MCP servers the agent can connect to. Max 20 servers.
+    MCPServers []MCPServerConfig
+
+    // JSON Schema for structured output beyond the base fields.
+    OutputSchema *JSON
+}
+```
+
+### SkillsSource
+
+```go
+type SkillsSource struct {
+    // OCI image reference. Required. Max 512 chars.
+    Image string
+
+    // Restrict which directories to mount. When omitted, the
+    // entire image is mounted. Max 50 paths.
+    Paths []string
+}
+```
+
+### SecretRequirement
+
+```go
+type SecretRequirement struct {
+    // Name of the Secret (same namespace as the Proposal). Required.
+    Name string
+
+    // How the secret is exposed: env var name (e.g., "MY_TOKEN")
+    // or file path (e.g., "/etc/secrets/token"). Required.
+    MountAs string
+
+    // Human-readable explanation for the cluster admin.
+    Description string
+}
+```

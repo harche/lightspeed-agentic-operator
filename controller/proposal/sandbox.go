@@ -108,7 +108,7 @@ func (m *SandboxManager) WaitReady(ctx context.Context, claimName string, timeou
 				continue
 			}
 
-			sandboxName, found, nestedErr := unstructured.NestedString(claim.Object, "status", "sandbox", "Name")
+			sandboxName, found, nestedErr := unstructured.NestedString(claim.Object, "status", "sandbox", "name")
 			if nestedErr != nil {
 				return "", fmt.Errorf("extract sandbox name from claim %q: %w", claimName, nestedErr)
 			}

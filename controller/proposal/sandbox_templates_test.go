@@ -48,7 +48,7 @@ func emptyTemplate() *unstructured.Unstructured {
 
 func mustHash(t *testing.T, llm *agenticv1alpha1.LLMProvider, skills []agenticv1alpha1.SkillsSource, requiredSecrets []agenticv1alpha1.SecretRequirement, phase string) string {
 	t.Helper()
-	h, err := computeTemplateHash(llm, skills, nil, requiredSecrets, phase)
+	h, err := computeTemplateHash(llm, skills, nil, requiredSecrets, phase, "")
 	if err != nil {
 		t.Fatalf("computeTemplateHash: %v", err)
 	}
@@ -464,5 +464,41 @@ func TestPatchSkillsPaths_HashChangesWithPaths(t *testing.T) {
 
 	if h1 == h2 {
 		t.Error("hash should differ when paths are added")
+	}
+}
+
+func TestComputeTemplateHash_DifferentBaseResourceVersion(t *testing.T) {
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
+	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
+
+	h1, err := computeTemplateHash(llm, skills, nil, nil, "analysis", "1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h2, err := computeTemplateHash(llm, skills, nil, nil, "analysis", "2000")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if h1 == h2 {
+		t.Error("different base template resourceVersion should produce different hashes")
+	}
+}
+
+func TestComputeTemplateHash_SameBaseResourceVersion(t *testing.T) {
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
+	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
+
+	h1, err := computeTemplateHash(llm, skills, nil, nil, "analysis", "1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h2, err := computeTemplateHash(llm, skills, nil, nil, "analysis", "1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if h1 != h2 {
+		t.Error("same base template resourceVersion should produce same hash")
 	}
 }

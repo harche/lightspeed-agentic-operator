@@ -41,7 +41,6 @@ func (r *ProposalReconciler) handlePending(
 	if err != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, err)
 	}
-
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
 	proposal.Status.Steps.Analysis.CompletionTime = &completedAt
@@ -125,6 +124,17 @@ func (r *ProposalReconciler) handleApproved(
 ) (ctrl.Result, error) {
 	log.Info("handling approved")
 
+	// Guard against re-entry: if execution already completed, go straight to verification.
+	if proposal.Status.Steps.Execution.CompletionTime != nil {
+		log.Info("execution already completed, moving to verification")
+		base := proposal.DeepCopy()
+		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseVerifying
+		if err := r.statusPatch(ctx, proposal, base); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update to Verifying (re-entry guard): %w", err)
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	base := proposal.DeepCopy()
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionApproved,
@@ -193,6 +203,9 @@ func (r *ProposalReconciler) handleApproved(
 	execResult, err := r.Agent.Execute(ctx, proposal, *resolved.Execution, selectedOption)
 	if err != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, err)
+	}
+	if !execResult.Success {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, fmt.Errorf("execution agent reported failure"))
 	}
 
 	base = proposal.DeepCopy()
@@ -275,7 +288,7 @@ func (r *ProposalReconciler) handleVerifying(
 	proposal.Status.Steps.Verification.CompletionTime = &completedAt
 	applyVerificationResult(&proposal.Status.Steps.Verification, verifyResult)
 
-	allPassed := true
+	allPassed := verifyResult.Success
 	for _, check := range verifyResult.Checks {
 		if check.Result != agenticv1alpha1.CheckResultPassed {
 			allPassed = false
