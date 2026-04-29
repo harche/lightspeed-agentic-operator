@@ -171,7 +171,7 @@ func (s *SandboxAgentCaller) callWithSandbox(
 
 	agentURL := endpoint
 	if !strings.HasPrefix(endpoint, "http") {
-		agentURL = fmt.Sprintf("https://%s:8080", endpoint)
+		agentURL = fmt.Sprintf("http://%s:8080", endpoint)
 	}
 
 	var schema json.RawMessage
