@@ -15,11 +15,6 @@ import (
 
 const (
 	rbacNamespacesAnnotation = "agentic.openshift.io/rbac-namespaces"
-
-	labelProposal  = "agentic.openshift.io/proposal"
-	labelPhase     = "agentic.openshift.io/phase"
-	labelComponent = "agentic.openshift.io/component"
-	labelParent    = "agentic.openshift.io/parent"
 )
 
 // ensureExecutionRBAC creates Role+RoleBinding (namespace-scoped) and
@@ -178,8 +173,8 @@ func clusterRoleName(proposalName string) string {
 
 func rbacLabels(proposalName, component string) map[string]string {
 	return map[string]string{
-		labelProposal:  proposalName,
-		labelComponent: component,
+		LabelProposal:  proposalName,
+		LabelComponent: component,
 	}
 }
 

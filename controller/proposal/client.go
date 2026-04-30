@@ -44,6 +44,21 @@ type agentExecutionResult struct {
 	Components   []apiextensionsv1.JSON                 `json:"components,omitempty"`
 }
 
+func executionOutputToAgentResult(exec *ExecutionOutput) *agentExecutionResult {
+	if exec == nil {
+		return nil
+	}
+	r := &agentExecutionResult{
+		Success:      exec.Success,
+		ActionsTaken: exec.ActionsTaken,
+		Components:   exec.Components,
+	}
+	if exec.Verification.Summary != "" || exec.Verification.ConditionOutcome != "" {
+		r.Verification = &exec.Verification
+	}
+	return r
+}
+
 type agentPreviousAttempt struct {
 	Attempt       int32  `json:"attempt"`
 	FailureReason string `json:"failureReason,omitempty"`

@@ -49,8 +49,8 @@ func (m *SandboxManager) buildClaim(claimName, proposalName, phase, templateName
 				"name":      claimName,
 				"namespace": m.Namespace,
 				"labels": map[string]any{
-					labelProposal: proposalName,
-					labelPhase:    phase,
+					LabelProposal: proposalName,
+					LabelPhase:    phase,
 				},
 			},
 			"spec": map[string]any{

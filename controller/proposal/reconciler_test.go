@@ -179,12 +179,6 @@ func fakeBaseTemplate() *unstructured.Unstructured {
 	}
 }
 
-func fakeK8sClientWithBaseTemplate() client.Client {
-	return fake.NewClientBuilder().
-		WithScheme(testScheme()).
-		Build()
-}
-
 func newMockSandboxAgent(analysisJSON, executionJSON, verificationJSON string) (*SandboxAgentCaller, *mockSandboxProvider) {
 	sandbox := &mockSandboxProvider{claimName: "ls-test-claim", endpoint: "http://sandbox:8080"}
 

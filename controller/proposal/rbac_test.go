@@ -54,10 +54,10 @@ func TestEnsureExecutionRBAC_NamespaceScopedOnly(t *testing.T) {
 	if role.Rules[0].Resources[0] != "deployments" {
 		t.Fatalf("unexpected resource: %s", role.Rules[0].Resources[0])
 	}
-	if role.Labels[labelProposal] != "fix-oom" {
+	if role.Labels[LabelProposal] != "fix-oom" {
 		t.Fatalf("missing proposal label")
 	}
-	if role.Labels[labelComponent] != "execution-rbac" {
+	if role.Labels[LabelComponent] != "execution-rbac" {
 		t.Fatalf("missing component label")
 	}
 
@@ -754,11 +754,11 @@ func TestRoleNameGenerators(t *testing.T) {
 
 func TestRBACLabels(t *testing.T) {
 	labels := rbacLabels("fix-oom", "execution-rbac")
-	if labels[labelProposal] != "fix-oom" {
-		t.Fatalf("proposal label: %s", labels[labelProposal])
+	if labels[LabelProposal] != "fix-oom" {
+		t.Fatalf("proposal label: %s", labels[LabelProposal])
 	}
-	if labels[labelComponent] != "execution-rbac" {
-		t.Fatalf("component label: %s", labels[labelComponent])
+	if labels[LabelComponent] != "execution-rbac" {
+		t.Fatalf("component label: %s", labels[LabelComponent])
 	}
 	if len(labels) != 2 {
 		t.Fatalf("expected 2 labels, got %d", len(labels))

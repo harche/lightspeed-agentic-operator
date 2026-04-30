@@ -252,7 +252,11 @@ func buildRevisionContext(proposal *agenticv1alpha1.Proposal) string {
 }
 
 func prettyJSON(v interface{}) string {
-	if v == nil || reflect.ValueOf(v).IsNil() {
+	if v == nil {
+		return "{}"
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Ptr && rv.IsNil() {
 		return "{}"
 	}
 	b, err := json.MarshalIndent(v, "", "  ")
@@ -284,19 +288,8 @@ type verificationQuery struct {
 }
 
 func buildVerificationQuery(option *agenticv1alpha1.RemediationOption, exec *ExecutionOutput) string {
-	var execResult *agentExecutionResult
-	if exec != nil {
-		execResult = &agentExecutionResult{
-			Success:      exec.Success,
-			ActionsTaken: exec.ActionsTaken,
-		}
-		if exec.Verification.Summary != "" || exec.Verification.ConditionOutcome != "" {
-			execResult.Verification = &exec.Verification
-		}
-	}
-
 	return renderTemplate("verification_query.tmpl", verificationQuery{
 		OptionJSON:    prettyJSON(option),
-		ExecutionJSON: prettyJSON(execResult),
+		ExecutionJSON: prettyJSON(executionOutputToAgentResult(exec)),
 	})
 }

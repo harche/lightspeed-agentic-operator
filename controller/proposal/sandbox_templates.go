@@ -40,6 +40,7 @@ const (
 	LabelAgent        = "agentic.openshift.io/agent"
 	LabelProposal     = "agentic.openshift.io/proposal"
 	LabelComponent    = "agentic.openshift.io/component"
+	LabelParent       = "agentic.openshift.io/parent"
 )
 
 type templateHashInput struct {

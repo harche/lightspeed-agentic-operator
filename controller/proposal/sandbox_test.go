@@ -58,11 +58,11 @@ func TestBuildClaim_Labels(t *testing.T) {
 	claim := m.buildClaim("c", "prop-1", "execution", "tpl")
 
 	labels := claim.GetLabels()
-	if labels[labelProposal] != "prop-1" {
-		t.Errorf("proposal label = %q", labels[labelProposal])
+	if labels[LabelProposal] != "prop-1" {
+		t.Errorf("proposal label = %q", labels[LabelProposal])
 	}
-	if labels[labelPhase] != "execution" {
-		t.Errorf("phase label = %q", labels[labelPhase])
+	if labels[LabelPhase] != "execution" {
+		t.Errorf("phase label = %q", labels[LabelPhase])
 	}
 }
 
@@ -164,8 +164,8 @@ func TestClaim_ExecutionPhase(t *testing.T) {
 	}, claim)
 
 	labels := claim.GetLabels()
-	if labels[labelPhase] != "execution" {
-		t.Errorf("phase label = %q, want 'execution'", labels[labelPhase])
+	if labels[LabelPhase] != "execution" {
+		t.Errorf("phase label = %q, want 'execution'", labels[LabelPhase])
 	}
 }
 

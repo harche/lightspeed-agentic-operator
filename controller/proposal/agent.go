@@ -37,8 +37,8 @@ type VerificationOutput struct {
 // attachments). In production this manages sandbox lifecycle + HTTP
 // calls; in tests a stub returns canned results.
 //
-// HTTP implementations should POST to a single /query endpoint with
-// a "phase" field in the request body rather than separate endpoints.
+// HTTP implementations POST to /v1/agent/run — a step-agnostic
+// endpoint where all workflow context is in the request payload.
 type AgentCaller interface {
 	Analyze(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*AnalysisOutput, error)
 	Execute(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption) (*ExecutionOutput, error)

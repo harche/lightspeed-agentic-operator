@@ -399,7 +399,7 @@ func (r *ProposalReconciler) handleEscalated(
 			Name:      childName,
 			Namespace: proposal.Namespace,
 			Labels: map[string]string{
-				labelParent: proposal.Name,
+				LabelParent: proposal.Name,
 			},
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: "agentic.openshift.io/v1alpha1",
