@@ -21,10 +21,9 @@ import (
 )
 
 // ProposalPhase summarizes the proposal's lifecycle state for display.
-// The operator derives this from conditions and sets it on every reconcile.
-// Conditions remain the source of truth; this field is for human consumption
-// (e.g., oc get proposals, console UI list views).
-// +kubebuilder:validation:Enum=Pending;Analyzing;Proposed;Approved;Executing;AwaitingSync;Verifying;Completed;Failed;Denied;Escalated
+// This type is used internally by the controller, CLI, and console to
+// derive a human-friendly phase from conditions. It is NOT stored on
+// the CRD status — use DerivePhase(conditions) to compute it.
 type ProposalPhase string
 
 const (
@@ -40,6 +39,87 @@ const (
 	ProposalPhaseDenied       ProposalPhase = "Denied"
 	ProposalPhaseEscalated    ProposalPhase = "Escalated"
 )
+
+// Condition reasons used by DerivePhase for state transitions.
+// SYNC: must match derivePhaseFromConditions in lightspeed-agentic-console/src/models/proposal.ts
+const (
+	ReasonRetryingExecution = "RetryingExecution"
+	ReasonRetriesExhausted  = "RetriesExhausted"
+)
+
+// DerivePhase computes the display phase from conditions. Conditions are
+// the source of truth; this function maps them to a human-friendly phase
+// for display in CLI, console, and controller routing.
+// SYNC: must match derivePhaseFromConditions in lightspeed-agentic-console/src/models/proposal.ts
+func DerivePhase(conditions []metav1.Condition) ProposalPhase {
+	get := func(condType string) *metav1.Condition {
+		for i := range conditions {
+			if conditions[i].Type == condType {
+				return &conditions[i]
+			}
+		}
+		return nil
+	}
+
+	if c := get(ProposalConditionEscalated); c != nil && c.Status == metav1.ConditionTrue {
+		return ProposalPhaseEscalated
+	}
+
+	approved := get(ProposalConditionApproved)
+	if approved != nil && approved.Status == metav1.ConditionFalse {
+		return ProposalPhaseDenied
+	}
+
+	if c := get(ProposalConditionVerified); c != nil {
+		switch c.Status {
+		case metav1.ConditionTrue:
+			return ProposalPhaseCompleted
+		case metav1.ConditionUnknown:
+			return ProposalPhaseVerifying
+		default:
+			switch c.Reason {
+			case ReasonRetryingExecution:
+				return ProposalPhaseApproved
+			case ReasonRetriesExhausted:
+				return ProposalPhaseProposed
+			default:
+				return ProposalPhaseFailed
+			}
+		}
+	}
+
+	if c := get(ProposalConditionAwaitingSync); c != nil && c.Status == metav1.ConditionTrue {
+		return ProposalPhaseAwaitingSync
+	}
+
+	if c := get(ProposalConditionExecuted); c != nil {
+		switch c.Status {
+		case metav1.ConditionTrue:
+			return ProposalPhaseVerifying
+		case metav1.ConditionUnknown:
+			return ProposalPhaseExecuting
+		default:
+			return ProposalPhaseFailed
+		}
+	}
+
+	if approved != nil && approved.Status == metav1.ConditionTrue {
+		return ProposalPhaseApproved
+	}
+
+	if c := get(ProposalConditionAnalyzed); c != nil {
+		switch c.Status {
+		case metav1.ConditionTrue:
+			return ProposalPhaseProposed
+		case metav1.ConditionUnknown:
+			return ProposalPhaseAnalyzing
+		default:
+			return ProposalPhaseFailed
+		}
+	}
+
+	return ProposalPhasePending
+}
 
 // SandboxStep identifies which workflow step a sandbox pod is running for.
 // Used in PreviousAttempt to record which step failed, and internally by the
@@ -80,6 +160,8 @@ const (
 	ProposalConditionAnalyzed string = "Analyzed"
 	// ProposalConditionApproved indicates the user's approval decision.
 	// Status=True when approved, Status=False when denied.
+	// Users approve or deny by patching this condition on the status
+	// subresource (via CLI, console, or direct API call).
 	ProposalConditionApproved string = "Approved"
 	// ProposalConditionExecuted indicates whether execution has completed.
 	// Status=True when execution succeeds, Status=False on failure,
@@ -243,6 +325,8 @@ type ProposalSpec struct {
 // set by the operator -- users should not modify status fields directly.
 // The status provides complete observability into the proposal's progress,
 // including per-step results, retry history, and standard Kubernetes conditions.
+// An empty status (`status: {}`) is the initial state before the operator's
+// first reconcile.
 type ProposalStatus struct {
 	// conditions represent the latest available observations using the
 	// standard Kubernetes condition pattern. Condition types include:
@@ -252,22 +336,14 @@ type ProposalStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
-	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 
-	// phase summarizes the proposal's lifecycle state for display purposes.
-	// Derived by the operator from conditions on every reconcile. Conditions
-	// are the source of truth; this field is for human consumption
-	// (oc get, console list views).
+	// attempts is the number of times this proposal has been attempted
+	// (1-based). Incremented each time the proposal is retried after a
+	// failure. Starts at 1 for the first attempt.
 	// +optional
-	Phase ProposalPhase `json:"phase,omitempty"` //nolint:kubeapilinter // Phase is derived from conditions for display (oc get, console).
-
-	// attempt is the current attempt number (1-based). Incremented each
-	// time the proposal is retried after a failure. Starts at 1 for the
-	// first attempt.
-	// +optional
-	Attempt *int32 `json:"attempt,omitempty"`
+	Attempts *int32 `json:"attempts,omitempty"`
 
 	// steps contains the per-step observed state (analysis, execution,
 	// verification). Each step independently tracks its timing, sandbox
@@ -289,7 +365,6 @@ type ProposalStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
-// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Request",type=string,JSONPath=`.spec.request`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

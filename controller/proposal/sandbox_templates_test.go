@@ -9,13 +9,21 @@ import (
 )
 
 func testLLMProvider(providerType agenticv1alpha1.LLMProviderType, model string) *agenticv1alpha1.LLMProvider {
-	return &agenticv1alpha1.LLMProvider{
-		Spec: agenticv1alpha1.LLMProviderSpec{
-			Type:              providerType,
-			Model:             model,
-			CredentialsSecret: agenticv1alpha1.NamespacedSecretReference{Name: "my-llm-secret", Namespace: "lightspeed"},
-		},
+	creds := agenticv1alpha1.NamespacedSecretReference{Name: "my-llm-secret", Namespace: "lightspeed"}
+	spec := agenticv1alpha1.LLMProviderSpec{Type: providerType, Model: model}
+	switch providerType {
+	case agenticv1alpha1.LLMProviderAnthropic:
+		spec.Anthropic = &agenticv1alpha1.AnthropicConfig{CredentialsSecret: creds}
+	case agenticv1alpha1.LLMProviderGoogleCloudVertex:
+		spec.GoogleCloudVertex = &agenticv1alpha1.GoogleCloudVertexConfig{CredentialsSecret: creds, Project: "test", Region: "us-central1"}
+	case agenticv1alpha1.LLMProviderOpenAI:
+		spec.OpenAI = &agenticv1alpha1.OpenAIConfig{CredentialsSecret: creds}
+	case agenticv1alpha1.LLMProviderAzureOpenAI:
+		spec.AzureOpenAI = &agenticv1alpha1.AzureOpenAIConfig{CredentialsSecret: creds, Endpoint: "https://test.openai.azure.com"}
+	case agenticv1alpha1.LLMProviderAWSBedrock:
+		spec.AWSBedrock = &agenticv1alpha1.AWSBedrockConfig{CredentialsSecret: creds, Region: "us-east-1"}
 	}
+	return &agenticv1alpha1.LLMProvider{Spec: spec}
 }
 
 func testLLMProviderWithURL(providerType agenticv1alpha1.LLMProviderType, model, url string) *agenticv1alpha1.LLMProvider {
@@ -147,7 +155,7 @@ func templateWithSkillsMount() *unstructured.Unstructured {
 // --- computeTemplateHash tests ---
 
 func TestComputeTemplateHash_Deterministic(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
 	h1 := mustHash(t, llm, skills, nil, "analysis")
@@ -163,8 +171,8 @@ func TestComputeTemplateHash_Deterministic(t *testing.T) {
 
 func TestComputeTemplateHash_DifferentModel(t *testing.T) {
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
-	h1 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6"), skills, nil, "analysis")
-	h2 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-sonnet-4-6"), skills, nil, "analysis")
+	h1 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6"), skills, nil, "analysis")
+	h2 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-sonnet-4-6"), skills, nil, "analysis")
 
 	if h1 == h2 {
 		t.Error("different models should produce different hashes")
@@ -172,7 +180,7 @@ func TestComputeTemplateHash_DifferentModel(t *testing.T) {
 }
 
 func TestComputeTemplateHash_DifferentPhase(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
 	h1 := mustHash(t, llm, skills, nil, "analysis")
@@ -187,7 +195,7 @@ func TestComputeTemplateHash_DifferentSecret(t *testing.T) {
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 	llm1 := testLLMProvider(agenticv1alpha1.LLMProviderAnthropic, "claude-opus-4-6")
 	llm2 := testLLMProvider(agenticv1alpha1.LLMProviderAnthropic, "claude-opus-4-6")
-	llm2.Spec.CredentialsSecret.Name = "different-secret"
+	llm2.Spec.Anthropic.CredentialsSecret.Name = "different-secret"
 
 	h1 := mustHash(t, llm1, skills, nil, "analysis")
 	h2 := mustHash(t, llm2, skills, nil, "analysis")
@@ -198,7 +206,7 @@ func TestComputeTemplateHash_DifferentSecret(t *testing.T) {
 }
 
 func TestComputeTemplateHash_DifferentRequiredSecrets(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
 	h1 := mustHash(t, llm, skills, nil, "analysis")
@@ -241,7 +249,7 @@ func TestPatchLLMCredentials_Anthropic(t *testing.T) {
 
 func TestPatchLLMCredentials_Vertex(t *testing.T) {
 	tmpl := emptyTemplate()
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
 
 	if err := patchLLMCredentials(tmpl, llm); err != nil {
 		t.Fatalf("patchLLMCredentials: %v", err)
@@ -278,7 +286,7 @@ func TestPatchLLMCredentials_Vertex(t *testing.T) {
 
 func TestPatchLLMCredentials_Bedrock(t *testing.T) {
 	tmpl := emptyTemplate()
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderBedrock, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderAWSBedrock, "claude-opus-4-6")
 
 	if err := patchLLMCredentials(tmpl, llm); err != nil {
 		t.Fatalf("patchLLMCredentials: %v", err)
@@ -361,7 +369,7 @@ func TestSetEnvVar_FailsOnNoContainers(t *testing.T) {
 }
 
 func TestEnsureAgentTemplate_NilAgent(t *testing.T) {
-	_, err := EnsureAgentTemplate(nil, nil, "base", "ns", "analysis", nil, testLLMProvider(agenticv1alpha1.LLMProviderVertex, "m"), nil)
+	_, err := EnsureAgentTemplate(nil, nil, "base", "ns", "analysis", nil, testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "m"), nil)
 	if err == nil {
 		t.Error("expected error for nil agent")
 	}
@@ -455,7 +463,7 @@ func TestPatchSkillsPaths_NoPaths_NoChange(t *testing.T) {
 }
 
 func TestPatchSkillsPaths_HashChangesWithPaths(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
 	noPaths := []agenticv1alpha1.SkillsSource{{Image: "img:latest"}}
 	withPaths := []agenticv1alpha1.SkillsSource{{Image: "img:latest", Paths: []string{"/a", "/b"}}}
 
@@ -468,7 +476,7 @@ func TestPatchSkillsPaths_HashChangesWithPaths(t *testing.T) {
 }
 
 func TestComputeTemplateHash_DifferentBaseResourceVersion(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
 	h1, err := computeTemplateHash(llm, skills, nil, nil, "analysis", "1000")
@@ -486,7 +494,7 @@ func TestComputeTemplateHash_DifferentBaseResourceVersion(t *testing.T) {
 }
 
 func TestComputeTemplateHash_SameBaseResourceVersion(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
 	h1, err := computeTemplateHash(llm, skills, nil, nil, "analysis", "1000")

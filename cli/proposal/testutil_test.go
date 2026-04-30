@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -36,10 +37,33 @@ func testProposalWithStatus(name, namespace string, phase agenticv1alpha1.Propos
 	p := testProposal(name, namespace)
 	one := int32(1)
 	p.Status = agenticv1alpha1.ProposalStatus{
-		Phase:   phase,
-		Attempt: &one,
+		Attempts: &one,
 	}
+	setPhaseConditions(&p.Status, phase)
 	return p
+}
+
+func setPhaseConditions(s *agenticv1alpha1.ProposalStatus, phase agenticv1alpha1.ProposalPhase) {
+	switch phase {
+	case agenticv1alpha1.ProposalPhaseProposed:
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionTrue, Reason: "AnalysisComplete",
+		})
+	case agenticv1alpha1.ProposalPhaseDenied:
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionTrue, Reason: "AnalysisComplete",
+		})
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionApproved, Status: metav1.ConditionFalse, Reason: "UserDenied",
+		})
+	case agenticv1alpha1.ProposalPhaseApproved:
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionTrue, Reason: "AnalysisComplete",
+		})
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionApproved, Status: metav1.ConditionTrue, Reason: "UserApproved",
+		})
+	}
 }
 
 func int32Ptr(v int32) *int32 {

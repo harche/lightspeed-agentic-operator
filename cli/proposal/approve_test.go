@@ -47,8 +47,8 @@ func TestApprove_Success(t *testing.T) {
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: "fix-crash", Namespace: "default"}, &updated); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if updated.Status.Phase != agenticv1alpha1.ProposalPhaseApproved {
-		t.Errorf("expected Approved phase, got %s", updated.Status.Phase)
+	if agenticv1alpha1.DerivePhase(updated.Status.Conditions) != agenticv1alpha1.ProposalPhaseApproved {
+		t.Errorf("expected Approved phase, got %s", agenticv1alpha1.DerivePhase(updated.Status.Conditions))
 	}
 	if updated.Status.Steps.Analysis.SelectedOption == nil {
 		t.Fatal("expected SelectedOption to be set")

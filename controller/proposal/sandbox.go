@@ -25,7 +25,7 @@ var (
 
 // SandboxProvider abstracts sandbox lifecycle for testability.
 type SandboxProvider interface {
-	Claim(ctx context.Context, proposalName, phase, templateName string) (claimName string, err error)
+	Claim(ctx context.Context, proposalName, step, templateName string) (claimName string, err error)
 	WaitReady(ctx context.Context, claimName string, timeout time.Duration) (endpoint string, err error)
 	Release(ctx context.Context, claimName string) error
 }
@@ -40,7 +40,7 @@ func NewSandboxManager(c client.Client, namespace string) *SandboxManager {
 	return &SandboxManager{Client: c, Namespace: namespace}
 }
 
-func (m *SandboxManager) buildClaim(claimName, proposalName, phase, templateName string) *unstructured.Unstructured {
+func (m *SandboxManager) buildClaim(claimName, proposalName, step, templateName string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": sandboxClaimGVK.Group + "/" + sandboxClaimGVK.Version,
@@ -50,7 +50,7 @@ func (m *SandboxManager) buildClaim(claimName, proposalName, phase, templateName
 				"namespace": m.Namespace,
 				"labels": map[string]any{
 					LabelProposal: proposalName,
-					LabelPhase:    phase,
+					LabelStep:    step,
 				},
 			},
 			"spec": map[string]any{
@@ -65,20 +65,20 @@ func (m *SandboxManager) buildClaim(claimName, proposalName, phase, templateName
 	}
 }
 
-func (m *SandboxManager) Claim(ctx context.Context, proposalName, phase, templateName string) (string, error) {
+func (m *SandboxManager) Claim(ctx context.Context, proposalName, step, templateName string) (string, error) {
 	log := logf.FromContext(ctx)
 
-	claimName := truncateK8sName(fmt.Sprintf("ls-%s-%s", phase, proposalName))
+	claimName := truncateK8sName(fmt.Sprintf("ls-%s-%s", step, proposalName))
 
-	claim := m.buildClaim(claimName, proposalName, phase, templateName)
+	claim := m.buildClaim(claimName, proposalName, step, templateName)
 	if err := m.Client.Create(ctx, claim); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			return claimName, nil
 		}
-		return "", fmt.Errorf("failed to create SandboxClaim for %s: %w", phase, err)
+		return "", fmt.Errorf("failed to create SandboxClaim for %s: %w", step, err)
 	}
 
-	log.Info("Created SandboxClaim", "name", claimName, "phase", phase, "template", templateName)
+	log.Info("Created SandboxClaim", "name", claimName, "step", step, "template", templateName)
 	return claimName, nil
 }
 

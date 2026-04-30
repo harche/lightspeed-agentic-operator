@@ -64,13 +64,13 @@ func NewSandboxAgentCaller(
 	}
 }
 
-func phaseString(step agenticv1alpha1.SandboxStep) string {
+func stepString(step agenticv1alpha1.SandboxStep) string {
 	return strings.ToLower(string(step))
 }
 
 func (s *SandboxAgentCaller) Analyze(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*AnalysisOutput, error) {
 	query := buildAnalysisQuery(requestText)
-	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepAnalysis), step, query, buildAgentContext(proposal))
+	raw, err := s.callWithSandbox(ctx, proposal, stepString(agenticv1alpha1.SandboxStepAnalysis), step, query, buildAgentContext(proposal))
 	if err != nil {
 		return nil, fmt.Errorf("analysis agent call: %w", err)
 	}
@@ -94,7 +94,7 @@ func (s *SandboxAgentCaller) Execute(ctx context.Context, proposal *agenticv1alp
 	}
 
 	query := buildExecutionQuery(option)
-	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepExecution), step, query, agentCtx)
+	raw, err := s.callWithSandbox(ctx, proposal, stepString(agenticv1alpha1.SandboxStepExecution), step, query, agentCtx)
 	if err != nil {
 		return nil, fmt.Errorf("execution agent call: %w", err)
 	}
@@ -123,7 +123,7 @@ func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alph
 	agentCtx.ExecutionResult = executionOutputToAgentResult(exec)
 
 	query := buildVerificationQuery(option, exec)
-	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepVerification), step, query, agentCtx)
+	raw, err := s.callWithSandbox(ctx, proposal, stepString(agenticv1alpha1.SandboxStepVerification), step, query, agentCtx)
 	if err != nil {
 		return nil, fmt.Errorf("verification agent call: %w", err)
 	}
@@ -144,24 +144,24 @@ func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alph
 func (s *SandboxAgentCaller) callWithSandbox(
 	ctx context.Context,
 	proposal *agenticv1alpha1.Proposal,
-	phase string,
+	stepName string,
 	step resolvedStep,
 	query string,
 	agentCtx *agentContext,
 ) (json.RawMessage, error) {
-	templateName, err := EnsureAgentTemplate(ctx, s.K8sClient, s.BaseTemplateName, s.Namespace, phase, step.Agent, step.LLM, step.Tools)
+	templateName, err := EnsureAgentTemplate(ctx, s.K8sClient, s.BaseTemplateName, s.Namespace, stepName, step.Agent, step.LLM, step.Tools)
 	if err != nil {
 		return nil, fmt.Errorf("ensure agent template: %w", err)
 	}
 
-	claimName, err := s.Sandbox.Claim(ctx, proposal.Name, phase, templateName)
+	claimName, err := s.Sandbox.Claim(ctx, proposal.Name, stepName, templateName)
 	if err != nil {
 		return nil, fmt.Errorf("claim sandbox: %w", err)
 	}
 
 	// Write sandbox info immediately so the console can stream logs
 	// while the sandbox is still starting up
-	s.patchSandboxInfo(ctx, proposal, phase, claimName)
+	s.patchSandboxInfo(ctx, proposal, stepName, claimName)
 
 	timeout := s.Timeout
 	if timeout == 0 {
@@ -178,9 +178,11 @@ func (s *SandboxAgentCaller) callWithSandbox(
 		agentURL = fmt.Sprintf("http://%s:8080", endpoint)
 	}
 
-	schema := defaultOutputSchemas[phase]
+	schema := defaultOutputSchemas[stepName]
 	if step.Tools != nil && step.Tools.OutputSchema != nil {
-		schema, _ = step.Tools.OutputSchema.MarshalJSON()
+		if b, err := json.Marshal(step.Tools.OutputSchema); err == nil {
+			schema = b
+		}
 	}
 
 	client := s.ClientFactory(agentURL)
@@ -214,7 +216,7 @@ func (s *SandboxAgentCaller) ReleaseSandboxes(ctx context.Context, proposal *age
 	return firstErr
 }
 
-func (s *SandboxAgentCaller) patchSandboxInfo(ctx context.Context, proposal *agenticv1alpha1.Proposal, phase, claimName string) {
+func (s *SandboxAgentCaller) patchSandboxInfo(ctx context.Context, proposal *agenticv1alpha1.Proposal, step, claimName string) {
 	log := logf.FromContext(ctx)
 
 	var current agenticv1alpha1.Proposal
@@ -231,7 +233,7 @@ func (s *SandboxAgentCaller) patchSandboxInfo(ctx context.Context, proposal *age
 		StartTime: &now,
 	}
 
-	switch phase {
+	switch step {
 	case "analysis":
 		current.Status.Steps.Analysis.Sandbox = info
 	case "execution":
@@ -241,7 +243,7 @@ func (s *SandboxAgentCaller) patchSandboxInfo(ctx context.Context, proposal *age
 	}
 
 	if err := s.K8sClient.Status().Patch(ctx, &current, client.MergeFrom(base)); err != nil {
-		log.Error(err, "failed to patch sandbox info", "phase", phase, "claimName", claimName)
+		log.Error(err, "failed to patch sandbox info", "step", step, "claimName", claimName)
 	}
 }
 
@@ -250,8 +252,8 @@ func buildAgentContext(proposal *agenticv1alpha1.Proposal) *agentContext {
 		TargetNamespaces: proposal.Spec.TargetNamespaces,
 	}
 
-	if proposal.Status.Attempt != nil {
-		ctx.Attempt = *proposal.Status.Attempt
+	if proposal.Status.Attempts != nil {
+		ctx.Attempt = *proposal.Status.Attempts
 	}
 
 	if n := len(proposal.Status.PreviousAttempts); n > 0 {

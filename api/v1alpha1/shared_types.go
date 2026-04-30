@@ -21,32 +21,31 @@ package v1alpha1
 //
 //   - "Secret"     — The value is read from a Kubernetes Secret referenced
 //     by the secret field. Use this for API keys and tokens.
-//   - "Kubernetes" — The operator injects a Kubernetes service account
+//   - "ServiceAccountToken" — The operator injects a Kubernetes service account
 //     token automatically (for MCP servers that accept K8s auth).
 //   - "Client"     — The value is provided by the calling client at
 //     runtime (e.g., forwarded from a user session).
 //
-// +kubebuilder:validation:Enum=Secret;Kubernetes;Client
+// +kubebuilder:validation:Enum=Secret;ServiceAccountToken;Client
 type MCPHeaderSourceType string
 
 const (
 	// MCPHeaderSourceTypeSecret reads the header value from a Kubernetes Secret.
 	MCPHeaderSourceTypeSecret MCPHeaderSourceType = "Secret"
-	// MCPHeaderSourceTypeKubernetes uses an auto-injected Kubernetes SA token.
-	MCPHeaderSourceTypeKubernetes MCPHeaderSourceType = "Kubernetes"
+	// MCPHeaderSourceTypeServiceAccountToken uses an auto-injected Kubernetes SA token.
+	MCPHeaderSourceTypeServiceAccountToken MCPHeaderSourceType = "ServiceAccountToken"
 	// MCPHeaderSourceTypeClient expects the value to be provided by the caller.
 	MCPHeaderSourceTypeClient MCPHeaderSourceType = "Client"
 )
 
 // MCPHeaderValueSource defines where to obtain the value for an MCP header.
 // Exactly one source is used depending on the type field.
-// +kubebuilder:validation:XValidation:rule="self.type == 'Secret' ? has(self.secret) : true",message="secret is required when type is 'Secret'"
-// +kubebuilder:validation:XValidation:rule="self.type != 'Secret' ? !has(self.secret) : true",message="secret must not be set when type is 'Kubernetes' or 'Client'"
+// +kubebuilder:validation:XValidation:rule="self.type == 'Secret' ? has(self.secret) : !has(self.secret)",message="secret is required when type is Secret, and forbidden otherwise"
 type MCPHeaderValueSource struct {
 	// type specifies the source type for the header value. Allowed values:
 	//   - "Secret"     — reads the value from a Kubernetes Secret (use for
 	//     API keys and tokens). Requires the secret field to be set.
-	//   - "Kubernetes" — auto-injects a Kubernetes service account token
+	//   - "ServiceAccountToken" — auto-injects a Kubernetes service account token
 	//     (for MCP servers that accept K8s auth).
 	//   - "Client"     — the value is provided by the calling client at
 	//     runtime (e.g., forwarded from a user session).
@@ -88,7 +87,7 @@ type MCPHeader struct {
 //	    headers:
 //	      - name: Authorization
 //	        valueFrom:
-//	          type: Kubernetes
+//	          type: ServiceAccountToken
 //
 // Example — connecting to an external API with secret-based auth:
 //
@@ -102,10 +101,12 @@ type MCPHeader struct {
 //	          secret:
 //	            name: pagerduty-api-key
 type MCPServerConfig struct {
-	// name of the MCP server. Must be 1-253 characters.
+	// name of the MCP server. Must start with a letter and contain only
+	// lowercase alphanumeric characters and hyphens. Must be 1-253 characters.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[a-z][a-z0-9-]*$')",message="name must start with a lowercase letter and contain only lowercase alphanumerics and hyphens"
 	Name string `json:"name,omitempty"`
 
 	// url of the MCP server (HTTP/HTTPS). Must be an HTTP or HTTPS URL,
@@ -116,7 +117,8 @@ type MCPServerConfig struct {
 	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="url must be a valid HTTP or HTTPS URL"
 	URL string `json:"url,omitempty"`
 
-	// timeoutSeconds is the timeout for the MCP server in seconds, default is 5.
+	// timeoutSeconds is the per-request timeout for calls to this MCP server,
+	// in seconds. Default is 5.
 	// Valid range: 1-300.
 	// +optional
 	// +default=5

@@ -179,7 +179,7 @@ func TestGet_WithPreviousAttempts(t *testing.T) {
 	streams, out, _ := fakeStreams()
 	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseAnalyzing)
 	attempt := int32(2)
-	p.Status.Attempt = &attempt
+	p.Status.Attempts = &attempt
 	p.Status.PreviousAttempts = []agenticv1alpha1.PreviousAttempt{
 		{Attempt: 1, FailedStep: agenticv1alpha1.SandboxStepExecution, FailureReason: "Timeout after 5m"},
 	}

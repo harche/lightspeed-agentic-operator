@@ -6,6 +6,8 @@ import (
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,12 +65,18 @@ func (o *DenyOptions) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to get proposal %q: %w", o.name, err)
 	}
 
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		return fmt.Errorf("cannot deny proposal in phase %s (must be Proposed)", p.Status.Phase)
+	phase := agenticv1alpha1.DerivePhase(p.Status.Conditions)
+	if phase != agenticv1alpha1.ProposalPhaseProposed {
+		return fmt.Errorf("cannot deny proposal in phase %s (must be Proposed)", phase)
 	}
 
 	patch := client.MergeFrom(p.DeepCopy())
-	p.Status.Phase = agenticv1alpha1.ProposalPhaseDenied
+	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+		Type:    agenticv1alpha1.ProposalConditionApproved,
+		Status:  metav1.ConditionFalse,
+		Reason:  "UserDenied",
+		Message: "Proposal denied by user via CLI",
+	})
 	if err := o.client.Status().Patch(ctx, p, patch); err != nil {
 		return fmt.Errorf("failed to deny proposal: %w", err)
 	}

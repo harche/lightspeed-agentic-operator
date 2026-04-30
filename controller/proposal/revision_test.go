@@ -31,7 +31,7 @@ func TestNeedsRevision(t *testing.T) {
 			proposal := &agenticv1alpha1.Proposal{
 				Spec: agenticv1alpha1.ProposalSpec{Revision: tt.specRevision},
 				Status: agenticv1alpha1.ProposalStatus{
-					Attempt: &attempt,
+					Attempts: &attempt,
 					Steps: agenticv1alpha1.StepsStatus{
 						Analysis: agenticv1alpha1.AnalysisStepStatus{
 							ObservedRevision: tt.observedRevision,

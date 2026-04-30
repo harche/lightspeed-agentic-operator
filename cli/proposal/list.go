@@ -98,7 +98,7 @@ func (o *ListOptions) Run(ctx context.Context) error {
 
 	filtered := make([]agenticv1alpha1.Proposal, 0, len(list.Items))
 	for _, p := range list.Items {
-		if o.phase != "" && string(p.Status.Phase) != o.phase {
+		if o.phase != "" && string(agenticv1alpha1.DerivePhase(p.Status.Conditions)) != o.phase {
 			continue
 		}
 		filtered = append(filtered, p)
@@ -141,7 +141,7 @@ func (o *ListOptions) printTable(items []agenticv1alpha1.Proposal) {
 		if o.allNamespaces {
 			row = append(row, p.Namespace)
 		}
-		row = append(row, p.Name, ColoredPhase(p.Status.Phase), HumanDuration(p.CreationTimestamp.Time))
+		row = append(row, p.Name, ColoredPhase(agenticv1alpha1.DerivePhase(p.Status.Conditions)), HumanDuration(p.CreationTimestamp.Time))
 		rows = append(rows, row)
 	}
 	PrintTable(o.Out, headers, rows)
@@ -164,8 +164,8 @@ func (o *ListOptions) printWideTable(items []agenticv1alpha1.Proposal) {
 		if o.allNamespaces {
 			row = append(row, p.Namespace)
 		}
-		row = append(row, p.Name, ColoredPhase(p.Status.Phase),
-			int32PtrStr(p.Status.Attempt), targetNS, HumanDuration(p.CreationTimestamp.Time))
+		row = append(row, p.Name, ColoredPhase(agenticv1alpha1.DerivePhase(p.Status.Conditions)),
+			int32PtrStr(p.Status.Attempts), targetNS, HumanDuration(p.CreationTimestamp.Time))
 		rows = append(rows, row)
 	}
 	PrintTable(o.Out, headers, rows)

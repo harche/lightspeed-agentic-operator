@@ -59,9 +59,10 @@ type ToolsSpec struct {
 	// skills defines one or more OCI images containing skills to mount
 	// in the agent's sandbox pod. The operator creates Kubernetes image
 	// volumes (requires K8s 1.34+) and mounts them into the agent's
-	// skills directory.
+	// skills directory. Each image must be unique within the list.
 	// +optional
-	// +listType=atomic
+	// +listType=map
+	// +listMapKey=image
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	Skills []SkillsSource `json:"skills,omitempty"`
@@ -89,5 +90,8 @@ type ToolsSpec struct {
 	// output fields beyond the base schema that every agent produces (diagnosis,
 	// proposal, RBAC, verification plan).
 	// +optional
-	OutputSchema *apiextensionsv1.JSON `json:"outputSchema,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=object
+	// +kubebuilder:pruning:PreserveUnknownFields
+	OutputSchema *apiextensionsv1.JSONSchemaProps `json:"outputSchema,omitempty"`
 }

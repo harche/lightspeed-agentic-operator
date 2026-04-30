@@ -36,7 +36,7 @@ const (
 
 	LabelManaged      = "agentic.openshift.io/managed"
 	LabelBaseTemplate = "agentic.openshift.io/base-template"
-	LabelPhase        = "agentic.openshift.io/phase"
+	LabelStep        = "agentic.openshift.io/step"
 	LabelAgent        = "agentic.openshift.io/agent"
 	LabelProposal     = "agentic.openshift.io/proposal"
 	LabelComponent    = "agentic.openshift.io/component"
@@ -48,7 +48,7 @@ type templateHashInput struct {
 	Skills                 []agenticv1alpha1.SkillsSource      `json:"skills"`
 	MCPServers             []agenticv1alpha1.MCPServerConfig   `json:"mcpServers,omitempty"`
 	RequiredSecrets        []agenticv1alpha1.SecretRequirement `json:"requiredSecrets,omitempty"`
-	Phase                  string                              `json:"phase"`
+	Step                   string                              `json:"step"`
 	BaseResourceVersion    string                              `json:"baseRV"`
 }
 
@@ -57,7 +57,7 @@ func computeTemplateHash(
 	skills []agenticv1alpha1.SkillsSource,
 	mcpServers []agenticv1alpha1.MCPServerConfig,
 	requiredSecrets []agenticv1alpha1.SecretRequirement,
-	phase string,
+	step string,
 	baseResourceVersion string,
 ) (string, error) {
 	input := templateHashInput{
@@ -65,7 +65,7 @@ func computeTemplateHash(
 		Skills:              skills,
 		MCPServers:          mcpServers,
 		RequiredSecrets:     requiredSecrets,
-		Phase:               phase,
+		Step: step,
 		BaseResourceVersion: baseResourceVersion,
 	}
 	data, err := json.Marshal(input)
@@ -76,8 +76,8 @@ func computeTemplateHash(
 	return hex.EncodeToString(sum[:])[:10], nil
 }
 
-func agentTemplateName(phase, agentName, hash string) string {
-	return truncateK8sName(fmt.Sprintf("ls-%s-%s-%s", phase, agentName, hash))
+func agentTemplateName(step, agentName, hash string) string {
+	return truncateK8sName(fmt.Sprintf("ls-%s-%s-%s", step, agentName, hash))
 }
 
 // EnsureAgentTemplate creates a SandboxTemplate derived from the base template
@@ -89,7 +89,7 @@ func EnsureAgentTemplate(
 	c client.Client,
 	baseTemplateName string,
 	namespace string,
-	phase string,
+	step string,
 	agent *agenticv1alpha1.Agent,
 	llm *agenticv1alpha1.LLMProvider,
 	tools *agenticv1alpha1.ToolsSpec,
@@ -118,11 +118,11 @@ func EnsureAgentTemplate(
 		requiredSecrets = tools.RequiredSecrets
 	}
 
-	hash, err := computeTemplateHash(llm, skills, mcpServers, requiredSecrets, phase, base.GetResourceVersion())
+	hash, err := computeTemplateHash(llm, skills, mcpServers, requiredSecrets, step, base.GetResourceVersion())
 	if err != nil {
 		return "", fmt.Errorf("compute template hash: %w", err)
 	}
-	name := agentTemplateName(phase, agent.Name, hash)
+	name := agentTemplateName(step, agent.Name, hash)
 
 	existing := &unstructured.Unstructured{}
 	existing.SetGroupVersionKind(sandboxTemplateGVK)
@@ -153,7 +153,7 @@ func EnsureAgentTemplate(
 	}
 	lbls[LabelManaged] = "true"
 	lbls[LabelBaseTemplate] = baseTemplateName
-	lbls[LabelPhase] = phase
+	lbls[LabelStep] = step
 	lbls[LabelAgent] = agent.Name
 	derived.SetLabels(lbls)
 
@@ -168,7 +168,7 @@ func EnsureAgentTemplate(
 		}
 	}
 
-	if err := patchAgentMode(derived, phase); err != nil {
+	if err := patchAgentMode(derived, step); err != nil {
 		return "", fmt.Errorf("patch agent mode: %w", err)
 	}
 	if err := patchLLMCredentials(derived, llm); err != nil {
@@ -197,20 +197,37 @@ func EnsureAgentTemplate(
 	log.Info("Created agent SandboxTemplate",
 		"name", name,
 		"base", baseTemplateName,
-		"phase", phase,
+		"step", step,
 		"agent", agent.Name,
 		"llmProvider", llm.Name,
 		"hash", hash)
 
-	if err := gcOldTemplates(ctx, c, namespace, agent.Name, phase, name); err != nil {
+	if err := gcOldTemplates(ctx, c, namespace, agent.Name, step, name); err != nil {
 		log.Error(err, "failed to garbage-collect old templates")
 	}
 
 	return name, nil
 }
 
+func credentialsSecretName(llm *agenticv1alpha1.LLMProvider) string {
+	switch llm.Spec.Type {
+	case agenticv1alpha1.LLMProviderAnthropic:
+		return llm.Spec.Anthropic.CredentialsSecret.Name
+	case agenticv1alpha1.LLMProviderGoogleCloudVertex:
+		return llm.Spec.GoogleCloudVertex.CredentialsSecret.Name
+	case agenticv1alpha1.LLMProviderOpenAI:
+		return llm.Spec.OpenAI.CredentialsSecret.Name
+	case agenticv1alpha1.LLMProviderAzureOpenAI:
+		return llm.Spec.AzureOpenAI.CredentialsSecret.Name
+	case agenticv1alpha1.LLMProviderAWSBedrock:
+		return llm.Spec.AWSBedrock.CredentialsSecret.Name
+	default:
+		return ""
+	}
+}
+
 func patchLLMCredentials(tmpl *unstructured.Unstructured, llm *agenticv1alpha1.LLMProvider) error {
-	secretName := llm.Spec.CredentialsSecret.Name
+	secretName := credentialsSecretName(llm)
 
 	if err := addEnvFromSecret(tmpl, secretName); err != nil {
 		return fmt.Errorf("add credentials envFrom: %w", err)
@@ -226,9 +243,16 @@ func patchLLMCredentials(tmpl *unstructured.Unstructured, llm *agenticv1alpha1.L
 	}
 
 	switch llm.Spec.Type {
-	case agenticv1alpha1.LLMProviderVertex:
+	case agenticv1alpha1.LLMProviderGoogleCloudVertex:
+		cfg := llm.Spec.GoogleCloudVertex
 		if err := setEnvVar(tmpl, "CLAUDE_CODE_USE_VERTEX", "1"); err != nil {
 			return fmt.Errorf("set CLAUDE_CODE_USE_VERTEX: %w", err)
+		}
+		if err := setEnvVar(tmpl, "GCP_PROJECT", cfg.Project); err != nil {
+			return fmt.Errorf("set GCP_PROJECT: %w", err)
+		}
+		if err := setEnvVar(tmpl, "GCP_REGION", cfg.Region); err != nil {
+			return fmt.Errorf("set GCP_REGION: %w", err)
 		}
 		if err := setEnvVar(tmpl, "GOOGLE_APPLICATION_CREDENTIALS", vertexCredsMountPath+"/"+vertexCredsFileName); err != nil {
 			return fmt.Errorf("set GOOGLE_APPLICATION_CREDENTIALS: %w", err)
@@ -239,9 +263,23 @@ func patchLLMCredentials(tmpl *unstructured.Unstructured, llm *agenticv1alpha1.L
 		if err := addVolumeMount(tmpl, llmCredsVolumeName, vertexCredsMountPath, true); err != nil {
 			return fmt.Errorf("mount Vertex credentials: %w", err)
 		}
-	case agenticv1alpha1.LLMProviderBedrock:
+	case agenticv1alpha1.LLMProviderAzureOpenAI:
+		cfg := llm.Spec.AzureOpenAI
+		if err := setEnvVar(tmpl, "AZURE_OPENAI_ENDPOINT", cfg.Endpoint); err != nil {
+			return fmt.Errorf("set AZURE_OPENAI_ENDPOINT: %w", err)
+		}
+		if cfg.APIVersion != "" {
+			if err := setEnvVar(tmpl, "AZURE_OPENAI_API_VERSION", cfg.APIVersion); err != nil {
+				return fmt.Errorf("set AZURE_OPENAI_API_VERSION: %w", err)
+			}
+		}
+	case agenticv1alpha1.LLMProviderAWSBedrock:
+		cfg := llm.Spec.AWSBedrock
 		if err := setEnvVar(tmpl, "CLAUDE_CODE_USE_BEDROCK", "1"); err != nil {
 			return fmt.Errorf("set CLAUDE_CODE_USE_BEDROCK: %w", err)
+		}
+		if err := setEnvVar(tmpl, "AWS_REGION", cfg.Region); err != nil {
+			return fmt.Errorf("set AWS_REGION: %w", err)
 		}
 	}
 	return nil
@@ -282,13 +320,13 @@ func gcOldTemplates(
 	c client.Client,
 	namespace string,
 	agentName string,
-	phase string,
+	step string,
 	currentName string,
 ) error {
 	sel := labels.SelectorFromSet(labels.Set{
 		LabelManaged: "true",
 		LabelAgent:   agentName,
-		LabelPhase:   phase,
+		LabelStep: step,
 	})
 
 	list := &unstructured.UnstructuredList{}

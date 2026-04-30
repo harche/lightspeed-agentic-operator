@@ -6,6 +6,8 @@ import (
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -83,8 +85,9 @@ func (o *ApproveOptions) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to get proposal %q: %w", o.name, err)
 	}
 
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		return fmt.Errorf("cannot approve proposal in phase %s (must be Proposed)", p.Status.Phase)
+	phase := agenticv1alpha1.DerivePhase(p.Status.Conditions)
+	if phase != agenticv1alpha1.ProposalPhaseProposed {
+		return fmt.Errorf("cannot approve proposal in phase %s (must be Proposed)", phase)
 	}
 
 	numOptions := int32(len(p.Status.Steps.Analysis.Options))
@@ -93,7 +96,12 @@ func (o *ApproveOptions) Run(ctx context.Context) error {
 	}
 
 	patch := client.MergeFrom(p.DeepCopy())
-	p.Status.Phase = agenticv1alpha1.ProposalPhaseApproved
+	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+		Type:    agenticv1alpha1.ProposalConditionApproved,
+		Status:  metav1.ConditionTrue,
+		Reason:  "UserApproved",
+		Message: "Proposal approved by user via CLI",
+	})
 	p.Status.Steps.Analysis.SelectedOption = &o.option
 	if err := o.client.Status().Patch(ctx, p, patch); err != nil {
 		return fmt.Errorf("failed to approve proposal: %w", err)

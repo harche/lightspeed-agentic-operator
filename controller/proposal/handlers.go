@@ -21,16 +21,20 @@ func (r *ProposalReconciler) handlePending(
 	proposal *agenticv1alpha1.Proposal,
 	resolved *resolvedWorkflow,
 ) (ctrl.Result, error) {
-	log.Info("handling pending", "attempt", *proposal.Status.Attempt)
+	log.Info("handling pending", "attempts", *proposal.Status.Attempts)
+
+	if proposal.Status.Steps.Analysis.CompletionTime != nil {
+		log.Info("analysis already completed, skipping re-entry")
+		return ctrl.Result{Requeue: true}, nil
+	}
 
 	base := proposal.DeepCopy()
-	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseAnalyzing
 	now := metav1.Now()
 	proposal.Status.Steps.Analysis.StartTime = &now
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
 		Status:  metav1.ConditionUnknown,
-		Reason:  reasonAnalysisInProgress,
+		Reason:  reasonInProgress,
 		Message: "Analysis agent is running",
 	})
 	if err := r.statusPatch(ctx, proposal, base); err != nil {
@@ -45,11 +49,10 @@ func (r *ProposalReconciler) handlePending(
 	completedAt := metav1.Now()
 	proposal.Status.Steps.Analysis.CompletionTime = &completedAt
 	applyAnalysisResult(&proposal.Status.Steps.Analysis, analysisResult)
-	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseProposed
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
 		Status:  metav1.ConditionTrue,
-		Reason:  reasonAnalysisComplete,
+		Reason:  reasonComplete,
 		Message: fmt.Sprintf("Analysis complete with %d option(s)", len(analysisResult.Options)),
 	})
 	if err := r.statusPatch(ctx, proposal, base); err != nil {
@@ -72,7 +75,10 @@ func (r *ProposalReconciler) handleRevision(
 	log.Info("handling revision", "revision", revision)
 
 	base := proposal.DeepCopy()
-	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseAnalyzing
+	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionApproved)
+	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)
+	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
+	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionAwaitingSync)
 	now := metav1.Now()
 	proposal.Status.Steps.Analysis.StartTime = &now
 	proposal.Status.Steps.Analysis.CompletionTime = nil
@@ -80,7 +86,7 @@ func (r *ProposalReconciler) handleRevision(
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
 		Status:  metav1.ConditionUnknown,
-		Reason:  reasonRevisionAnalyzing,
+		Reason:  reasonRevising,
 		Message: fmt.Sprintf("Re-analyzing for revision %d", revision),
 	})
 	if err := r.statusPatch(ctx, proposal, base); err != nil {
@@ -100,7 +106,6 @@ func (r *ProposalReconciler) handleRevision(
 	proposal.Status.Steps.Analysis.CompletionTime = &completedAt
 	applyAnalysisResult(&proposal.Status.Steps.Analysis, analysisResult)
 	proposal.Status.Steps.Analysis.ObservedRevision = &revision
-	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseProposed
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
 		Status:  metav1.ConditionTrue,
@@ -128,7 +133,12 @@ func (r *ProposalReconciler) handleApproved(
 	if proposal.Status.Steps.Execution.CompletionTime != nil {
 		log.Info("execution already completed, moving to verification")
 		base := proposal.DeepCopy()
-		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseVerifying
+		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+			Type:    agenticv1alpha1.ProposalConditionExecuted,
+			Status:  metav1.ConditionTrue,
+			Reason:  reasonComplete,
+			Message: "Execution already completed (re-entry guard)",
+		})
 		if err := r.statusPatch(ctx, proposal, base); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update to Verifying (re-entry guard): %w", err)
 		}
@@ -149,12 +159,11 @@ func (r *ProposalReconciler) handleApproved(
 		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 			Type:    agenticv1alpha1.ProposalConditionExecuted,
 			Status:  metav1.ConditionTrue,
-			Reason:  reasonExecutionSkipped,
+			Reason:  reasonSkipped,
 			Message: "Execution step not configured in workflow",
 		})
 
 		if resolved.Verification == nil {
-			proposal.Status.Phase = agenticv1alpha1.ProposalPhaseCompleted
 			setVerificationSkipped(proposal)
 			if err := r.statusPatch(ctx, proposal, base); err != nil {
 				return ctrl.Result{}, fmt.Errorf("update to Completed (advisory): %w", err)
@@ -163,7 +172,6 @@ func (r *ProposalReconciler) handleApproved(
 			return ctrl.Result{}, nil
 		}
 
-		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseAwaitingSync
 		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 			Type:    agenticv1alpha1.ProposalConditionAwaitingSync,
 			Status:  metav1.ConditionTrue,
@@ -187,13 +195,13 @@ func (r *ProposalReconciler) handleApproved(
 		base = proposal.DeepCopy()
 	}
 
-	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseExecuting
+	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
 	now := metav1.Now()
 	proposal.Status.Steps.Execution.StartTime = &now
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionExecuted,
 		Status:  metav1.ConditionUnknown,
-		Reason:  reasonExecutionInProgress,
+		Reason:  reasonInProgress,
 		Message: "Execution agent is running",
 	})
 	if err := r.statusPatch(ctx, proposal, base); err != nil {
@@ -215,12 +223,11 @@ func (r *ProposalReconciler) handleApproved(
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionExecuted,
 		Status:  metav1.ConditionTrue,
-		Reason:  reasonExecutionComplete,
+		Reason:  reasonComplete,
 		Message: "Execution completed",
 	})
 
 	if resolved.Verification == nil {
-		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseCompleted
 		setVerificationSkipped(proposal)
 		if err := r.statusPatch(ctx, proposal, base); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update to Completed (trust-mode): %w", err)
@@ -229,7 +236,6 @@ func (r *ProposalReconciler) handleApproved(
 		return ctrl.Result{}, nil
 	}
 
-	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseVerifying
 	if err := r.statusPatch(ctx, proposal, base); err != nil {
 		return ctrl.Result{}, fmt.Errorf("update to Verifying: %w", err)
 	}
@@ -250,7 +256,6 @@ func (r *ProposalReconciler) handleVerifying(
 	base := proposal.DeepCopy()
 
 	if resolved.Verification == nil {
-		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseCompleted
 		setVerificationSkipped(proposal)
 		if err := r.statusPatch(ctx, proposal, base); err != nil {
 			return ctrl.Result{}, err
@@ -263,7 +268,7 @@ func (r *ProposalReconciler) handleVerifying(
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionVerified,
 		Status:  metav1.ConditionUnknown,
-		Reason:  reasonVerificationInProgress,
+		Reason:  reasonInProgress,
 		Message: "Verification agent is running",
 	})
 
@@ -308,7 +313,6 @@ func (r *ProposalReconciler) handleVerifying(
 			log.Info("verification failed, retrying execution", "retryCount", next, "maxRetries", maxRetries, "summary", verifyResult.Summary)
 			proposal.Status.Steps.Execution.RetryCount = &next
 			resetExecutionAndVerification(&proposal.Status.Steps)
-			proposal.Status.Phase = agenticv1alpha1.ProposalPhaseApproved
 			meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 				Type:    agenticv1alpha1.ProposalConditionVerified,
 				Status:  metav1.ConditionFalse,
@@ -323,7 +327,6 @@ func (r *ProposalReconciler) handleVerifying(
 
 		log.Info("verification retries exhausted, returning to Proposed", "retryCount", retryCount, "summary", verifyResult.Summary)
 		proposal.Status.Steps.Analysis.SelectedOption = nil
-		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseProposed
 		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 			Type:    agenticv1alpha1.ProposalConditionVerified,
 			Status:  metav1.ConditionFalse,
@@ -336,11 +339,10 @@ func (r *ProposalReconciler) handleVerifying(
 		return ctrl.Result{}, nil
 	}
 
-	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseCompleted
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionVerified,
 		Status:  metav1.ConditionTrue,
-		Reason:  reasonVerificationPassed,
+		Reason:  reasonPassed,
 		Message: verifyResult.Summary,
 	})
 	if err := r.statusPatch(ctx, proposal, base); err != nil {
@@ -368,7 +370,7 @@ func (r *ProposalReconciler) handleFailed(
 		}
 	}
 
-	currentAttempt := *proposal.Status.Attempt
+	currentAttempt := *proposal.Status.Attempts
 	if !attemptAlreadyRecorded(proposal.Status.PreviousAttempts, currentAttempt) {
 		base := proposal.DeepCopy()
 		failedStep, failureReason := determineFailure(proposal)

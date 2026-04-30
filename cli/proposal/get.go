@@ -89,13 +89,13 @@ func (o *GetOptions) printDetail(p *agenticv1alpha1.Proposal) {
 
 	fmt.Fprintf(w, "Name:              %s\n", p.Name)
 	fmt.Fprintf(w, "Namespace:         %s\n", p.Namespace)
-	fmt.Fprintf(w, "Phase:             %s\n", ColoredPhase(p.Status.Phase))
-	if p.Status.Attempt != nil {
+	fmt.Fprintf(w, "Phase:             %s\n", ColoredPhase(agenticv1alpha1.DerivePhase(p.Status.Conditions)))
+	if p.Status.Attempts != nil {
 		maxAttempts := "-"
 		if p.Spec.MaxAttempts != nil {
 			maxAttempts = fmt.Sprintf("%d", *p.Spec.MaxAttempts)
 		}
-		fmt.Fprintf(w, "Attempt:           %d / %s\n", *p.Status.Attempt, maxAttempts)
+		fmt.Fprintf(w, "Attempts:          %d / %s\n", *p.Status.Attempts, maxAttempts)
 	}
 	fmt.Fprintf(w, "Age:               %s\n", HumanDuration(p.CreationTimestamp.Time))
 	fmt.Fprintf(w, "Request:           %s\n", p.Spec.Request)

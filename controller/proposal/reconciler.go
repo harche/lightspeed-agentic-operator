@@ -41,7 +41,7 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// --- Deletion ---
 	if !proposal.DeletionTimestamp.IsZero() {
-		if controllerutil.ContainsFinalizer(&proposal, proposalFinalizer) {
+		if controllerutil.ContainsFinalizer(&proposal, rbacCleanupFinalizer) {
 			if err := r.Agent.ReleaseSandboxes(ctx, &proposal); err != nil {
 				log.Error(err, "sandbox cleanup failed during deletion")
 			}
@@ -50,7 +50,7 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				return ctrl.Result{}, err
 			}
 			original := proposal.DeepCopy()
-			controllerutil.RemoveFinalizer(&proposal, proposalFinalizer)
+			controllerutil.RemoveFinalizer(&proposal, rbacCleanupFinalizer)
 			if err := r.Patch(ctx, &proposal, client.MergeFrom(original)); err != nil {
 				return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
 			}
@@ -59,26 +59,22 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// --- Initialize status on first reconcile ---
-	needsInit := proposal.Status.Phase == "" || proposal.Status.Attempt == nil
-	if needsInit {
+	if proposal.Status.Attempts == nil {
 		base := proposal.DeepCopy()
-		if proposal.Status.Phase == "" {
-			proposal.Status.Phase = agenticv1alpha1.ProposalPhasePending
-		}
-		if proposal.Status.Attempt == nil {
-			one := int32(1)
-			proposal.Status.Attempt = &one
-		}
+		one := int32(1)
+		proposal.Status.Attempts = &one
 		if err := r.Status().Patch(ctx, &proposal, client.MergeFrom(base)); err != nil {
 			return ctrl.Result{}, fmt.Errorf("initialize status: %w", err)
 		}
 	}
 
+	phase := agenticv1alpha1.DerivePhase(proposal.Status.Conditions)
+
 	// --- Finalizer ---
-	if !controllerutil.ContainsFinalizer(&proposal, proposalFinalizer) {
-		if !isTerminal(proposal.Status.Phase) {
+	if !controllerutil.ContainsFinalizer(&proposal, rbacCleanupFinalizer) {
+		if !isTerminal(phase) {
 			original := proposal.DeepCopy()
-			controllerutil.AddFinalizer(&proposal, proposalFinalizer)
+			controllerutil.AddFinalizer(&proposal, rbacCleanupFinalizer)
 			if err := r.Patch(ctx, &proposal, client.MergeFrom(original)); err != nil {
 				return ctrl.Result{}, fmt.Errorf("add finalizer: %w", err)
 			}
@@ -89,10 +85,10 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	log.Info("reconciling", "phase", proposal.Status.Phase, "attempt", *proposal.Status.Attempt)
+	log.Info("reconciling", "phase", phase, "attempts", *proposal.Status.Attempts)
 
 	// --- Phase routing ---
-	switch proposal.Status.Phase {
+	switch phase {
 	case agenticv1alpha1.ProposalPhaseCompleted,
 		agenticv1alpha1.ProposalPhaseDenied,
 		agenticv1alpha1.ProposalPhaseAwaitingSync:
@@ -119,7 +115,6 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err != nil {
 		log.Error(err, "workflow resolution failed")
 		base := proposal.DeepCopy()
-		proposal.Status.Phase = agenticv1alpha1.ProposalPhaseFailed
 		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 			Type:    agenticv1alpha1.ProposalConditionAnalyzed,
 			Status:  metav1.ConditionFalse,
@@ -132,7 +127,7 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	switch proposal.Status.Phase {
+	switch phase {
 	case agenticv1alpha1.ProposalPhasePending, agenticv1alpha1.ProposalPhaseAnalyzing:
 		return r.handlePending(ctx, log, &proposal, resolved)
 
@@ -146,7 +141,7 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.handleVerifying(ctx, log, &proposal, resolved)
 
 	default:
-		log.Info("unhandled phase, no-op", "phase", proposal.Status.Phase)
+		log.Info("unhandled phase, no-op", "phase", phase)
 		return ctrl.Result{}, nil
 	}
 }

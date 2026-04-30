@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-logr/logr"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -99,8 +100,8 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 				t.Fatalf("analysis reconcile: %v", err)
 			}
 			p, _ := getProposal(r, "fix-crash")
-			if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-				t.Fatalf("after analysis: expected Proposed, got %s", p.Status.Phase)
+			if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+				t.Fatalf("after analysis: expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 			}
 
 			approveProposal(t, fc, "fix-crash")
@@ -109,8 +110,8 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 				t.Fatalf("post-approval reconcile: %v", err)
 			}
 			p, _ = getProposal(r, "fix-crash")
-			if p.Status.Phase != tt.wantPhase {
-				t.Fatalf("after approval: expected %s, got %s", tt.wantPhase, p.Status.Phase)
+			if agenticv1alpha1.DerivePhase(p.Status.Conditions) != tt.wantPhase {
+				t.Fatalf("after approval: expected %s, got %s", tt.wantPhase, agenticv1alpha1.DerivePhase(p.Status.Conditions))
 			}
 		})
 	}
@@ -136,8 +137,8 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	}
 
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if len(p.Status.Steps.Analysis.Options) == 0 {
 		t.Fatal("analysis options not set")
@@ -156,8 +157,8 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	}
 
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
-		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if len(p.Status.Steps.Execution.ActionsTaken) == 0 {
 		t.Fatal("execution actions not set")
@@ -170,8 +171,8 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	}
 
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseCompleted {
-		t.Fatalf("expected Completed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseCompleted {
+		t.Fatalf("expected Completed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if p.Status.Steps.Verification.Summary == "" {
 		t.Fatal("verification summary not set")
@@ -199,15 +200,15 @@ func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
 		t.Error("should requeue to enter handleFailed")
 	}
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Reconcile 2: Failed stays Failed (terminal, no retry)
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed (terminal), got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed (terminal), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if len(p.Status.PreviousAttempts) != 1 {
 		t.Fatalf("expected 1 previous attempt recorded, got %d", len(p.Status.PreviousAttempts))
@@ -249,8 +250,8 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 		t.Error("should requeue to re-execute")
 	}
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseApproved {
-		t.Fatalf("expected Approved (retry), got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseApproved {
+		t.Fatalf("expected Approved (retry), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if p.Status.Steps.Execution.RetryCount == nil || *p.Status.Steps.Execution.RetryCount != 1 {
 		t.Fatal("retryCount should be 1")
@@ -259,15 +260,15 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 	// Re-execute → Verifying
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
-		t.Fatalf("expected Verifying (re-execution), got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying (re-execution), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Re-verify → fails again → Approved (retryCount=2, requeue)
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseApproved {
-		t.Fatalf("expected Approved (retry 2), got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseApproved {
+		t.Fatalf("expected Approved (retry 2), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if *p.Status.Steps.Execution.RetryCount != 2 {
 		t.Fatalf("expected retryCount 2, got %d", *p.Status.Steps.Execution.RetryCount)
@@ -278,8 +279,8 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 	// Re-verify → retryCount=2 >= maxAttempts=2 → Proposed (exhausted)
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed (retries exhausted), got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed (retries exhausted), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if p.Status.Steps.Analysis.SelectedOption != nil {
 		t.Fatal("selectedOption should be cleared after retries exhausted")
@@ -311,15 +312,15 @@ func TestReconcile_SystemFailure_Execution_Terminal(t *testing.T) {
 		t.Error("should requeue to enter handleFailed")
 	}
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Terminal — stays Failed
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed (terminal), got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed (terminal), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -349,15 +350,15 @@ func TestReconcile_SystemFailure_Verification_Terminal(t *testing.T) {
 		t.Error("should requeue to enter handleFailed")
 	}
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Terminal — stays Failed
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed (terminal), got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed (terminal), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -392,8 +393,8 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Admin submits revision
@@ -406,21 +407,21 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	reconcileOnce(r, "fix-crash") // revision re-analysis
 
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed after revision, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed after revision, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Approve and complete
 	approveProposal(t, fc, "fix-crash")
 	reconcileOnce(r, "fix-crash") // execution + verification
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
-		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseCompleted {
-		t.Fatalf("expected Completed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseCompleted {
+		t.Fatalf("expected Completed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -439,8 +440,8 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 		t.Fatalf("reconcile 1: %v", err)
 	}
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	initialOptionsCount := len(p.Status.Steps.Analysis.Options)
 
@@ -452,8 +453,8 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 		t.Fatalf("reconcile 2 (revision): %v", err)
 	}
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed after revision, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed after revision, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if p.Status.Steps.Analysis.ObservedRevision == nil || *p.Status.Steps.Analysis.ObservedRevision != 1 {
 		t.Fatal("observedRevision not set to 1")
@@ -469,8 +470,8 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 		t.Fatalf("reconcile 3 (post-approval): %v", err)
 	}
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
-		t.Fatalf("expected Verifying after approval, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying after approval, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -496,8 +497,8 @@ func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if *p.Status.Steps.Analysis.ObservedRevision != 2 {
 		t.Fatalf("expected observedRevision 2, got %d", *p.Status.Steps.Analysis.ObservedRevision)
@@ -507,8 +508,8 @@ func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 	approveProposal(t, fc, "fix-crash")
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
-		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -550,8 +551,8 @@ func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 	}
 
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -603,8 +604,8 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 	// Initial analysis succeeds
 	reconcileOnce(r, "fix-crash")
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Submit revision, but agent will fail
@@ -620,16 +621,16 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 		t.Error("should requeue to enter handleFailed")
 	}
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Failed is terminal for system failures — stays Failed
 	agent.analyzeErr = nil
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed (terminal), got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed (terminal), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -677,8 +678,8 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 	// Pending → Proposed
 	reconcileOnce(r, "fix-crash")
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Approve
@@ -687,8 +688,8 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 	// Approved → Executing → Verifying
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
-		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Verify namespace-scoped Role+RoleBinding were created
@@ -728,8 +729,8 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 	// Complete lifecycle
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseCompleted {
-		t.Fatalf("expected Completed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseCompleted {
+		t.Fatalf("expected Completed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -773,8 +774,8 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 	// Execution succeeds, creates RBAC, but verification will fail with system error
 	reconcileOnce(r, "fix-crash")
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
-		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Verify RBAC exists before failure
@@ -788,8 +789,8 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 	agent.verifyErr = fmt.Errorf("sandbox pod crashed")
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// handleFailed should clean up RBAC
@@ -867,8 +868,8 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 		t.Fatalf("analysis reconcile: %v", err)
 	}
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if len(p.Status.Steps.Analysis.Options) != 1 {
 		t.Fatalf("expected 1 option, got %d", len(p.Status.Steps.Analysis.Options))
@@ -892,8 +893,8 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 		t.Error("should requeue to enter verification")
 	}
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
-		t.Fatalf("expected Verifying, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if len(p.Status.Steps.Execution.ActionsTaken) != 1 {
 		t.Fatalf("expected 1 action, got %d", len(p.Status.Steps.Execution.ActionsTaken))
@@ -910,8 +911,8 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 		t.Fatalf("verification reconcile: %v", err)
 	}
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseCompleted {
-		t.Fatalf("expected Completed, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseCompleted {
+		t.Fatalf("expected Completed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if p.Status.Steps.Verification.Summary != "All verification checks passed" {
 		t.Errorf("summary = %q", p.Status.Steps.Verification.Summary)
@@ -951,23 +952,27 @@ func TestReconcile_ExecutingPhase_DoesNotReExecute(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
-		t.Fatalf("expected Verifying after execution, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying after execution, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
-	// Simulate the bug: manually set phase back to Executing (as if status patch raced)
+	// Simulate the bug: set Executed back to Unknown (as if status patch raced)
 	base := p.DeepCopy()
-	p.Status.Phase = agenticv1alpha1.ProposalPhaseExecuting
+	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+		Type:   agenticv1alpha1.ProposalConditionExecuted,
+		Status: metav1.ConditionUnknown,
+		Reason: "ExecutionInProgress",
+	})
 	if err := fc.Status().Patch(context.Background(), p, client.MergeFrom(base)); err != nil {
-		t.Fatalf("patch phase to Executing: %v", err)
+		t.Fatalf("patch conditions to Executing: %v", err)
 	}
 
 	// Reconcile again — should NOT re-execute, should go to Verifying via re-entry guard
 	reconcileOnce(r, "fix-crash")
 
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseVerifying {
-		t.Fatalf("expected Verifying from re-entry guard, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
+		t.Fatalf("expected Verifying from re-entry guard, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -994,8 +999,8 @@ func TestReconcile_ExecutionSuccessFalse_FailsStep(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseFailed {
-		t.Fatalf("expected Failed when execution success=false, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
+		t.Fatalf("expected Failed when execution success=false, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -1022,8 +1027,8 @@ func TestReconcile_VerificationSuccessFalse_RetriesExecution(t *testing.T) {
 	reconcileOnce(r, "fix-crash") // verification → retry
 
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseApproved {
-		t.Fatalf("expected Approved (retry) when verification success=false, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseApproved {
+		t.Fatalf("expected Approved (retry) when verification success=false, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 	if p.Status.Steps.Execution.RetryCount == nil || *p.Status.Steps.Execution.RetryCount != 1 {
 		t.Fatal("retryCount should be 1")

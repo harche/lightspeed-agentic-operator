@@ -2,27 +2,33 @@
 #
 # CRD chain: LLMProvider → Agent ← Proposal
 #
-# The credentialsSecret must include the namespace since LLMProvider is
-# cluster-scoped. See LLMProviderType docs for required secret keys per provider.
+# The type field is the discriminator. Exactly one per-provider config
+# block must be set, matching the type value.
 ---
 apiVersion: agentic.openshift.io/v1alpha1
 kind: LLMProvider
 metadata:
   name: smart
 spec:
-  type: Vertex
+  type: GoogleCloudVertex
   model: claude-opus-4-6
-  credentialsSecret:
-    name: llm-credentials
-    namespace: openshift-lightspeed
+  googleCloudVertex:
+    credentialsSecret:
+      name: llm-credentials
+      namespace: openshift-lightspeed
+    project: my-gcp-project
+    region: us-central1
 ---
 apiVersion: agentic.openshift.io/v1alpha1
 kind: LLMProvider
 metadata:
   name: fast
 spec:
-  type: Vertex
+  type: GoogleCloudVertex
   model: claude-haiku-4-5
-  credentialsSecret:
-    name: llm-credentials
-    namespace: openshift-lightspeed
+  googleCloudVertex:
+    credentialsSecret:
+      name: llm-credentials
+      namespace: openshift-lightspeed
+    project: my-gcp-project
+    region: us-central1

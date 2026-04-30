@@ -9,6 +9,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -91,9 +92,13 @@ func testLLM(name string) *agenticv1alpha1.LLMProvider {
 	return &agenticv1alpha1.LLMProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: agenticv1alpha1.LLMProviderSpec{
-			Type:              agenticv1alpha1.LLMProviderVertex,
-			Model:             "claude-opus-4-6",
-			CredentialsSecret: agenticv1alpha1.NamespacedSecretReference{Name: "llm-secret", Namespace: "lightspeed"},
+			Type:  agenticv1alpha1.LLMProviderGoogleCloudVertex,
+			Model: "claude-opus-4-6",
+			GoogleCloudVertex: &agenticv1alpha1.GoogleCloudVertexConfig{
+				CredentialsSecret: agenticv1alpha1.NamespacedSecretReference{Name: "llm-secret", Namespace: "lightspeed"},
+				Project:           "test-project",
+				Region:            "us-central1",
+			},
 		},
 	}
 }
@@ -141,7 +146,11 @@ func approveProposal(t *testing.T, fc client.WithWatch, name string) {
 	base := p.DeepCopy()
 	selected := int32(0)
 	p.Status.Steps.Analysis.SelectedOption = &selected
-	p.Status.Phase = agenticv1alpha1.ProposalPhaseApproved
+	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+		Type:   agenticv1alpha1.ProposalConditionApproved,
+		Status: metav1.ConditionTrue,
+		Reason: "UserApproved",
+	})
 	if err := fc.Status().Patch(context.Background(), &p, client.MergeFrom(base)); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
@@ -232,13 +241,11 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 	}
 
 	p, _ := getProposal(r, "fresh")
-	if p.Status.Phase == "" {
-		t.Fatal("status not initialized")
+	phase := agenticv1alpha1.DerivePhase(p.Status.Conditions)
+	if phase != agenticv1alpha1.ProposalPhaseProposed {
+		t.Fatalf("expected Proposed, got %s", phase)
 	}
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed, got %s", p.Status.Phase)
-	}
-	if p.Status.Attempt == nil || *p.Status.Attempt != 1 {
+	if p.Status.Attempts == nil || *p.Status.Attempts != 1 {
 		t.Fatal("attempt not initialized to 1")
 	}
 }
@@ -249,8 +256,11 @@ func TestReconcile_Denied_Terminal(t *testing.T) {
 	one := int32(1)
 	proposal := testProposal()
 	proposal.Status = agenticv1alpha1.ProposalStatus{
-		Phase:   agenticv1alpha1.ProposalPhaseDenied,
-		Attempt: &one,
+		Attempts: &one,
+		Conditions: []metav1.Condition{
+			{Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionTrue, Reason: "AnalysisComplete"},
+			{Type: agenticv1alpha1.ProposalConditionApproved, Status: metav1.ConditionFalse, Reason: "UserDenied"},
+		},
 	}
 
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(proposal).WithStatusSubresource(proposal).Build()
@@ -264,7 +274,7 @@ func TestReconcile_Denied_Terminal(t *testing.T) {
 		t.Error("terminal phase should not requeue")
 	}
 	p, _ := getProposal(r, "fix-crash")
-	if p.Status.Phase != agenticv1alpha1.ProposalPhaseDenied {
-		t.Fatalf("expected Denied, got %s", p.Status.Phase)
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseDenied {
+		t.Fatalf("expected Denied, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }

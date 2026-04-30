@@ -86,7 +86,7 @@ func newTestSandboxAgentCallerWithProposal(sandbox *mockSandboxProvider, httpCli
 func testSandboxProposal() *agenticv1alpha1.Proposal {
 	p := testProposal()
 	one := int32(1)
-	p.Status.Attempt = &one
+	p.Status.Attempts = &one
 	return p
 }
 
@@ -276,7 +276,7 @@ func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 			Verification:     &agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 		Status: agenticv1alpha1.ProposalStatus{
-			Attempt: &attempt,
+			Attempts: &attempt,
 			PreviousAttempts: []agenticv1alpha1.PreviousAttempt{
 				{Attempt: 1, FailureReason: "analysis timeout"},
 			},

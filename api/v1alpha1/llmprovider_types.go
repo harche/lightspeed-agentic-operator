@@ -22,62 +22,136 @@ import (
 
 // LLMProviderType identifies the hosting backend for an LLM provider.
 //
-// Each backend has different authentication requirements and API endpoints:
-//   - "Anthropic"    — Direct Anthropic API. Secret needs ANTHROPIC_API_KEY.
-//   - "Vertex"       — Google Cloud Vertex AI. Secret needs service account JSON
-//     (GOOGLE_APPLICATION_CREDENTIALS) plus GCP_PROJECT and GCP_REGION.
-//   - "OpenAI"       — OpenAI-compatible API. Secret needs OPENAI_API_KEY.
-//   - "AzureOpenAI"  — Azure OpenAI Service. Secret needs AZURE_OPENAI_API_KEY,
-//     AZURE_OPENAI_ENDPOINT, and optionally AZURE_OPENAI_API_VERSION.
-//   - "Bedrock"      — AWS Bedrock. Secret needs AWS_ACCESS_KEY_ID,
-//     AWS_SECRET_ACCESS_KEY, and AWS_REGION.
+// Each backend has different authentication requirements and API endpoints.
+// The type field acts as the discriminator for a union: exactly one of the
+// per-provider configuration fields must be set, matching the type value.
 //
-// +kubebuilder:validation:Enum=Anthropic;Vertex;OpenAI;AzureOpenAI;Bedrock
+// Allowed values:
+//   - "Anthropic"          — Direct Anthropic API.
+//   - "GoogleCloudVertex"  — Google Cloud Vertex AI.
+//   - "OpenAI"             — OpenAI-compatible API.
+//   - "AzureOpenAI"        — Azure OpenAI Service.
+//   - "AWSBedrock"         — AWS Bedrock.
+//
+// +kubebuilder:validation:Enum=Anthropic;GoogleCloudVertex;OpenAI;AzureOpenAI;AWSBedrock
 type LLMProviderType string
 
 const (
 	// LLMProviderAnthropic uses the Anthropic API directly.
 	LLMProviderAnthropic LLMProviderType = "Anthropic"
-	// LLMProviderVertex uses Google Cloud Vertex AI as the LLM backend.
-	LLMProviderVertex LLMProviderType = "Vertex"
+	// LLMProviderGoogleCloudVertex uses Google Cloud Vertex AI as the LLM backend.
+	LLMProviderGoogleCloudVertex LLMProviderType = "GoogleCloudVertex"
 	// LLMProviderOpenAI uses an OpenAI-compatible API endpoint.
 	LLMProviderOpenAI LLMProviderType = "OpenAI"
 	// LLMProviderAzureOpenAI uses the Azure OpenAI Service.
 	LLMProviderAzureOpenAI LLMProviderType = "AzureOpenAI"
-	// LLMProviderBedrock uses AWS Bedrock.
-	LLMProviderBedrock LLMProviderType = "Bedrock"
+	// LLMProviderAWSBedrock uses AWS Bedrock.
+	LLMProviderAWSBedrock LLMProviderType = "AWSBedrock"
 )
 
-// LLMProviderSpec defines the desired state of LLMProvider.
-type LLMProviderSpec struct {
-	// type is the LLM provider backend. Allowed values:
-	//   - "Anthropic"   — Direct Anthropic API (secret needs ANTHROPIC_API_KEY).
-	//   - "Vertex"      — Google Cloud Vertex AI (secret needs service account JSON,
-	//     GCP_PROJECT, and GCP_REGION).
-	//   - "OpenAI"      — OpenAI-compatible API (secret needs OPENAI_API_KEY).
-	//   - "AzureOpenAI" — Azure OpenAI Service (secret needs AZURE_OPENAI_API_KEY,
-	//     AZURE_OPENAI_ENDPOINT, and optionally AZURE_OPENAI_API_VERSION).
-	//   - "Bedrock"     — AWS Bedrock (secret needs AWS_ACCESS_KEY_ID,
-	//     AWS_SECRET_ACCESS_KEY, and AWS_REGION).
-	// +required
-	Type LLMProviderType `json:"type,omitempty"`
-
-	// credentialsSecret references a Secret containing the provider credentials.
-	// Since LLMProvider is cluster-scoped, both name and namespace must be
-	// specified. The required keys depend on the provider type (see
-	// LLMProviderType for details). The operator reads this secret and injects
-	// the credentials into agent sandbox pods at runtime.
+// AnthropicConfig contains configuration for the Anthropic API provider.
+type AnthropicConfig struct {
+	// credentialsSecret references a Secret containing an ANTHROPIC_API_KEY.
+	// Since LLMProvider is cluster-scoped, both name and namespace are required.
 	// +required
 	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
+}
+
+// GoogleCloudVertexConfig contains configuration for the Google Cloud Vertex AI provider.
+type GoogleCloudVertexConfig struct {
+	// credentialsSecret references a Secret containing a service account JSON
+	// key (stored under the key GOOGLE_APPLICATION_CREDENTIALS). Since
+	// LLMProvider is cluster-scoped, both name and namespace are required.
+	// +required
+	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
+
+	// project is the GCP project ID where Vertex AI is enabled.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Project string `json:"project,omitempty"`
+
+	// region is the GCP region for the Vertex AI endpoint (e.g., "us-central1").
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Region string `json:"region,omitempty"`
+}
+
+// OpenAIConfig contains configuration for an OpenAI-compatible API provider.
+type OpenAIConfig struct {
+	// credentialsSecret references a Secret containing an OPENAI_API_KEY.
+	// Since LLMProvider is cluster-scoped, both name and namespace are required.
+	// +required
+	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
+}
+
+// AzureOpenAIConfig contains configuration for the Azure OpenAI Service provider.
+type AzureOpenAIConfig struct {
+	// credentialsSecret references a Secret containing an AZURE_OPENAI_API_KEY.
+	// Since LLMProvider is cluster-scoped, both name and namespace are required.
+	// +required
+	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
+
+	// endpoint is the Azure OpenAI resource endpoint
+	// (e.g., "https://my-resource.openai.azure.com").
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="endpoint must be a valid HTTP or HTTPS URL"
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// apiVersion is the Azure OpenAI API version (e.g., "2024-02-01").
+	// When omitted, the SDK default is used.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32
+	APIVersion string `json:"apiVersion,omitempty"`
+}
+
+// AWSBedrockConfig contains configuration for the AWS Bedrock provider.
+type AWSBedrockConfig struct {
+	// credentialsSecret references a Secret containing AWS_ACCESS_KEY_ID
+	// and AWS_SECRET_ACCESS_KEY. Since LLMProvider is cluster-scoped,
+	// both name and namespace are required.
+	// +required
+	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
+
+	// region is the AWS region for the Bedrock endpoint (e.g., "us-east-1").
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Region string `json:"region,omitempty"`
+}
+
+// LLMProviderSpec defines the desired state of LLMProvider.
+//
+// The type field is the discriminator. Exactly one of the per-provider
+// configuration fields (anthropic, googleCloudVertex, openAI, azureOpenAI,
+// awsBedrock) must be set, matching the type value.
+//
+// +kubebuilder:validation:XValidation:rule="self.type == 'Anthropic' ? has(self.anthropic) : !has(self.anthropic)",message="anthropic is required when type is Anthropic, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.type == 'GoogleCloudVertex' ? has(self.googleCloudVertex) : !has(self.googleCloudVertex)",message="googleCloudVertex is required when type is GoogleCloudVertex, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.type == 'OpenAI' ? has(self.openAI) : !has(self.openAI)",message="openAI is required when type is OpenAI, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.type == 'AzureOpenAI' ? has(self.azureOpenAI) : !has(self.azureOpenAI)",message="azureOpenAI is required when type is AzureOpenAI, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.type == 'AWSBedrock' ? has(self.awsBedrock) : !has(self.awsBedrock)",message="awsBedrock is required when type is AWSBedrock, and forbidden otherwise"
+type LLMProviderSpec struct {
+	// type is the LLM provider backend. Determines which per-provider
+	// configuration field must be set. Allowed values: "Anthropic",
+	// "GoogleCloudVertex", "OpenAI", "AzureOpenAI", "AWSBedrock".
+	// +required
+	Type LLMProviderType `json:"type,omitempty"`
 
 	// model is the LLM model identifier as recognized by the provider
 	// (e.g., "claude-opus-4-6", "claude-haiku-4-5", "gpt-4o").
 	// Different agents can reference different LLMProviders to use different
 	// models for different tasks (e.g., a capable model for analysis,
-	// a fast model for execution). Must be 1-256 characters.
+	// a fast model for execution). Must be 1-256 characters, starting with
+	// an alphanumeric character and containing only alphanumerics, dots,
+	// hyphens, underscores, slashes, colons, and at-signs.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[a-zA-Z0-9][a-zA-Z0-9._\\\\-/:@]*$')",message="model must start with an alphanumeric character and contain only alphanumerics, dots, hyphens, underscores, slashes, colons, and at-signs"
 	Model string `json:"model,omitempty"`
 
 	// url is an optional override for the provider API endpoint.
@@ -93,6 +167,31 @@ type LLMProviderSpec struct {
 	// +kubebuilder:validation:MaxLength=2048
 	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="url must be a valid HTTP or HTTPS URL"
 	URL string `json:"url,omitempty"`
+
+	// anthropic contains Anthropic-specific configuration.
+	// Required when type is "Anthropic".
+	// +optional
+	Anthropic *AnthropicConfig `json:"anthropic,omitempty"`
+
+	// googleCloudVertex contains Google Cloud Vertex AI-specific configuration.
+	// Required when type is "GoogleCloudVertex".
+	// +optional
+	GoogleCloudVertex *GoogleCloudVertexConfig `json:"googleCloudVertex,omitempty"`
+
+	// openAI contains OpenAI-specific configuration.
+	// Required when type is "OpenAI".
+	// +optional
+	OpenAI *OpenAIConfig `json:"openAI,omitempty"`
+
+	// azureOpenAI contains Azure OpenAI Service-specific configuration.
+	// Required when type is "AzureOpenAI".
+	// +optional
+	AzureOpenAI *AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
+
+	// awsBedrock contains AWS Bedrock-specific configuration.
+	// Required when type is "AWSBedrock".
+	// +optional
+	AWSBedrock *AWSBedrockConfig `json:"awsBedrock,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -120,11 +219,14 @@ type LLMProviderSpec struct {
 //	metadata:
 //	  name: smart
 //	spec:
-//	  type: vertex
+//	  type: GoogleCloudVertex
 //	  model: claude-opus-4-6
-//	  credentialsSecret:
-//	    name: llm-credentials
-//	    namespace: lightspeed-operator
+//	  googleCloudVertex:
+//	    credentialsSecret:
+//	      name: llm-credentials
+//	      namespace: openshift-lightspeed
+//	    project: my-gcp-project
+//	    region: us-central1
 //
 // Example — a fast, cost-efficient provider for execution tasks:
 //
@@ -133,11 +235,14 @@ type LLMProviderSpec struct {
 //	metadata:
 //	  name: fast
 //	spec:
-//	  type: vertex
+//	  type: GoogleCloudVertex
 //	  model: claude-haiku-4-5
-//	  credentialsSecret:
-//	    name: llm-credentials
-//	    namespace: lightspeed-operator
+//	  googleCloudVertex:
+//	    credentialsSecret:
+//	      name: llm-credentials
+//	      namespace: openshift-lightspeed
+//	    project: my-gcp-project
+//	    region: us-central1
 type LLMProvider struct {
 	metav1.TypeMeta `json:",inline"`
 

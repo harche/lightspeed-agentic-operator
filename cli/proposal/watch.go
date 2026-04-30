@@ -99,7 +99,8 @@ func doWatch(ctx context.Context, configFlags *genericclioptions.ConfigFlags, na
 			continue
 		}
 
-		phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")
+		conditions := extractConditions(obj)
+		phase := string(agenticv1alpha1.DerivePhase(conditions))
 		if phase == lastPhase {
 			continue
 		}
@@ -115,4 +116,27 @@ func doWatch(ctx context.Context, configFlags *genericclioptions.ConfigFlags, na
 	}
 
 	return nil
+}
+
+func extractConditions(obj *unstructured.Unstructured) []metav1.Condition {
+	raw, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	conditions := make([]metav1.Condition, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		c := metav1.Condition{}
+		if v, ok := m["type"].(string); ok {
+			c.Type = v
+		}
+		if v, ok := m["status"].(string); ok {
+			c.Status = metav1.ConditionStatus(v)
+		}
+		if v, ok := m["reason"].(string); ok {
+			c.Reason = v
+		}
+		conditions = append(conditions, c)
+	}
+	return conditions
 }

@@ -32,40 +32,28 @@ func renderTemplate(name string, data any) string {
 }
 
 const (
-	proposalFinalizer  = "agentic.openshift.io/execution-rbac-cleanup"
+	rbacCleanupFinalizer  = "agentic.openshift.io/execution-rbac-cleanup"
 	defaultMaxAttempts = 3
 
-	reasonAnalysisInProgress     = "AnalysisInProgress"
-	reasonAnalysisComplete       = "AnalysisComplete"
-	reasonAnalysisFailed         = "AnalysisFailed"
-	reasonExecutionInProgress    = "ExecutionInProgress"
-	reasonExecutionComplete      = "ExecutionComplete"
-	reasonExecutionFailed        = "ExecutionFailed"
-	reasonExecutionSkipped       = "ExecutionSkipped"
-	reasonVerificationInProgress = "VerificationInProgress"
-	reasonVerificationPassed     = "VerificationPassed"
-	reasonVerificationFailed     = "VerificationFailed"
-	reasonVerificationSkipped    = "VerificationSkipped"
-	reasonUserApproved           = "UserApproved"
-	reasonWorkflowFailed         = "WorkflowResolutionFailed"
-	reasonAwaitingSync           = "AwaitingSync"
-	defaultSandboxSA             = "lightspeed-agent"
-	reasonRevisionAnalyzing      = "RevisionAnalyzing"
-	reasonRevisionComplete       = "RevisionComplete"
-	reasonRetryingExecution      = "RetryingExecution"
-	reasonRetriesExhausted       = "RetriesExhausted"
+	reasonInProgress       = "InProgress"
+	reasonComplete         = "Complete"
+	reasonFailed           = "Failed"
+	reasonSkipped          = "Skipped"
+	reasonPassed           = "Passed"
+	reasonUserApproved     = "UserApproved"
+	reasonWorkflowFailed   = "WorkflowResolutionFailed"
+	reasonAwaitingSync     = "AwaitingSync"
+	defaultSandboxSA       = "lightspeed-agent"
+	reasonRevising         = "Revising"
+	reasonRevisionComplete = "RevisionComplete"
+	reasonRetryingExecution = agenticv1alpha1.ReasonRetryingExecution
+	reasonRetriesExhausted  = agenticv1alpha1.ReasonRetriesExhausted
 )
 
-var stepFailReasons = map[string]string{
-	agenticv1alpha1.ProposalConditionAnalyzed: reasonAnalysisFailed,
-	agenticv1alpha1.ProposalConditionExecuted: reasonExecutionFailed,
-	agenticv1alpha1.ProposalConditionVerified: reasonVerificationFailed,
-}
 
 func (r *ProposalReconciler) failStep(ctx context.Context, log logr.Logger, proposal *agenticv1alpha1.Proposal, conditionType string, err error) (ctrl.Result, error) {
 	log.Error(err, "step failed", "condition", conditionType)
 	base := proposal.DeepCopy()
-	proposal.Status.Phase = agenticv1alpha1.ProposalPhaseFailed
 	completedAt := metav1.Now()
 
 	switch conditionType {
@@ -80,7 +68,7 @@ func (r *ProposalReconciler) failStep(ctx context.Context, log logr.Logger, prop
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    conditionType,
 		Status:  metav1.ConditionFalse,
-		Reason:  stepFailReasons[conditionType],
+		Reason:  reasonFailed,
 		Message: err.Error(),
 	})
 	if statusErr := r.statusPatch(ctx, proposal, base); statusErr != nil {
@@ -111,7 +99,7 @@ func setVerificationSkipped(proposal *agenticv1alpha1.Proposal) {
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionVerified,
 		Status:  metav1.ConditionTrue,
-		Reason:  reasonVerificationSkipped,
+		Reason:  reasonSkipped,
 		Message: "Verification step not configured in workflow",
 	})
 }
@@ -211,7 +199,7 @@ func buildEscalationRequest(proposal *agenticv1alpha1.Proposal) string {
 	data := escalationData{
 		Name:         proposal.Name,
 		Request:      proposal.Spec.Request,
-		AttemptCount: *proposal.Status.Attempt,
+		AttemptCount: *proposal.Status.Attempts,
 	}
 	data.PreviousAttempts = make([]escalationAttempt, 0, len(proposal.Status.PreviousAttempts))
 	for _, pa := range proposal.Status.PreviousAttempts {
