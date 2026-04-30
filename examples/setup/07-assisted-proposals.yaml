@@ -1,10 +1,10 @@
 # Assisted proposals — analyze + verify, user applies changes manually.
 #
-# The assisted template skips execution. The agent analyzes the issue and
-# proposes changes, then the user applies them (e.g., via git PR). After
-# the user signals sync, the verification step checks the result.
+# Execution is skipped. The agent analyzes the issue and proposes changes,
+# then the user applies them (e.g., via git PR). After the user signals
+# sync, the verification step checks the result.
 #
-# Requires: LLMProvider + Agent from 00/01, ProposalTemplate from 02
+# Requires: LLMProvider + Agent from 00/01
 ---
 # Assisted remediation for GitOps-managed namespace
 apiVersion: agentic.openshift.io/v1alpha1
@@ -13,8 +13,6 @@ metadata:
   name: assisted-gitops-fix-example
   namespace: openshift-lightspeed
 spec:
-  templateRef:
-    name: assisted
   request: |
     ACS policy violation in ArgoCD-managed namespace.
     Affected deployment: production/nginx-frontend
@@ -28,6 +26,10 @@ spec:
       - name: github-token
         description: "GitHub API token for repository access"
         mountAs: GH_TOKEN
+  analysis:
+    agent: smart
+  verification:
+    agent: fast
 ---
 # Assisted advisory for GitOps (analysis only, no verification)
 apiVersion: agentic.openshift.io/v1alpha1
@@ -36,8 +38,6 @@ metadata:
   name: assisted-advisory-example
   namespace: openshift-lightspeed
 spec:
-  templateRef:
-    name: advisory
   request: |
     High memory usage in staging. Namespace managed by ArgoCD.
     Advise what git changes to make for resource limit adjustments.
@@ -46,3 +46,5 @@ spec:
   tools:
     skills:
       - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
+  analysis:
+    agent: smart

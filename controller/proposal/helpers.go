@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"text/template"
 
 	"github.com/go-logr/logr"
@@ -185,12 +187,9 @@ func attemptAlreadyRecorded(attempts []agenticv1alpha1.PreviousAttempt, num int3
 	return false
 }
 
-func maxAttempts(proposal *agenticv1alpha1.Proposal, resolved *resolvedWorkflow) int {
+func maxAttempts(proposal *agenticv1alpha1.Proposal) int {
 	if proposal.Spec.MaxAttempts != nil {
 		return int(*proposal.Spec.MaxAttempts)
-	}
-	if resolved != nil && resolved.MaxAttempts != nil {
-		return int(*resolved.MaxAttempts)
 	}
 	return defaultMaxAttempts
 }
@@ -250,4 +249,54 @@ func buildRevisionContext(proposal *agenticv1alpha1.Proposal) string {
 		Namespace:    proposal.Namespace,
 	}
 	return renderTemplate("revision_context.tmpl", data)
+}
+
+func prettyJSON(v interface{}) string {
+	if v == nil || reflect.ValueOf(v).IsNil() {
+		return "{}"
+	}
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+type analysisQuery struct {
+	Request string
+}
+
+func buildAnalysisQuery(requestText string) string {
+	return renderTemplate("analysis_query.tmpl", analysisQuery{Request: requestText})
+}
+
+type executionQuery struct {
+	OptionJSON string
+}
+
+func buildExecutionQuery(option *agenticv1alpha1.RemediationOption) string {
+	return renderTemplate("execution_query.tmpl", executionQuery{OptionJSON: prettyJSON(option)})
+}
+
+type verificationQuery struct {
+	OptionJSON    string
+	ExecutionJSON string
+}
+
+func buildVerificationQuery(option *agenticv1alpha1.RemediationOption, exec *ExecutionOutput) string {
+	var execResult *agentExecutionResult
+	if exec != nil {
+		execResult = &agentExecutionResult{
+			Success:      exec.Success,
+			ActionsTaken: exec.ActionsTaken,
+		}
+		if exec.Verification.Summary != "" || exec.Verification.ConditionOutcome != "" {
+			execResult.Verification = &exec.Verification
+		}
+	}
+
+	return renderTemplate("verification_query.tmpl", verificationQuery{
+		OptionJSON:    prettyJSON(option),
+		ExecutionJSON: prettyJSON(execResult),
+	})
 }

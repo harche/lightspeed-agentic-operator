@@ -16,7 +16,7 @@ func TestCreate_Success(t *testing.T) {
 	o := &CreateOptions{
 		client:    fc,
 		namespace: "default",
-		template:  "remediation",
+		agent:     "default",
 		request:   "Pod crashing",
 		IOStreams:  streams,
 	}
@@ -35,7 +35,7 @@ func TestCreate_GenerateNamePrefix(t *testing.T) {
 	o := &CreateOptions{
 		client:    fc,
 		namespace: "default",
-		template:  "remediation",
+		agent:     "default",
 		request:   "Pod crashing",
 	}
 
@@ -46,8 +46,6 @@ func TestCreate_GenerateNamePrefix(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	// The fake client doesn't generate names from GenerateName,
-	// but we can verify the output message
 	output := out.String()
 	if !strings.Contains(output, "proposal/") {
 		t.Errorf("expected proposal/ prefix in output, got: %s", output)
@@ -61,7 +59,7 @@ func TestCreate_WithMaxAttempts(t *testing.T) {
 	o := &CreateOptions{
 		client:      fc,
 		namespace:   "default",
-		template:    "remediation",
+		agent:       "default",
 		request:     "Pod crashing",
 		maxAttempts: 3,
 		IOStreams:    streams,
@@ -70,7 +68,6 @@ func TestCreate_WithMaxAttempts(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	// Verify the proposal was created with max attempts by listing
 	list := &agenticv1alpha1.ProposalList{}
 	if err := fc.List(context.Background(), list); err != nil {
 		t.Fatalf("List: %v", err)
@@ -93,7 +90,7 @@ func TestCreate_WithoutMaxAttempts(t *testing.T) {
 	o := &CreateOptions{
 		client:      fc,
 		namespace:   "default",
-		template:    "remediation",
+		agent:       "default",
 		request:     "Pod crashing",
 		maxAttempts: -1,
 		IOStreams:    streams,
@@ -118,7 +115,7 @@ func TestCreate_WithTargetNamespaces(t *testing.T) {
 	o := &CreateOptions{
 		client:           fc,
 		namespace:        "default",
-		template:         "remediation",
+		agent:            "smart",
 		request:          "Pod crashing",
 		targetNamespaces: []string{"prod", "staging"},
 		maxAttempts:      -1,
@@ -145,7 +142,7 @@ func TestCreate_JSONOutput(t *testing.T) {
 	o := &CreateOptions{
 		client:      fc,
 		namespace:   "default",
-		template:    "remediation",
+		agent:       "smart",
 		request:     "Pod crashing",
 		output:      "json",
 		maxAttempts: -1,
@@ -155,7 +152,7 @@ func TestCreate_JSONOutput(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	if !strings.Contains(out.String(), `"request"`) || !strings.Contains(out.String(), `"templateRef"`) {
+	if !strings.Contains(out.String(), `"request"`) || !strings.Contains(out.String(), `"analysis"`) {
 		t.Errorf("expected JSON output with proposal fields, got:\n%s", out.String())
 	}
 }
@@ -169,41 +166,35 @@ func TestCreate_Validate(t *testing.T) {
 	}{
 		{
 			name:    "empty request",
-			opts:    CreateOptions{request: "  ", template: "remediation", maxAttempts: -1},
+			opts:    CreateOptions{request: "  ", maxAttempts: -1},
 			wantErr: true,
 			errMsg:  "--request",
 		},
 		{
-			name:    "empty template",
-			opts:    CreateOptions{request: "fix", template: "  ", maxAttempts: -1},
-			wantErr: true,
-			errMsg:  "--template",
-		},
-		{
 			name:    "max-attempts too high",
-			opts:    CreateOptions{request: "fix", template: "remediation", maxAttempts: 25},
+			opts:    CreateOptions{request: "fix", maxAttempts: 25},
 			wantErr: true,
 			errMsg:  "--max-attempts",
 		},
 		{
 			name:    "max-attempts negative (not sentinel)",
-			opts:    CreateOptions{request: "fix", template: "remediation", maxAttempts: -2},
+			opts:    CreateOptions{request: "fix", maxAttempts: -2},
 			wantErr: true,
 			errMsg:  "--max-attempts",
 		},
 		{
 			name:    "valid",
-			opts:    CreateOptions{request: "fix", template: "remediation", maxAttempts: -1},
+			opts:    CreateOptions{request: "fix", maxAttempts: -1},
 			wantErr: false,
 		},
 		{
 			name:    "max-attempts zero",
-			opts:    CreateOptions{request: "fix", template: "remediation", maxAttempts: 0},
+			opts:    CreateOptions{request: "fix", maxAttempts: 0},
 			wantErr: false,
 		},
 		{
 			name:    "invalid output",
-			opts:    CreateOptions{request: "fix", template: "remediation", maxAttempts: -1, output: "xml"},
+			opts:    CreateOptions{request: "fix", maxAttempts: -1, output: "xml"},
 			wantErr: true,
 		},
 	}
@@ -220,14 +211,14 @@ func TestCreate_Validate(t *testing.T) {
 	}
 }
 
-func TestCreate_TemplateReference(t *testing.T) {
+func TestCreate_InlineAnalysisAgent(t *testing.T) {
 	streams, _, _ := fakeStreams()
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()
 
 	o := &CreateOptions{
 		client:      fc,
 		namespace:   "default",
-		template:    "my-template",
+		agent:       "smart",
 		request:     "test",
 		maxAttempts: -1,
 		IOStreams:    streams,
@@ -240,7 +231,7 @@ func TestCreate_TemplateReference(t *testing.T) {
 	if err := fc.List(context.Background(), list); err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if list.Items[0].Spec.TemplateRef == nil || list.Items[0].Spec.TemplateRef.Name != "my-template" {
-		t.Errorf("expected templateRef 'my-template', got %v", list.Items[0].Spec.TemplateRef)
+	if list.Items[0].Spec.Analysis == nil || list.Items[0].Spec.Analysis.Agent != "smart" {
+		t.Errorf("expected analysis agent 'smart', got %v", list.Items[0].Spec.Analysis)
 	}
 }

@@ -1,11 +1,10 @@
 # ACS (Red Hat Advanced Cluster Security) proposals.
 #
 # When RHACS detects a policy violation (vulnerable image, misconfiguration,
-# runtime anomaly), the ACS adapter creates a Proposal referencing a
-# ProposalTemplate (remediation, assisted, or advisory). Tools (skills,
-# secrets) are specified inline on each Proposal.
+# runtime anomaly), the ACS adapter creates a Proposal with inline steps.
+# Tools (skills, secrets) are specified inline on each Proposal.
 #
-# Requires: LLMProvider + Agent from 00/01, ProposalTemplate from 02
+# Requires: LLMProvider + Agent from 00/01
 ---
 # ACS remediation — full pipeline
 apiVersion: agentic.openshift.io/v1alpha1
@@ -17,8 +16,6 @@ metadata:
     agentic.openshift.io/source: acs
     agentic.openshift.io/policy: fixable-cve-critical
 spec:
-  templateRef:
-    name: remediation
   request: |
     ACS policy violation: Fixable CVSS >= 7 (severity: CRITICAL_SEVERITY)
     Policy description: Alert on deployments with fixable vulnerabilities with a CVSS of at least 7
@@ -30,6 +27,7 @@ spec:
       - CVE-2024-24790 (CVSS 9.8) in nginx:1.21 — path traversal
   targetNamespaces:
     - staging
+  maxAttempts: 3
   tools:
     skills:
       - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
@@ -37,6 +35,11 @@ spec:
       - name: acs-api-token
         description: "ACS Central API token for querying violations"
         mountAs: ACS_API_TOKEN
+  analysis:
+    agent: smart
+  execution: {}
+  verification:
+    agent: fast
 ---
 # ACS assisted — analyze + verify, user applies changes via git
 apiVersion: agentic.openshift.io/v1alpha1
@@ -48,8 +51,6 @@ metadata:
     agentic.openshift.io/source: acs
     agentic.openshift.io/policy: fixable-cve-critical
 spec:
-  templateRef:
-    name: assisted
   request: |
     ACS policy violation: Fixable CVSS >= 7 (severity: CRITICAL_SEVERITY)
     Affected deployment: production/nginx-frontend
@@ -64,6 +65,10 @@ spec:
       - name: acs-api-token
         description: "ACS Central API token for querying violations"
         mountAs: ACS_API_TOKEN
+  analysis:
+    agent: smart
+  verification:
+    agent: fast
 ---
 # ACS advisory — analysis only
 apiVersion: agentic.openshift.io/v1alpha1
@@ -75,8 +80,6 @@ metadata:
     agentic.openshift.io/source: acs
     agentic.openshift.io/policy: fixable-cve-critical
 spec:
-  templateRef:
-    name: advisory
   request: |
     ACS policy violation: Fixable CVSS >= 7 (severity: CRITICAL_SEVERITY)
     Affected deployment: staging/nginx-frontend
@@ -89,6 +92,8 @@ spec:
     requiredSecrets:
       - name: acs-api-token
         mountAs: ACS_API_TOKEN
+  analysis:
+    agent: smart
 ---
 # ACS per-step tools — different skills paths for analysis vs verification
 apiVersion: agentic.openshift.io/v1alpha1
@@ -99,21 +104,23 @@ metadata:
   labels:
     agentic.openshift.io/source: acs
 spec:
-  templateRef:
-    name: remediation
   request: "Complex ACS violation requiring specialized analysis and verification skills"
   targetNamespaces:
     - staging
+  maxAttempts: 3
   tools:
     requiredSecrets:
       - name: acs-api-token
         mountAs: ACS_API_TOKEN
   analysis:
+    agent: smart
     tools:
       skills:
         - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
           paths: [/skills/acs-remediation, /skills/acs-compliance]
+  execution: {}
   verification:
+    agent: fast
     tools:
       skills:
         - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest

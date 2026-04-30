@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,7 +86,7 @@ func newTestSandboxAgentCallerWithProposal(sandbox *mockSandboxProvider, httpCli
 }
 
 func testSandboxProposal() *agenticv1alpha1.Proposal {
-	p := testProposal("remediation")
+	p := testProposal()
 	one := int32(1)
 	p.Status.Attempt = &one
 	return p
@@ -317,9 +318,11 @@ func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:          "Pod crashing",
-			TemplateRef:      &agenticv1alpha1.ProposalTemplateReference{Name: "remediation"},
 			Tools:            testTools(),
 			TargetNamespaces: []string{"production", "staging"},
+			Analysis:         &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Execution:        &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Verification:     &agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 		Status: agenticv1alpha1.ProposalStatus{
 			Attempt: &attempt,
@@ -452,6 +455,107 @@ func TestSandboxAgentCaller_ExecutePassesApprovedOption(t *testing.T) {
 	}
 	if httpClient.lastCtx.ApprovedOption.Title != "Scale up replicas" {
 		t.Errorf("approvedOption.title = %q", httpClient.lastCtx.ApprovedOption.Title)
+	}
+}
+
+// --- Per-phase query construction tests ---
+
+func TestSandboxAgentCaller_AnalysisQueryFraming(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "options": []}`)},
+	}
+
+	caller := newTestSandboxAgentCaller(sandbox, httpClient)
+	_, _ = caller.Analyze(context.Background(), testSandboxProposal(), testSandboxStep(), "Pod crashing with OOMKilled")
+
+	if !strings.Contains(httpClient.lastQuery, "analysis agent") {
+		t.Error("analysis query should contain role framing")
+	}
+	if !strings.Contains(httpClient.lastQuery, "Pod crashing with OOMKilled") {
+		t.Error("analysis query should contain the original request")
+	}
+	if !strings.Contains(httpClient.lastQuery, "Do NOT attempt to fix") {
+		t.Error("analysis query should instruct agent not to execute")
+	}
+}
+
+func TestSandboxAgentCaller_ExecutionQueryFraming(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "actionsTaken": []}`)},
+	}
+
+	caller := newTestSandboxAgentCaller(sandbox, httpClient)
+	option := &agenticv1alpha1.RemediationOption{
+		Title: "Increase memory limit",
+		Proposal: agenticv1alpha1.ProposalResult{
+			Description: "Patch deployment memory",
+			Actions:     []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "Set memory to 512Mi"}},
+			Risk:        "Low",
+		},
+	}
+	proposal := testSandboxProposal()
+	proposal.Spec.Request = "Pod crashing with OOMKilled"
+	_, _ = caller.Execute(context.Background(), proposal, testSandboxStep(), option)
+
+	if !strings.Contains(httpClient.lastQuery, "execution agent") {
+		t.Error("execution query should contain role framing")
+	}
+	if !strings.Contains(httpClient.lastQuery, "Increase memory limit") {
+		t.Error("execution query should contain approved option title")
+	}
+	if strings.Contains(httpClient.lastQuery, "Pod crashing with OOMKilled") {
+		t.Error("execution query should NOT contain the original request")
+	}
+}
+
+func TestSandboxAgentCaller_VerificationQueryFraming(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "checks": [], "summary": "ok"}`)},
+	}
+
+	caller := newTestSandboxAgentCaller(sandbox, httpClient)
+	option := &agenticv1alpha1.RemediationOption{Title: "Increase memory limit"}
+	exec := &ExecutionOutput{
+		Success: true,
+		ActionsTaken: []agenticv1alpha1.ExecutionAction{
+			{Type: "patch", Description: "Patched deployment memory", Outcome: agenticv1alpha1.ActionOutcomeSucceeded},
+		},
+	}
+	proposal := testSandboxProposal()
+	proposal.Spec.Request = "Pod crashing with OOMKilled"
+	_, _ = caller.Verify(context.Background(), proposal, testSandboxStep(), option, exec)
+
+	if !strings.Contains(httpClient.lastQuery, "verification agent") {
+		t.Error("verification query should contain role framing")
+	}
+	if !strings.Contains(httpClient.lastQuery, "Increase memory limit") {
+		t.Error("verification query should contain approved option")
+	}
+	if !strings.Contains(httpClient.lastQuery, "Patched deployment memory") {
+		t.Error("verification query should contain execution results")
+	}
+	if strings.Contains(httpClient.lastQuery, "Pod crashing with OOMKilled") {
+		t.Error("verification query should NOT contain the original request")
+	}
+}
+
+func TestSandboxAgentCaller_ExecutionQueryNilOption(t *testing.T) {
+	sandbox := &mockSandboxProvider{claimName: "claim-1", endpoint: "http://sandbox:8080"}
+	httpClient := &mockHTTPClient{
+		response: &agentQueryResponse{Response: json.RawMessage(`{"success": true, "actionsTaken": []}`)},
+	}
+
+	caller := newTestSandboxAgentCaller(sandbox, httpClient)
+	_, _ = caller.Execute(context.Background(), testSandboxProposal(), testSandboxStep(), nil)
+
+	if !strings.Contains(httpClient.lastQuery, "execution agent") {
+		t.Error("execution query should still contain role framing with nil option")
+	}
+	if !strings.Contains(httpClient.lastQuery, "{}") {
+		t.Error("execution query should contain empty JSON object for nil option")
 	}
 }
 

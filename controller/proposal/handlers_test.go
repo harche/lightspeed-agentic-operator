@@ -29,45 +29,54 @@ func reviseProposal(t *testing.T, fc client.WithWatch, name string, revision int
 	}
 }
 
-func TestReconcile_TemplateVariants(t *testing.T) {
+func TestReconcile_WorkflowVariants(t *testing.T) {
 	tests := []struct {
 		name      string
-		template  *agenticv1alpha1.ProposalTemplate
+		proposal  *agenticv1alpha1.Proposal
 		wantPhase agenticv1alpha1.ProposalPhase
 	}{
 		{
 			name:      "full_lifecycle_reaches_verifying",
-			template:  fullTemplate(),
+			proposal:  testProposal(),
 			wantPhase: agenticv1alpha1.ProposalPhaseVerifying,
 		},
 		{
 			name: "advisory_only_completes",
-			template: &agenticv1alpha1.ProposalTemplate{
-				ObjectMeta: metav1.ObjectMeta{Name: "advisory"},
-				Spec: agenticv1alpha1.ProposalTemplateSpec{
-					Analysis: agenticv1alpha1.TemplateStep{Agent: "default"},
+			proposal: &agenticv1alpha1.Proposal{
+				ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+				Spec: agenticv1alpha1.ProposalSpec{
+					Request:          "Investigate issue",
+					Tools:            testTools(),
+					TargetNamespaces: []string{"production"},
+					Analysis:         &agenticv1alpha1.ProposalStep{Agent: "default"},
 				},
 			},
 			wantPhase: agenticv1alpha1.ProposalPhaseCompleted,
 		},
 		{
 			name: "assisted_awaits_sync",
-			template: &agenticv1alpha1.ProposalTemplate{
-				ObjectMeta: metav1.ObjectMeta{Name: "assisted"},
-				Spec: agenticv1alpha1.ProposalTemplateSpec{
-					Analysis:     agenticv1alpha1.TemplateStep{Agent: "default"},
-					Verification: &agenticv1alpha1.TemplateStep{Agent: "default"},
+			proposal: &agenticv1alpha1.Proposal{
+				ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+				Spec: agenticv1alpha1.ProposalSpec{
+					Request:          "Fix with manual apply",
+					Tools:            testTools(),
+					TargetNamespaces: []string{"production"},
+					Analysis:         &agenticv1alpha1.ProposalStep{Agent: "default"},
+					Verification:     &agenticv1alpha1.ProposalStep{Agent: "default"},
 				},
 			},
 			wantPhase: agenticv1alpha1.ProposalPhaseAwaitingSync,
 		},
 		{
 			name: "no_verification_skips_verification",
-			template: &agenticv1alpha1.ProposalTemplate{
-				ObjectMeta: metav1.ObjectMeta{Name: "no-verify"},
-				Spec: agenticv1alpha1.ProposalTemplateSpec{
-					Analysis:  agenticv1alpha1.TemplateStep{Agent: "default"},
-					Execution: &agenticv1alpha1.TemplateStep{Agent: "default"},
+			proposal: &agenticv1alpha1.Proposal{
+				ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+				Spec: agenticv1alpha1.ProposalSpec{
+					Request:          "Trust mode fix",
+					Tools:            testTools(),
+					TargetNamespaces: []string{"production"},
+					Analysis:         &agenticv1alpha1.ProposalStep{Agent: "default"},
+					Execution:        &agenticv1alpha1.ProposalStep{Agent: "default"},
 				},
 			},
 			wantPhase: agenticv1alpha1.ProposalPhaseCompleted,
@@ -77,9 +86,9 @@ func TestReconcile_TemplateVariants(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := testScheme()
-			proposal := testProposal(tt.template.Name)
+			proposal := tt.proposal
 
-			objs := append([]client.Object{proposal, tt.template}, testDefaultAgent(), testLLM("smart"))
+			objs := []client.Object{proposal, testDefaultAgent(), testLLM("smart")}
 			fc := fake.NewClientBuilder().WithScheme(scheme).
 				WithObjects(objs...).
 				WithStatusSubresource(proposal).Build()
@@ -109,7 +118,7 @@ func TestReconcile_TemplateVariants(t *testing.T) {
 
 func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -174,7 +183,7 @@ func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
 	agent.analyzeErr = fmt.Errorf("LLM timeout")
 	scheme := testScheme()
 
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
@@ -210,7 +219,7 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 	scheme := testScheme()
 
 	maxAttempts := int32(2)
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 	proposal.Spec.MaxAttempts = &maxAttempts
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
@@ -281,7 +290,7 @@ func TestReconcile_SystemFailure_Execution_Terminal(t *testing.T) {
 	agent := newTestAgentCaller()
 	scheme := testScheme()
 
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
@@ -318,7 +327,7 @@ func TestReconcile_SystemFailure_Verification_Terminal(t *testing.T) {
 	agent := newTestAgentCaller()
 	scheme := testScheme()
 
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal).Build()
@@ -357,7 +366,7 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	scheme := testScheme()
 
 	maxAttempts := int32(1)
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 	proposal.Spec.MaxAttempts = &maxAttempts
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
@@ -417,7 +426,7 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 
 func TestReconcile_RevisionHappyPath(t *testing.T) {
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -467,7 +476,7 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 
 func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -505,7 +514,7 @@ func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 
 func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -548,7 +557,7 @@ func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 
 func TestReconcile_RevisionResetsSelectedOption(t *testing.T) {
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -583,7 +592,7 @@ func TestReconcile_RevisionResetsSelectedOption(t *testing.T) {
 func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 	agent := newTestAgentCaller()
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -657,7 +666,7 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 	}
 
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -749,7 +758,7 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 	}
 
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -845,7 +854,7 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	sandboxAgent, sandbox := newMockSandboxAgent(string(analysisJSON), string(executionJSON), string(verificationJSON))
 
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -925,7 +934,7 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 
 func TestReconcile_ExecutingPhase_DoesNotReExecute(t *testing.T) {
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -964,7 +973,7 @@ func TestReconcile_ExecutingPhase_DoesNotReExecute(t *testing.T) {
 
 func TestReconcile_ExecutionSuccessFalse_FailsStep(t *testing.T) {
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
@@ -992,7 +1001,7 @@ func TestReconcile_ExecutionSuccessFalse_FailsStep(t *testing.T) {
 
 func TestReconcile_VerificationSuccessFalse_RetriesExecution(t *testing.T) {
 	scheme := testScheme()
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).

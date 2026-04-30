@@ -26,7 +26,6 @@ type ProposalReconciler struct {
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals/finalizers,verbs=update
-// +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposaltemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=agents,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=llmproviders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;create;delete

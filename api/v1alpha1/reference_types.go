@@ -52,16 +52,6 @@ type LLMProviderReference struct {
 	Name string `json:"name,omitempty"`
 }
 
-// ProposalTemplateReference references a cluster-scoped ProposalTemplate
-// CR by name.
-type ProposalTemplateReference struct {
-	// name of the ProposalTemplate.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name,omitempty"`
-}
-
 // ProposalReference references a Proposal CR by name within the same
 // namespace. Used for escalation parent linkage.
 type ProposalReference struct {

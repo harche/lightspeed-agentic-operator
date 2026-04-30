@@ -72,17 +72,6 @@ func testScheme() *runtime.Scheme {
 	return s
 }
 
-func fullTemplate() *agenticv1alpha1.ProposalTemplate {
-	return &agenticv1alpha1.ProposalTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "remediation"},
-		Spec: agenticv1alpha1.ProposalTemplateSpec{
-			Analysis:     agenticv1alpha1.TemplateStep{Agent: "default"},
-			Execution:    &agenticv1alpha1.TemplateStep{Agent: "default"},
-			Verification: &agenticv1alpha1.TemplateStep{Agent: "default"},
-		},
-	}
-}
-
 func testDefaultAgent() *agenticv1alpha1.Agent {
 	return &agenticv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
@@ -109,14 +98,16 @@ func testLLM(name string) *agenticv1alpha1.LLMProvider {
 	}
 }
 
-func testProposal(templateName string) *agenticv1alpha1.Proposal {
+func testProposal() *agenticv1alpha1.Proposal {
 	return &agenticv1alpha1.Proposal{
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:          "Pod crashing in production",
-			TemplateRef:      &agenticv1alpha1.ProposalTemplateReference{Name: templateName},
 			Tools:            testTools(),
 			TargetNamespaces: []string{"production"},
+			Analysis:         &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Execution:        &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Verification:     &agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 	}
 }
@@ -125,7 +116,7 @@ func testProposal(templateName string) *agenticv1alpha1.Proposal {
 // objects needed to resolve a full workflow.
 func defaultObjects() []client.Object {
 	return []client.Object{
-		testDefaultAgent(), testLLM("smart"), fullTemplate(),
+		testDefaultAgent(), testLLM("smart"),
 	}
 }
 
@@ -227,9 +218,11 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 	proposal := &agenticv1alpha1.Proposal{
 		ObjectMeta: metav1.ObjectMeta{Name: "fresh", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
-			Request:     "Pod crashing",
-			TemplateRef: &agenticv1alpha1.ProposalTemplateReference{Name: "remediation"},
-			Tools:       testTools(),
+			Request:      "Pod crashing",
+			Tools:        testTools(),
+			Analysis:     &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Execution:    &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Verification: &agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 	}
 
@@ -260,7 +253,7 @@ func TestReconcile_Denied_Terminal(t *testing.T) {
 	scheme := testScheme()
 
 	one := int32(1)
-	proposal := testProposal("remediation")
+	proposal := testProposal()
 	proposal.Status = agenticv1alpha1.ProposalStatus{
 		Phase:   agenticv1alpha1.ProposalPhaseDenied,
 		Attempt: &one,

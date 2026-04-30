@@ -28,7 +28,7 @@ func TestGet_BasicDetail(t *testing.T) {
 	}
 
 	output := out.String()
-	for _, want := range []string{"Name:", "fix-crash", "Namespace:", "default", "Template:", "remediation", "Phase:", "Proposed"} {
+	for _, want := range []string{"Name:", "fix-crash", "Namespace:", "default", "Phase:", "Proposed"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("expected %q in output, got:\n%s", want, output)
 		}

@@ -92,35 +92,6 @@ func TestList_FilterByPhase(t *testing.T) {
 	}
 }
 
-func TestList_FilterByTemplate(t *testing.T) {
-	streams, out, _ := fakeStreams()
-	p1 := testProposal("p1", "default", "remediation")
-	p1.Status.Phase = agenticv1alpha1.ProposalPhasePending
-	p2 := testProposal("p2", "default", "upgrade")
-	p2.Status.Phase = agenticv1alpha1.ProposalPhasePending
-
-	fc := fake.NewClientBuilder().WithScheme(testScheme()).
-		WithObjects(p1, p2).Build()
-
-	o := &ListOptions{
-		client:    fc,
-		namespace: "default",
-		template:  "remediation",
-		IOStreams:  streams,
-	}
-	if err := o.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	output := out.String()
-	if !strings.Contains(output, "p1") {
-		t.Error("expected p1 (remediation) in output")
-	}
-	if strings.Contains(output, "p2") {
-		t.Error("p2 (upgrade) should be filtered out")
-	}
-}
-
 func TestList_Empty(t *testing.T) {
 	streams, out, _ := fakeStreams()
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()

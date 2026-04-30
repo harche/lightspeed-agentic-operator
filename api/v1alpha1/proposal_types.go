@@ -98,15 +98,15 @@ const (
 	ProposalConditionEscalated string = "Escalated"
 )
 
-// ProposalStep defines per-step configuration on a Proposal. When used
-// inline (no templateRef), the agent field selects the agent tier. The
+// ProposalStep defines per-step configuration on a Proposal. The agent
+// field selects which cluster-scoped Agent CR handles this step. The
 // tools field provides per-step tools that replace the shared spec.tools.
 type ProposalStep struct {
-	// agent is the name of the cluster-scoped Agent to use for this step.
-	// When templateRef is set, overrides the template's agent for this step.
-	// When templateRef is not set (inline), selects the agent tier directly.
+	// agent is the name of the cluster-scoped Agent CR to use for this step.
+	// Defaults to "default" when omitted.
 	// +optional
-	// +kubebuilder:validation:Enum=default;smart;fast
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	Agent string `json:"agent,omitempty"`
 
 	// tools provides per-step tools that replace the shared spec.tools
@@ -139,11 +139,11 @@ type PreviousAttempt struct {
 
 // ProposalSpec defines the desired state of Proposal.
 //
-// A Proposal either references a ProposalTemplate (via templateRef) or
-// defines the workflow shape inline. Either templateRef or inline analysis
-// must be provided, but not both.
+// A Proposal defines the workflow shape inline, specifying which steps
+// run and which agent handles each step. Analysis is always required.
+// Omit execution and/or verification to skip those steps.
 //
-// +kubebuilder:validation:XValidation:rule="has(self.templateRef) || has(self.analysis)",message="either templateRef or inline analysis must be provided"
+// +kubebuilder:validation:XValidation:rule="has(self.analysis)",message="analysis must be provided"
 type ProposalSpec struct {
 	// request is the user's original request, alert description, or a
 	// description of what triggered this proposal. This text is passed to
@@ -157,16 +157,6 @@ type ProposalSpec struct {
 	// +kubebuilder:validation:MaxLength=32768
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="request is immutable after creation"
 	Request string `json:"request,omitempty"`
-
-	// templateRef references a cluster-scoped ProposalTemplate that
-	// defines the workflow shape (which steps run, which agent tier
-	// handles each step).
-	//
-	// Immutable: the workflow shape is fixed at creation. A different
-	// template requires a new Proposal.
-	// +optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="templateRef is immutable after creation"
-	TemplateRef *ProposalTemplateReference `json:"templateRef,omitempty"`
 
 	// targetNamespaces are the Kubernetes namespace(s) this proposal
 	// operates on. Used for RBAC scoping and context to the analysis agent.
@@ -196,28 +186,26 @@ type ProposalSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="tools is immutable after creation"
 	Tools ToolsSpec `json:"tools,omitzero"`
 
-	// analysis defines per-step configuration for the analysis step.
-	// When templateRef is not set, analysis.agent selects the agent tier
-	// (inline workflow definition). When templateRef is set, only
-	// analysis.tools is meaningful (per-step tools override).
+	// analysis defines per-step configuration for the analysis step,
+	// including which agent handles it and any per-step tools.
 	//
-	// Immutable: agent tier and per-step tools are fixed at creation.
-	// +optional
+	// Immutable: agent and per-step tools are fixed at creation.
+	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="analysis is immutable after creation"
 	Analysis *ProposalStep `json:"analysis,omitempty"`
 
 	// execution defines per-step configuration for the execution step.
-	// Only execution.tools is meaningful (per-step tools override).
+	// Omit to skip execution (advisory/assisted patterns).
 	//
-	// Immutable: agent tier and per-step tools are fixed at creation.
+	// Immutable: agent and per-step tools are fixed at creation.
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="execution is immutable after creation"
 	Execution *ProposalStep `json:"execution,omitempty"`
 
 	// verification defines per-step configuration for the verification step.
-	// Only verification.tools is meaningful (per-step tools override).
+	// Omit to skip verification.
 	//
-	// Immutable: agent tier and per-step tools are fixed at creation.
+	// Immutable: agent and per-step tools are fixed at creation.
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="verification is immutable after creation"
 	Verification *ProposalStep `json:"verification,omitempty"`
@@ -231,7 +219,7 @@ type ProposalSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="parent is immutable after creation"
 	Parent ProposalReference `json:"parent,omitzero"`
 
-	// maxAttempts overrides the template's retry limit for this proposal.
+	// maxAttempts sets the maximum number of retry attempts for this proposal.
 	//
 	// Mutable: the console UI patches this at approval time so the user
 	// can set a custom retry limit before execution begins.
@@ -302,40 +290,17 @@ type ProposalStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Template",type=string,JSONPath=`.spec.templateRef.name`
 // +kubebuilder:printcolumn:name="Request",type=string,JSONPath=`.spec.request`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Proposal represents a unit of work managed by the agentic platform.
 // It is the primary resource component teams and adapters interact with.
 //
-// A Proposal either references a ProposalTemplate (via templateRef) that
-// defines the workflow shape, or defines the workflow inline. Tools
-// (skills images, required secrets) are specified directly on the Proposal.
+// A Proposal defines the workflow shape inline: which steps run and which
+// agent handles each step. Analysis is always required. Omit execution
+// and/or verification to skip those steps.
 //
-// Example — ACS remediation using a template:
-//
-//	apiVersion: agentic.openshift.io/v1alpha1
-//	kind: Proposal
-//	metadata:
-//	  name: fix-nginx-cve-2024-1234
-//	  namespace: stackrox
-//	spec:
-//	  request: |
-//	    ACS violation: Deployment nginx in namespace lightspeed-demo
-//	    is running nginx:1.21 which has CVE-2024-1234 (Critical).
-//	  templateRef:
-//	    name: remediation
-//	  targetNamespaces:
-//	    - lightspeed-demo
-//	  tools:
-//	    skills:
-//	      - image: registry.redhat.io/acs/acs-lightspeed-skills:latest
-//	    requiredSecrets:
-//	      - name: acs-api-token
-//	        mountAs: ACS_API_TOKEN
-//
-// Example — fully inline (no template):
+// Example — analysis only (advisory):
 //
 //	apiVersion: agentic.openshift.io/v1alpha1
 //	kind: Proposal
@@ -350,6 +315,30 @@ type ProposalStatus struct {
 //	      - image: registry.redhat.io/acs/acs-lightspeed-skills:latest
 //	  analysis:
 //	    agent: smart
+//
+// Example — full remediation (analyze → execute → verify):
+//
+//	apiVersion: agentic.openshift.io/v1alpha1
+//	kind: Proposal
+//	metadata:
+//	  name: fix-nginx-cve-2024-1234
+//	  namespace: stackrox
+//	spec:
+//	  request: "Fix CVE-2024-1234 in nginx:1.21"
+//	  targetNamespaces:
+//	    - lightspeed-demo
+//	  maxAttempts: 3
+//	  tools:
+//	    skills:
+//	      - image: registry.redhat.io/acs/acs-lightspeed-skills:latest
+//	    requiredSecrets:
+//	      - name: acs-api-token
+//	        mountAs: ACS_API_TOKEN
+//	  analysis:
+//	    agent: smart
+//	  execution: {}
+//	  verification:
+//	    agent: fast
 type Proposal struct {
 	metav1.TypeMeta `json:",inline"`
 

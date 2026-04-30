@@ -69,7 +69,8 @@ func phaseString(step agenticv1alpha1.SandboxStep) string {
 }
 
 func (s *SandboxAgentCaller) Analyze(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*AnalysisOutput, error) {
-	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepAnalysis), step, requestText, buildAgentContext(proposal))
+	query := buildAnalysisQuery(requestText)
+	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepAnalysis), step, query, buildAgentContext(proposal))
 	if err != nil {
 		return nil, fmt.Errorf("analysis agent call: %w", err)
 	}
@@ -92,7 +93,8 @@ func (s *SandboxAgentCaller) Execute(ctx context.Context, proposal *agenticv1alp
 		agentCtx.ApprovedOption = option
 	}
 
-	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepExecution), step, proposal.Spec.Request, agentCtx)
+	query := buildExecutionQuery(option)
+	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepExecution), step, query, agentCtx)
 	if err != nil {
 		return nil, fmt.Errorf("execution agent call: %w", err)
 	}
@@ -129,7 +131,8 @@ func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alph
 		}
 	}
 
-	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepVerification), step, proposal.Spec.Request, agentCtx)
+	query := buildVerificationQuery(option, exec)
+	raw, err := s.callWithSandbox(ctx, proposal, phaseString(agenticv1alpha1.SandboxStepVerification), step, query, agentCtx)
 	if err != nil {
 		return nil, fmt.Errorf("verification agent call: %w", err)
 	}

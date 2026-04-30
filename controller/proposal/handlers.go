@@ -301,7 +301,7 @@ func (r *ProposalReconciler) handleVerifying(
 		if proposal.Status.Steps.Execution.RetryCount != nil {
 			retryCount = *proposal.Status.Steps.Execution.RetryCount
 		}
-		maxRetries := maxAttempts(proposal, resolved)
+		maxRetries := maxAttempts(proposal)
 
 		if int(retryCount) < maxRetries {
 			next := retryCount + 1
@@ -409,7 +409,6 @@ func (r *ProposalReconciler) handleEscalated(
 			}},
 		},
 		Spec: agenticv1alpha1.ProposalSpec{
-			TemplateRef:      proposal.Spec.TemplateRef,
 			Tools:            proposal.Spec.Tools,
 			Analysis:         proposal.Spec.Analysis,
 			Execution:        proposal.Spec.Execution,

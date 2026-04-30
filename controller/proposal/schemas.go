@@ -4,7 +4,7 @@ import "encoding/json"
 
 // Default JSON Schemas sent to the agent for LLM structured output enforcement.
 // Each phase has a known response shape. Components can override via
-// Tools.OutputSchema in the ProposalTemplate or inline spec.
+// Tools.OutputSchema in the Proposal spec.
 
 var AnalysisOutputSchema = json.RawMessage(`{
   "type": "object",

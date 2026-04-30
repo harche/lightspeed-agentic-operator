@@ -9,7 +9,7 @@ You are a **component team** (ACS, CVO, CMO, OSSM, or any product team) that wan
 1. A **skills image** (OCI) containing Claude Code Skills your agent should use.
 2. An **adapter** (webhook, event source, controller) that creates `Proposal` CRs at runtime.
 
-You interact with **one CRD**: `Proposal`. Everything else (LLM infrastructure, agent tiers, workflow templates) is managed by the cluster admin.
+You interact with **one CRD**: `Proposal`. Everything else (LLM infrastructure, agent tiers) is managed by the cluster admin.
 
 ## Architecture overview
 
@@ -18,18 +18,18 @@ Your Adapter                      Cluster Admin (Day 0)
     |                                  |
     | creates                          | creates
     v                                  v
- Proposal ----templateRef----> ProposalTemplate
- (namespaced)                  (cluster-scoped)
-    |                                  |
-    | spec.tools                       | references
-    v                                  v
- Skills Image                       Agent ----> LLMProvider
- + Secrets                      (cluster-scoped)  (cluster-scoped)
+ Proposal ----analysis.agent----> Agent ----> LLMProvider
+ (namespaced)                  (cluster-scoped)  (cluster-scoped)
+    |
+    | spec.tools
+    v
+ Skills Image
+ + Secrets
 ```
 
-Your adapter creates a `Proposal` in your namespace. The Proposal references a `ProposalTemplate` by name (e.g., `remediation`, `advisory`, `assisted`) and provides your domain-specific tools (skills image, secrets). The operator resolves the template, picks the right agent tier, and runs the workflow.
+Your adapter creates a `Proposal` in your namespace. The Proposal defines the workflow shape inline (which steps run and which agent handles each step) and provides your domain-specific tools (skills image, secrets). The operator resolves the agent, picks the right LLM provider, and runs the workflow.
 
-You do not need to know how `LLMProvider`, `Agent`, or `ProposalTemplate` work internally. You reference templates and agents by name string only.
+You do not need to know how `LLMProvider` or `Agent` work internally. You reference agents by name string only.
 
 ## Quick start
 
@@ -53,7 +53,7 @@ subjects:
     namespace: my-product-namespace
 ```
 
-This grants your adapter permission to create and manage Proposals in `my-product-namespace`, and read-only access to ProposalTemplates (to discover available workflow shapes).
+This grants your adapter permission to create and manage Proposals in `my-product-namespace`.
 
 ### 2. Ask the cluster admin to create runtime secrets
 
@@ -87,10 +87,14 @@ spec:
     Describe the problem here. Include as much context as possible:
     what happened, what resources are affected, what namespace,
     any error messages or alert details.
-  templateRef:
-    name: remediation
   targetNamespaces:
     - affected-namespace
+  analysis:
+    agent: smart
+  execution: {}
+  verification:
+    agent: fast
+  maxAttempts: 3
   tools:
     skills:
       - image: registry.redhat.io/my-product/lightspeed-skills:latest
@@ -143,7 +147,7 @@ That's it. The operator picks it up and runs the workflow.
 - **Approved** -- User approved. Execution (or AwaitingSync) begins.
 - **Denied** -- User denied. Terminal.
 - **Executing** -- Agent is applying the remediation.
-- **AwaitingSync** -- Execution was skipped (assisted/advisory templates). User applies changes manually.
+- **AwaitingSync** -- Execution was skipped (assisted/advisory workflow). User applies changes manually.
 - **Verifying** -- Agent is checking whether the remediation worked.
 - **Completed** -- Verification passed. Terminal (success).
 - **Failed** -- A step failed. May retry (up to `maxAttempts`) or escalate.
@@ -243,6 +247,7 @@ spec:
 
   # Analysis gets remediation + compliance skills
   analysis:
+    agent: smart
     tools:
       skills:
         - image: registry.redhat.io/acs/lightspeed-skills:latest
@@ -257,6 +262,7 @@ spec:
 
   # Verification gets only compliance skills
   verification:
+    agent: fast
     tools:
       skills:
         - image: registry.redhat.io/acs/lightspeed-skills:latest
@@ -265,65 +271,43 @@ spec:
 
 Note that per-step `tools` replaces the shared `spec.tools` entirely for that step. In the example above, `requiredSecrets` from `spec.tools` are **not** automatically inherited by steps that define their own tools. If a step needs the secret, include it in the step's tools block.
 
-## Workflow templates
+## Workflow shapes
 
-The cluster admin creates ProposalTemplates. You reference them by name. Common templates:
+The workflow shape is defined directly on the Proposal by including or omitting steps. Analysis is always required. Common patterns:
 
-| Template | Steps | Use when |
-|----------|-------|----------|
-| `remediation` | analyze, execute, verify | Agent should fix the issue directly. |
-| `assisted` | analyze, verify (no execute) | Agent analyzes and proposes a fix, user applies it (e.g., via GitOps), then agent verifies. |
-| `advisory` | analyze only | Agent investigates and reports findings. No execution. |
+| Pattern | Steps | Use when |
+|---------|-------|----------|
+| Remediation | `analysis` + `execution` + `verification` | Agent should fix the issue directly. |
+| Assisted | `analysis` + `verification` (no `execution`) | Agent analyzes and proposes a fix, user applies it (e.g., via GitOps), then agent verifies. |
+| Advisory | `analysis` only | Agent investigates and reports findings. No execution. |
 
-To discover available templates:
+### Examples
 
-```bash
-oc get proposaltemplates
-```
-
-### Overriding the template's agent
-
-When using `templateRef`, you can override the agent for individual steps without creating a new template:
-
-```yaml
-spec:
-  templateRef:
-    name: remediation        # template defaults: smart / default / fast
-  analysis:
-    agent: fast              # override just analysis to use fast
-  tools:
-    skills:
-      - image: registry.redhat.io/my-product/lightspeed-skills:latest
-```
-
-This uses the `remediation` template's workflow shape (analyze → execute → verify) but swaps the analysis agent from `smart` to `fast`. Execution and verification keep the template defaults.
-
-### Inline workflows (no template)
-
-For one-off investigations or when no existing template fits, define the workflow shape directly on the Proposal. You must specify at least `analysis.agent`:
-
-```yaml
-spec:
-  request: "Investigate why pod foo is crashlooping"
-  targetNamespaces:
-    - production
-  tools:
-    skills:
-      - image: registry.redhat.io/my-product/lightspeed-skills:latest
-  analysis:
-    agent: smart
-```
-
-Omit `execution` and `verification` to skip them (advisory pattern). Include them to run the full pipeline:
-
+**Remediation** (full pipeline):
 ```yaml
 spec:
   analysis:
     agent: smart
-  execution:
-    agent: default
+  execution: {}
   verification:
     agent: fast
+  maxAttempts: 3
+```
+
+**Assisted** (analysis + verification, user applies):
+```yaml
+spec:
+  analysis:
+    agent: smart
+  verification:
+    agent: fast
+```
+
+**Advisory** (analysis only):
+```yaml
+spec:
+  analysis:
+    agent: smart
 ```
 
 To discover available agent tiers:
@@ -403,10 +387,12 @@ func handleViolation(w http.ResponseWriter, r *http.Request) {
         },
         Spec: v1alpha1.ProposalSpec{
             Request: formatViolation(violation),
-            TemplateRef: &v1alpha1.ProposalTemplateReference{
-                Name: "remediation",
-            },
             TargetNamespaces: []string{violation.Namespace},
+            Analysis: &v1alpha1.ProposalStep{
+                Agent: "smart",
+            },
+            Execution:    &v1alpha1.ProposalStep{},
+            Verification: &v1alpha1.ProposalStep{Agent: "fast"},
             Tools: v1alpha1.ToolsSpec{
                 Skills: []v1alpha1.SkillsSource{{
                     Image: "registry.redhat.io/acs/lightspeed-skills:latest",
@@ -467,7 +453,7 @@ stackrox/                          openshift-cluster-version/
 
 ## What your adapter does NOT do
 
-- **Pick agent tiers.** The ProposalTemplate controls which agent handles each step. Your adapter just references a template by name.
+- **Pick agent tiers.** Your adapter selects agent names (e.g., `smart`, `fast`, `default`) per step. The cluster admin configures what those agents mean (LLM provider, model, settings).
 - **Manage LLM credentials.** The cluster admin configures LLMProvider and Agent CRs. Your adapter never touches these.
 - **Create RBAC for execution.** The analysis agent requests RBAC permissions as part of its output. The operator's policy engine validates and creates the actual Kubernetes RBAC resources.
 - **Manage the sandbox pod.** The operator creates and manages sandbox pods for each step.
@@ -482,10 +468,6 @@ type ProposalSpec struct {
     // Immutable after creation. Max 32768 chars.
     Request string
 
-    // References a cluster-scoped ProposalTemplate by name.
-    // Immutable. Mutually exclusive with inline analysis.agent.
-    TemplateRef *ProposalTemplateReference
-
     // Namespace(s) this proposal operates on.
     // Immutable. Used for RBAC scoping. Max 50 namespaces.
     TargetNamespaces []string
@@ -494,16 +476,16 @@ type ProposalSpec struct {
     // Immutable. Per-step tools replace this for individual steps.
     Tools ToolsSpec
 
-    // Per-step overrides. When using templateRef, .agent overrides the
-    // template's agent for that step, and .tools replaces spec.tools.
-    // When inline (no templateRef), .agent selects the agent tier directly.
+    // Per-step configuration. Analysis is required.
+    // Omit execution to skip it (advisory/assisted).
+    // Omit verification to skip it.
     // All immutable after creation.
-    Analysis     *ProposalStep
+    Analysis     *ProposalStep  // required
     Execution    *ProposalStep
     Verification *ProposalStep
 
     // Mutable fields — the designated mutation points.
-    MaxAttempts *int32  // Override retry limit (patched at approval).
+    MaxAttempts *int32  // Retry limit (patched at approval).
     Revision    *int32  // Increment to trigger re-analysis with feedback.
 }
 ```
@@ -512,10 +494,8 @@ type ProposalSpec struct {
 
 ```go
 type ProposalStep struct {
-    // Name of the cluster-scoped Agent to use for this step.
-    // When templateRef is set, overrides the template's agent.
-    // When inline (no templateRef), selects the agent tier directly.
-    // Must be one of: default, smart, fast.
+    // Name of the cluster-scoped Agent CR to use for this step.
+    // Defaults to "default" when omitted.
     Agent string
 
     // Per-step tools that replace spec.tools for this step.

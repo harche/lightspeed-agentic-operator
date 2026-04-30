@@ -1,5 +1,5 @@
 # Agents — cluster-scoped tiers that pair an LLM provider with runtime settings.
-# Referenced by name from ProposalTemplate steps.
+# Referenced by name from Proposal steps.
 #
 # Agents define infrastructure tiers (smart vs fast). Domain-specific tooling
 # (skills images, required secrets) is specified on Proposals via spec.tools.
@@ -35,7 +35,7 @@ spec:
     reasoningEffort: "low"
 ---
 # The "default" agent must exist — the operator uses it when a
-# ProposalTemplate step omits the agent field.
+# Proposal step omits the agent field.
 apiVersion: agentic.openshift.io/v1alpha1
 kind: Agent
 metadata:
