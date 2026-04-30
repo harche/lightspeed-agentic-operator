@@ -201,7 +201,7 @@ func newMockSandboxAgent(analysisJSON, executionJSON, verificationJSON string) (
 		ClientFactory: func(_ string) AgentHTTPClientInterface {
 			resp := responses[callCount%len(responses)]
 			callCount++
-			httpClient.response = &agentQueryResponse{Response: json.RawMessage(resp)}
+			httpClient.response = &agentRunResponse{Response: json.RawMessage(resp)}
 			return httpClient
 		},
 		Namespace:        "test-ns",

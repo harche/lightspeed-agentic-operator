@@ -10,21 +10,18 @@ import (
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
-func TestAgentHTTPClient_QuerySuccess(t *testing.T) {
+func TestAgentHTTPClient_RunSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/agent/query" {
+		if r.URL.Path != "/v1/agent/run" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		if r.Method != http.MethodPost {
 			t.Errorf("unexpected method: %s", r.Method)
 		}
 
-		var req agentQueryRequest
+		var req agentRunRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("failed to decode request: %v", err)
-		}
-		if req.Phase != "analysis" {
-			t.Errorf("expected phase='analysis', got %q", req.Phase)
 		}
 		if req.Query != "check health" {
 			t.Errorf("expected query='check health', got %q", req.Query)
@@ -39,7 +36,7 @@ func TestAgentHTTPClient_QuerySuccess(t *testing.T) {
 	defer server.Close()
 
 	client := NewAgentHTTPClient(server.URL)
-	resp, err := client.Query(context.Background(), "analysis", "You are an SRE agent", "check health", nil, nil)
+	resp, err := client.Run(context.Background(), "You are an SRE agent", "check health", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,7 +45,7 @@ func TestAgentHTTPClient_QuerySuccess(t *testing.T) {
 	}
 }
 
-func TestAgentHTTPClient_QueryHTTPError(t *testing.T) {
+func TestAgentHTTPClient_RunHTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("internal error"))
@@ -56,23 +53,23 @@ func TestAgentHTTPClient_QueryHTTPError(t *testing.T) {
 	defer server.Close()
 
 	client := NewAgentHTTPClient(server.URL)
-	_, err := client.Query(context.Background(), "execution", "", "test", nil, nil)
+	_, err := client.Run(context.Background(), "", "test", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
 	}
 }
 
-func TestAgentHTTPClient_QueryConnectionError(t *testing.T) {
+func TestAgentHTTPClient_RunConnectionError(t *testing.T) {
 	client := NewAgentHTTPClient("http://127.0.0.1:1")
-	_, err := client.Query(context.Background(), "verification", "", "test", nil, nil)
+	_, err := client.Run(context.Background(), "", "test", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for connection failure")
 	}
 }
 
-func TestAgentHTTPClient_QueryWithExecutionResult(t *testing.T) {
+func TestAgentHTTPClient_RunWithExecutionResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req agentQueryRequest
+		var req agentRunRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("failed to decode request: %v", err)
 		}
@@ -117,20 +114,20 @@ func TestAgentHTTPClient_QueryWithExecutionResult(t *testing.T) {
 			},
 		},
 	}
-	_, err := client.Query(context.Background(), "verification", "", "test", nil, agentCtx)
+	_, err := client.Run(context.Background(), "", "test", nil, agentCtx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestAgentHTTPClient_QueryWithoutExecutionResult(t *testing.T) {
+func TestAgentHTTPClient_RunWithoutExecutionResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req agentQueryRequest
+		var req agentRunRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("failed to decode request: %v", err)
 		}
 		if req.Context != nil && req.Context.ExecutionResult != nil {
-			t.Error("executionResult should not be present for analysis phase")
+			t.Error("executionResult should not be present")
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -143,15 +140,15 @@ func TestAgentHTTPClient_QueryWithoutExecutionResult(t *testing.T) {
 		TargetNamespaces: []string{"production"},
 		Attempt:          1,
 	}
-	_, err := client.Query(context.Background(), "analysis", "", "test", nil, agentCtx)
+	_, err := client.Run(context.Background(), "", "test", nil, agentCtx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestAgentHTTPClient_QueryWithContext(t *testing.T) {
+func TestAgentHTTPClient_RunWithContext(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req agentQueryRequest
+		var req agentRunRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("failed to decode request: %v", err)
 		}
@@ -182,7 +179,7 @@ func TestAgentHTTPClient_QueryWithContext(t *testing.T) {
 		Attempt:          2,
 		PreviousAttempts: []agentPreviousAttempt{{Attempt: 1, FailureReason: "timeout"}},
 	}
-	_, err := client.Query(context.Background(), "analysis", "", "test", nil, agentCtx)
+	_, err := client.Run(context.Background(), "", "test", nil, agentCtx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

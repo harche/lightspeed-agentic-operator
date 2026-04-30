@@ -193,7 +193,7 @@ func (s *SandboxAgentCaller) callWithSandbox(
 	}
 
 	client := s.ClientFactory(agentURL)
-	resp, err := client.Query(ctx, phase, "", query, schema, agentCtx)
+	resp, err := client.Run(ctx, "", query, schema, agentCtx)
 	if err != nil {
 		return nil, err
 	}
