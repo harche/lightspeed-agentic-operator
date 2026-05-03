@@ -92,6 +92,12 @@ func (r *ProposalReconciler) handleRevision(
 	revision := *proposal.Spec.Revision
 	log.Info("handling revision", "revision", revision)
 
+	analyzed := meta.FindStatusCondition(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionAnalyzed)
+	if analyzed != nil && analyzed.Status == metav1.ConditionUnknown {
+		log.Info("revision already in progress, waiting")
+		return ctrl.Result{}, nil
+	}
+
 	base := proposal.DeepCopy()
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
