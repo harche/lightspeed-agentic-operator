@@ -1,8 +1,10 @@
-# Agents — cluster-scoped tiers that pair an LLM provider with runtime settings.
-# Referenced by name from Proposal steps.
+# Agents — cluster-scoped tiers that pair an LLM provider with a model and
+# runtime settings. Referenced by name from Proposal steps.
 #
-# Agents define infrastructure tiers (smart vs fast). Domain-specific tooling
-# (skills images, required secrets) is specified on Proposals via spec.tools.
+# Agents define infrastructure tiers (smart vs fast). The model is specified
+# here, so multiple agents can share one LLMProvider with different models.
+# Domain-specific tooling (skills images, required secrets) is specified on
+# Proposals via spec.tools.
 ---
 apiVersion: agentic.openshift.io/v1alpha1
 kind: Agent
@@ -10,14 +12,13 @@ metadata:
   name: smart
 spec:
   llmProvider:
-    name: smart
+    name: vertex-ai
+  model: claude-opus-4-6
   timeouts:
     analysisSeconds: 300
     executionSeconds: 600
     verificationSeconds: 300
   maxTurns: 200
-  providerSettings:
-    reasoningEffort: "high"
 ---
 apiVersion: agentic.openshift.io/v1alpha1
 kind: Agent
@@ -25,14 +26,13 @@ metadata:
   name: fast
 spec:
   llmProvider:
-    name: fast
+    name: vertex-ai
+  model: claude-haiku-4-5
   timeouts:
     analysisSeconds: 120
     executionSeconds: 300
     verificationSeconds: 120
   maxTurns: 100
-  providerSettings:
-    reasoningEffort: "low"
 ---
 # The "default" agent must exist — the operator uses it when a
 # Proposal step omits the agent field.
@@ -42,5 +42,6 @@ metadata:
   name: default
 spec:
   llmProvider:
-    name: smart
+    name: vertex-ai
+  model: claude-opus-4-6
   maxTurns: 200

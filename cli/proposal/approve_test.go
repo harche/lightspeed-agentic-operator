@@ -11,18 +11,233 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestApprove_Success(t *testing.T) {
+func TestApprove_AnalysisStage(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseProposed)
-	p.Status.Steps.Analysis = agenticv1alpha1.AnalysisStepStatus{
-		Options: []agenticv1alpha1.RemediationOption{
-			{
-				Title:    "Option 1",
-				Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "test", Confidence: agenticv1alpha1.ConfidenceLevelHigh, RootCause: "test"},
-				Proposal:  agenticv1alpha1.ProposalResult{Description: "test", Risk: agenticv1alpha1.RiskLevelLow, Actions: []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "test"}}},
+	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhasePending)
+	approval := &agenticv1alpha1.ProposalApproval{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+	}
+
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(p, approval).WithStatusSubresource(p).Build()
+
+	o := &ApproveOptions{
+		client:    fc,
+		name:      "fix-crash",
+		namespace: "default",
+		stage:     "analysis",
+		IOStreams:  streams,
+	}
+	if err := o.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "approved") {
+		t.Errorf("expected 'approved' in output, got: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "analysis") {
+		t.Errorf("expected 'analysis' in output, got: %s", out.String())
+	}
+
+	// Verify the ProposalApproval was patched
+	var updated agenticv1alpha1.ProposalApproval
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: "fix-crash", Namespace: "default"}, &updated); err != nil {
+		t.Fatalf("Get ProposalApproval: %v", err)
+	}
+	if len(updated.Spec.Stages) != 1 {
+		t.Fatalf("expected 1 stage, got %d", len(updated.Spec.Stages))
+	}
+	if updated.Spec.Stages[0].Type != agenticv1alpha1.ApprovalStageAnalysis {
+		t.Errorf("expected Analysis stage, got %s", updated.Spec.Stages[0].Type)
+	}
+	if updated.Spec.Stages[0].Denied {
+		t.Error("expected stage to not be denied")
+	}
+}
+
+func TestApprove_ExecutionWithOption(t *testing.T) {
+	streams, out, _ := fakeStreams()
+	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseAnalyzing)
+	approval := &agenticv1alpha1.ProposalApproval{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+	}
+
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(p, approval).WithStatusSubresource(p).Build()
+
+	o := &ApproveOptions{
+		client:    fc,
+		name:      "fix-crash",
+		namespace: "default",
+		stage:     "execution",
+		option:    1,
+		IOStreams:  streams,
+	}
+	if err := o.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "execution") {
+		t.Errorf("expected 'execution' in output, got: %s", out.String())
+	}
+
+	var updated agenticv1alpha1.ProposalApproval
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: "fix-crash", Namespace: "default"}, &updated); err != nil {
+		t.Fatalf("Get ProposalApproval: %v", err)
+	}
+	if len(updated.Spec.Stages) != 1 {
+		t.Fatalf("expected 1 stage, got %d", len(updated.Spec.Stages))
+	}
+	if updated.Spec.Stages[0].Type != agenticv1alpha1.ApprovalStageExecution {
+		t.Errorf("expected Execution stage, got %s", updated.Spec.Stages[0].Type)
+	}
+	if updated.Spec.Stages[0].Execution == nil {
+		t.Fatal("expected execution approval to be set")
+	}
+	if updated.Spec.Stages[0].Execution.Option == nil || *updated.Spec.Stages[0].Execution.Option != 1 {
+		t.Errorf("expected option=1, got %v", updated.Spec.Stages[0].Execution.Option)
+	}
+}
+
+func TestApprove_ExecutionWithAgent(t *testing.T) {
+	streams, _, _ := fakeStreams()
+	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhasePending)
+	approval := &agenticv1alpha1.ProposalApproval{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+	}
+
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(p, approval).WithStatusSubresource(p).Build()
+
+	o := &ApproveOptions{
+		client:    fc,
+		name:      "fix-crash",
+		namespace: "default",
+		stage:     "execution",
+		agent:     "fast",
+		IOStreams:  streams,
+	}
+	if err := o.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	var updated agenticv1alpha1.ProposalApproval
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: "fix-crash", Namespace: "default"}, &updated); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if updated.Spec.Stages[0].Execution.Agent != "fast" {
+		t.Errorf("expected agent=fast, got %s", updated.Spec.Stages[0].Execution.Agent)
+	}
+}
+
+func TestApprove_AllStages(t *testing.T) {
+	streams, out, _ := fakeStreams()
+	p := testProposal("fix-crash", "default")
+	p.Spec.Execution = &agenticv1alpha1.ProposalStep{Agent: "default"}
+	p.Spec.Verification = &agenticv1alpha1.ProposalStep{Agent: "default"}
+	approval := &agenticv1alpha1.ProposalApproval{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+	}
+
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(p, approval).WithStatusSubresource(p).Build()
+
+	o := &ApproveOptions{
+		client:    fc,
+		name:      "fix-crash",
+		namespace: "default",
+		all:       true,
+		IOStreams:  streams,
+	}
+	if err := o.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "analysis approved") {
+		t.Error("expected analysis approval in output")
+	}
+	if !strings.Contains(output, "execution approved") {
+		t.Error("expected execution approval in output")
+	}
+	if !strings.Contains(output, "verification approved") {
+		t.Error("expected verification approval in output")
+	}
+
+	var updated agenticv1alpha1.ProposalApproval
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: "fix-crash", Namespace: "default"}, &updated); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(updated.Spec.Stages) != 3 {
+		t.Errorf("expected 3 stages, got %d", len(updated.Spec.Stages))
+	}
+}
+
+func TestApprove_AlreadyApproved(t *testing.T) {
+	streams, _, _ := fakeStreams()
+	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhasePending)
+	approval := &agenticv1alpha1.ProposalApproval{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+		Spec: agenticv1alpha1.ProposalApprovalSpec{
+			Stages: []agenticv1alpha1.ApprovalStage{
+				{Type: agenticv1alpha1.ApprovalStageAnalysis, Analysis: &agenticv1alpha1.AnalysisApproval{}},
 			},
 		},
 	}
+
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(p, approval).WithStatusSubresource(p).Build()
+
+	o := &ApproveOptions{
+		client:    fc,
+		name:      "fix-crash",
+		namespace: "default",
+		stage:     "analysis",
+		IOStreams:  streams,
+	}
+	err := o.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error for already approved stage")
+	}
+	if !strings.Contains(err.Error(), "already approved") {
+		t.Errorf("error should mention 'already approved', got: %v", err)
+	}
+}
+
+func TestApprove_AlreadyDenied(t *testing.T) {
+	streams, _, _ := fakeStreams()
+	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhasePending)
+	approval := &agenticv1alpha1.ProposalApproval{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+		Spec: agenticv1alpha1.ProposalApprovalSpec{
+			Stages: []agenticv1alpha1.ApprovalStage{
+				{Type: agenticv1alpha1.ApprovalStageAnalysis, Denied: true, Analysis: &agenticv1alpha1.AnalysisApproval{}},
+			},
+		},
+	}
+
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(p, approval).WithStatusSubresource(p).Build()
+
+	o := &ApproveOptions{
+		client:    fc,
+		name:      "fix-crash",
+		namespace: "default",
+		stage:     "analysis",
+		IOStreams:  streams,
+	}
+	err := o.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error for already denied stage")
+	}
+	if !strings.Contains(err.Error(), "already denied") {
+		t.Errorf("error should mention 'already denied', got: %v", err)
+	}
+}
+
+func TestApprove_CreatesApprovalIfMissing(t *testing.T) {
+	streams, out, _ := fakeStreams()
+	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhasePending)
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
 		WithObjects(p).WithStatusSubresource(p).Build()
@@ -31,7 +246,7 @@ func TestApprove_Success(t *testing.T) {
 		client:    fc,
 		name:      "fix-crash",
 		namespace: "default",
-		option:    0,
+		stage:     "analysis",
 		IOStreams:  streams,
 	}
 	if err := o.Run(context.Background()); err != nil {
@@ -42,118 +257,13 @@ func TestApprove_Success(t *testing.T) {
 		t.Errorf("expected 'approved' in output, got: %s", out.String())
 	}
 
-	// Verify the status was patched
-	var updated agenticv1alpha1.Proposal
-	if err := fc.Get(context.Background(), types.NamespacedName{Name: "fix-crash", Namespace: "default"}, &updated); err != nil {
-		t.Fatalf("Get: %v", err)
+	// Verify ProposalApproval was created
+	var approval agenticv1alpha1.ProposalApproval
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: "fix-crash", Namespace: "default"}, &approval); err != nil {
+		t.Fatalf("ProposalApproval should have been created: %v", err)
 	}
-	if agenticv1alpha1.DerivePhase(updated.Status.Conditions) != agenticv1alpha1.ProposalPhaseApproved {
-		t.Errorf("expected Approved phase, got %s", agenticv1alpha1.DerivePhase(updated.Status.Conditions))
-	}
-	if updated.Status.Steps.Analysis.SelectedOption == nil {
-		t.Fatal("expected SelectedOption to be set")
-	}
-	if *updated.Status.Steps.Analysis.SelectedOption != 0 {
-		t.Errorf("expected SelectedOption=0, got %d", *updated.Status.Steps.Analysis.SelectedOption)
-	}
-}
-
-func TestApprove_CustomOption(t *testing.T) {
-	streams, _, _ := fakeStreams()
-	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseProposed)
-	p.Status.Steps.Analysis = agenticv1alpha1.AnalysisStepStatus{
-		Options: []agenticv1alpha1.RemediationOption{
-			{Title: "Option 1", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "a", Confidence: agenticv1alpha1.ConfidenceLevelHigh, RootCause: "a"}, Proposal: agenticv1alpha1.ProposalResult{Description: "a", Risk: agenticv1alpha1.RiskLevelLow, Actions: []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "a"}}}},
-			{Title: "Option 2", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "b", Confidence: agenticv1alpha1.ConfidenceLevelMedium, RootCause: "b"}, Proposal: agenticv1alpha1.ProposalResult{Description: "b", Risk: agenticv1alpha1.RiskLevelMedium, Actions: []agenticv1alpha1.ProposedAction{{Type: "scale", Description: "b"}}}},
-		},
-	}
-
-	fc := fake.NewClientBuilder().WithScheme(testScheme()).
-		WithObjects(p).WithStatusSubresource(p).Build()
-
-	o := &ApproveOptions{
-		client:    fc,
-		name:      "fix-crash",
-		namespace: "default",
-		option:    1,
-		IOStreams:  streams,
-	}
-	if err := o.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	var updated agenticv1alpha1.Proposal
-	if err := fc.Get(context.Background(), types.NamespacedName{Name: "fix-crash", Namespace: "default"}, &updated); err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if updated.Status.Steps.Analysis.SelectedOption == nil || *updated.Status.Steps.Analysis.SelectedOption != 1 {
-		t.Errorf("expected SelectedOption=1, got %v", updated.Status.Steps.Analysis.SelectedOption)
-	}
-}
-
-func TestApprove_WrongPhase(t *testing.T) {
-	phases := []agenticv1alpha1.ProposalPhase{
-		agenticv1alpha1.ProposalPhasePending,
-		agenticv1alpha1.ProposalPhaseAnalyzing,
-		agenticv1alpha1.ProposalPhaseApproved,
-		agenticv1alpha1.ProposalPhaseExecuting,
-		agenticv1alpha1.ProposalPhaseCompleted,
-		agenticv1alpha1.ProposalPhaseFailed,
-		agenticv1alpha1.ProposalPhaseDenied,
-	}
-	for _, phase := range phases {
-		t.Run(string(phase), func(t *testing.T) {
-			streams, _, _ := fakeStreams()
-			p := testProposalWithStatus("fix-crash", "default", phase)
-
-			fc := fake.NewClientBuilder().WithScheme(testScheme()).
-				WithObjects(p).WithStatusSubresource(p).Build()
-
-			o := &ApproveOptions{
-				client:    fc,
-				name:      "fix-crash",
-				namespace: "default",
-				IOStreams:  streams,
-			}
-			err := o.Run(context.Background())
-			if err == nil {
-				t.Fatal("expected error for non-Proposed phase")
-			}
-			if !strings.Contains(err.Error(), "must be Proposed") {
-				t.Errorf("error should mention 'must be Proposed', got: %v", err)
-			}
-		})
-	}
-}
-
-func TestApprove_OptionOutOfRange(t *testing.T) {
-	streams, _, _ := fakeStreams()
-	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseProposed)
-	p.Status.Steps.Analysis = agenticv1alpha1.AnalysisStepStatus{
-		Conditions: []metav1.Condition{
-			{Type: "Analyzed", Status: metav1.ConditionTrue, Reason: "Success", LastTransitionTime: metav1.Now()},
-		},
-		Options: []agenticv1alpha1.RemediationOption{
-			{Title: "Only option", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "a", Confidence: agenticv1alpha1.ConfidenceLevelHigh, RootCause: "a"}, Proposal: agenticv1alpha1.ProposalResult{Description: "a", Risk: agenticv1alpha1.RiskLevelLow, Actions: []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "a"}}}},
-		},
-	}
-
-	fc := fake.NewClientBuilder().WithScheme(testScheme()).
-		WithObjects(p).WithStatusSubresource(p).Build()
-
-	o := &ApproveOptions{
-		client:    fc,
-		name:      "fix-crash",
-		namespace: "default",
-		option:    5,
-		IOStreams:  streams,
-	}
-	err := o.Run(context.Background())
-	if err == nil {
-		t.Fatal("expected error for out-of-range option")
-	}
-	if !strings.Contains(err.Error(), "out of range") {
-		t.Errorf("error should mention 'out of range', got: %v", err)
+	if len(approval.Spec.Stages) != 1 {
+		t.Fatalf("expected 1 stage, got %d", len(approval.Spec.Stages))
 	}
 }
 
@@ -165,6 +275,7 @@ func TestApprove_NotFound(t *testing.T) {
 		client:    fc,
 		name:      "nonexistent",
 		namespace: "default",
+		stage:     "analysis",
 		IOStreams:  streams,
 	}
 	err := o.Run(context.Background())
@@ -174,13 +285,94 @@ func TestApprove_NotFound(t *testing.T) {
 }
 
 func TestApprove_Validate(t *testing.T) {
-	o := &ApproveOptions{option: -1}
-	if err := o.Validate(); err == nil {
-		t.Error("expected error for negative option")
+	tests := []struct {
+		name    string
+		opts    ApproveOptions
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "no stage or all",
+			opts:    ApproveOptions{option: 0},
+			wantErr: true,
+			errMsg:  "--stage is required",
+		},
+		{
+			name:    "valid stage analysis",
+			opts:    ApproveOptions{stage: "analysis"},
+			wantErr: false,
+		},
+		{
+			name:    "valid stage execution",
+			opts:    ApproveOptions{stage: "execution"},
+			wantErr: false,
+		},
+		{
+			name:    "valid stage verification",
+			opts:    ApproveOptions{stage: "verification"},
+			wantErr: false,
+		},
+		{
+			name:    "invalid stage",
+			opts:    ApproveOptions{stage: "invalid"},
+			wantErr: true,
+			errMsg:  "must be analysis, execution, or verification",
+		},
+		{
+			name:    "all flag",
+			opts:    ApproveOptions{all: true},
+			wantErr: false,
+		},
+		{
+			name:    "negative option",
+			opts:    ApproveOptions{stage: "execution", option: -1},
+			wantErr: true,
+			errMsg:  "--option must be >= 0",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.opts.Validate()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if tc.wantErr && tc.errMsg != "" && err != nil {
+				if !strings.Contains(err.Error(), tc.errMsg) {
+					t.Errorf("expected error to contain %q, got: %v", tc.errMsg, err)
+				}
+			}
+		})
+	}
+}
+
+func TestApprove_AllNoPending(t *testing.T) {
+	streams, _, _ := fakeStreams()
+	p := testProposal("fix-crash", "default")
+	// Only analysis step (no execution, no verification)
+	approval := &agenticv1alpha1.ProposalApproval{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+		Spec: agenticv1alpha1.ProposalApprovalSpec{
+			Stages: []agenticv1alpha1.ApprovalStage{
+				{Type: agenticv1alpha1.ApprovalStageAnalysis, Analysis: &agenticv1alpha1.AnalysisApproval{}},
+			},
+		},
 	}
 
-	o = &ApproveOptions{option: 0}
-	if err := o.Validate(); err != nil {
-		t.Errorf("unexpected error for valid option: %v", err)
+	fc := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(p, approval).WithStatusSubresource(p).Build()
+
+	o := &ApproveOptions{
+		client:    fc,
+		name:      "fix-crash",
+		namespace: "default",
+		all:       true,
+		IOStreams:  streams,
+	}
+	err := o.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error when no pending stages")
+	}
+	if !strings.Contains(err.Error(), "no pending stages") {
+		t.Errorf("error should mention 'no pending stages', got: %v", err)
 	}
 }

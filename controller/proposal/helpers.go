@@ -33,19 +33,20 @@ func renderTemplate(name string, data any) string {
 
 const (
 	rbacCleanupFinalizer  = "agentic.openshift.io/execution-rbac-cleanup"
-	defaultMaxAttempts = 3
+	defaultMaxAttempts = 0
 
-	reasonInProgress       = "InProgress"
-	reasonComplete         = "Complete"
-	reasonFailed           = "Failed"
-	reasonSkipped          = "Skipped"
-	reasonPassed           = "Passed"
-	reasonUserApproved     = "UserApproved"
-	reasonWorkflowFailed   = "WorkflowResolutionFailed"
-	reasonAwaitingSync     = "AwaitingSync"
-	defaultSandboxSA       = "lightspeed-agent"
-	reasonRevising         = "Revising"
-	reasonRevisionComplete = "RevisionComplete"
+	reasonInProgress        = "InProgress"
+	reasonComplete          = "Complete"
+	reasonFailed            = "Failed"
+	reasonSkipped           = "Skipped"
+	reasonPassed            = "Passed"
+	reasonWorkflowFailed    = "WorkflowResolutionFailed"
+	reasonPendingApproval   = "PendingApproval"
+	reasonAutoApproved      = "AutoApproved"
+	reasonUserDenied        = "UserDenied"
+	defaultSandboxSA        = "lightspeed-agent"
+	reasonRevising          = "Revising"
+	reasonRevisionComplete  = "RevisionComplete"
 	reasonRetryingExecution = agenticv1alpha1.ReasonRetryingExecution
 	reasonRetriesExhausted  = agenticv1alpha1.ReasonRetriesExhausted
 )
@@ -74,7 +75,7 @@ func (r *ProposalReconciler) failStep(ctx context.Context, log logr.Logger, prop
 	if statusErr := r.statusPatch(ctx, proposal, base); statusErr != nil {
 		log.Error(statusErr, "failed to patch status after step failure")
 	}
-	return ctrl.Result{Requeue: true}, nil
+	return ctrl.Result{}, nil
 }
 
 func (r *ProposalReconciler) statusPatch(ctx context.Context, proposal *agenticv1alpha1.Proposal, base *agenticv1alpha1.Proposal) error {
@@ -115,6 +116,19 @@ func (r *ProposalReconciler) selectedOption(proposal *agenticv1alpha1.Proposal) 
 		return nil
 	}
 	return &analysis.Options[idx]
+}
+
+func pruneToSelectedOption(analysis *agenticv1alpha1.AnalysisStepStatus) {
+	if analysis.SelectedOption == nil || len(analysis.Options) == 0 {
+		return
+	}
+	idx := int(*analysis.SelectedOption)
+	if idx < 0 || idx >= len(analysis.Options) {
+		return
+	}
+	analysis.Options = []agenticv1alpha1.RemediationOption{analysis.Options[idx]}
+	zero := int32(0)
+	analysis.SelectedOption = &zero
 }
 
 func applyAnalysisResult(step *agenticv1alpha1.AnalysisStepStatus, result *AnalysisOutput) {
@@ -228,6 +242,7 @@ type revisionData struct {
 	Revision     int32
 	ProposalName string
 	Namespace    string
+	Feedback     string
 }
 
 func buildRevisionContext(proposal *agenticv1alpha1.Proposal) string {
@@ -235,6 +250,7 @@ func buildRevisionContext(proposal *agenticv1alpha1.Proposal) string {
 		Revision:     *proposal.Spec.Revision,
 		ProposalName: proposal.Name,
 		Namespace:    proposal.Namespace,
+		Feedback:     proposal.Spec.RevisionFeedback,
 	}
 	return renderTemplate("revision_context.tmpl", data)
 }

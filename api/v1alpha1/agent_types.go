@@ -55,6 +55,14 @@ type AgentSpec struct {
 	// +required
 	LLMProvider LLMProviderReference `json:"llmProvider,omitzero"`
 
+	// model is the LLM model identifier as recognized by the provider
+	// (e.g., "claude-opus-4-6", "claude-haiku-4-5", "gpt-4o").
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[a-zA-Z0-9][a-zA-Z0-9._\\\\-/:@]*$')",message="model must start with an alphanumeric character and contain only alphanumerics, dots, hyphens, underscores, slashes, colons, and at-signs"
+	Model string `json:"model,omitempty"`
+
 	// timeouts configures per-step and per-turn timeout limits.
 	// +optional
 	Timeouts AgentTimeouts `json:"timeouts,omitzero"`
@@ -65,19 +73,13 @@ type AgentSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=500
 	MaxTurns int32 `json:"maxTurns,omitempty,omitzero"`
-
-	// providerSettings is a freeform key-value map passed through to the
-	// LLM SDK. Use this for provider-specific tuning parameters such as
-	// temperature, reasoningEffort, topP, etc. The operator does not
-	// validate these keys — they are forwarded as-is to the SDK.
-	// +optional
-	ProviderSettings map[string]string `json:"providerSettings,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="LLM",type=string,JSONPath=`.spec.llmProvider.name`
+// +kubebuilder:printcolumn:name="Model",type=string,JSONPath=`.spec.model`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
@@ -97,13 +99,12 @@ type AgentSpec struct {
 //	  name: smart
 //	spec:
 //	  llmProvider:
-//	    name: vertex-opus
+//	    name: vertex-ai
+//	  model: claude-opus-4-6
 //	  timeouts:
 //	    analysisSeconds: 300
 //	    executionSeconds: 600
 //	  maxTurns: 200
-//	  providerSettings:
-//	    reasoningEffort: "high"
 //
 // Example — a fast, cost-efficient agent tier:
 //
@@ -113,13 +114,12 @@ type AgentSpec struct {
 //	  name: fast
 //	spec:
 //	  llmProvider:
-//	    name: vertex-haiku
+//	    name: vertex-ai
+//	  model: claude-haiku-4-5
 //	  timeouts:
 //	    analysisSeconds: 120
 //	    executionSeconds: 300
 //	  maxTurns: 100
-//	  providerSettings:
-//	    reasoningEffort: "low"
 type Agent struct {
 	metav1.TypeMeta `json:",inline"`
 

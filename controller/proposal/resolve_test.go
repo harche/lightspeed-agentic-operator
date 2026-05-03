@@ -29,7 +29,7 @@ func TestResolveProposal_Inline_AnalysisOnly(t *testing.T) {
 	smart := &agenticv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "smart"}, Spec: agenticv1alpha1.AgentSpec{LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "opus"}}}
 
 	fc := buildFakeClient(smart, testLLM("opus"), proposal)
-	resolved, err := resolveProposal(context.Background(), fc, proposal)
+	resolved, err := resolveProposal(context.Background(), fc, proposal, nil)
 	if err != nil {
 		t.Fatalf("resolveProposal: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestResolveProposal_Inline_WithExecAndVerify(t *testing.T) {
 	fast := &agenticv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "fast"}, Spec: agenticv1alpha1.AgentSpec{LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "haiku"}}}
 
 	fc := buildFakeClient(smart, def, fast, testLLM("opus"), testLLM("haiku"), proposal)
-	resolved, err := resolveProposal(context.Background(), fc, proposal)
+	resolved, err := resolveProposal(context.Background(), fc, proposal, nil)
 	if err != nil {
 		t.Fatalf("resolveProposal: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestResolveProposal_Inline_DefaultAgent(t *testing.T) {
 	}
 
 	fc := buildFakeClient(testDefaultAgent(), testLLM("smart"), proposal)
-	resolved, err := resolveProposal(context.Background(), fc, proposal)
+	resolved, err := resolveProposal(context.Background(), fc, proposal, nil)
 	if err != nil {
 		t.Fatalf("resolveProposal: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestResolveProposal_PerStepTools(t *testing.T) {
 	}
 
 	fc := buildFakeClient(testDefaultAgent(), testLLM("smart"), proposal)
-	resolved, err := resolveProposal(context.Background(), fc, proposal)
+	resolved, err := resolveProposal(context.Background(), fc, proposal, nil)
 	if err != nil {
 		t.Fatalf("resolveProposal: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestResolveProposal_MissingAgent(t *testing.T) {
 	}
 
 	fc := buildFakeClient(proposal)
-	_, err := resolveProposal(context.Background(), fc, proposal)
+	_, err := resolveProposal(context.Background(), fc, proposal, nil)
 	if err == nil {
 		t.Fatal("expected error for missing agent")
 	}
@@ -174,7 +174,7 @@ func TestResolveProposal_AgentCaching(t *testing.T) {
 	}
 
 	fc := buildFakeClient(testDefaultAgent(), testLLM("smart"), proposal)
-	resolved, err := resolveProposal(context.Background(), fc, proposal)
+	resolved, err := resolveProposal(context.Background(), fc, proposal, nil)
 	if err != nil {
 		t.Fatalf("resolveProposal: %v", err)
 	}

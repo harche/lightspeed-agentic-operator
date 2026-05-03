@@ -34,8 +34,6 @@ func TestWatch_TerminalPhaseExits(t *testing.T) {
 	nonTerminal := []agenticv1alpha1.ProposalPhase{
 		agenticv1alpha1.ProposalPhasePending,
 		agenticv1alpha1.ProposalPhaseAnalyzing,
-		agenticv1alpha1.ProposalPhaseProposed,
-		agenticv1alpha1.ProposalPhaseApproved,
 		agenticv1alpha1.ProposalPhaseExecuting,
 		agenticv1alpha1.ProposalPhaseVerifying,
 	}

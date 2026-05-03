@@ -10,6 +10,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
@@ -28,6 +29,9 @@ type ProposalReconciler struct {
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals/finalizers,verbs=update
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=agents,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=llmproviders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposalapprovals,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposalapprovals/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=agentic.openshift.io,resources=approvalpolicies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;create;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;create;delete
 
@@ -78,31 +82,22 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if err := r.Patch(ctx, &proposal, client.MergeFrom(original)); err != nil {
 				return ctrl.Result{}, fmt.Errorf("add finalizer: %w", err)
 			}
-			// Re-read after metadata patch to get consistent state
 			if err := r.Get(ctx, req.NamespacedName, &proposal); err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
 		}
 	}
 
-	log.Info("reconciling", "phase", phase, "attempts", *proposal.Status.Attempts)
-
-	// --- Phase routing ---
+	// --- Terminal phases ---
 	switch phase {
 	case agenticv1alpha1.ProposalPhaseCompleted,
-		agenticv1alpha1.ProposalPhaseDenied,
-		agenticv1alpha1.ProposalPhaseAwaitingSync:
+		agenticv1alpha1.ProposalPhaseDenied:
 		if hasSandboxClaims(&proposal) {
 			if err := r.Agent.ReleaseSandboxes(ctx, &proposal); err != nil {
 				log.Error(err, "sandbox cleanup failed at terminal phase")
 			}
 		}
 		return ctrl.Result{}, nil
-
-	case agenticv1alpha1.ProposalPhaseProposed:
-		if !needsRevision(&proposal) {
-			return ctrl.Result{}, nil
-		}
 
 	case agenticv1alpha1.ProposalPhaseFailed:
 		return r.handleFailed(ctx, log, &proposal)
@@ -111,7 +106,20 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.handleEscalated(ctx, log, &proposal)
 	}
 
-	resolved, err := resolveProposal(ctx, r.Client, &proposal)
+	// --- Ensure ProposalApproval exists ---
+	policy, err := getApprovalPolicy(ctx, r.Client)
+	if err != nil {
+		log.Error(err, "failed to get ApprovalPolicy")
+	}
+
+	approval, err := ensureProposalApproval(ctx, r.Client, &proposal, policy)
+	if err != nil {
+		log.Error(err, "failed to ensure ProposalApproval")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// --- Resolve agents/LLMs ---
+	resolved, err := resolveProposal(ctx, r.Client, &proposal, approval)
 	if err != nil {
 		log.Error(err, "workflow resolution failed")
 		base := proposal.DeepCopy()
@@ -124,21 +132,27 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if statusErr := r.statusPatch(ctx, &proposal, base); statusErr != nil {
 			log.Error(statusErr, "failed to patch status after workflow resolution failure")
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
+	log.Info("reconciling", "phase", phase, "attempts", *proposal.Status.Attempts)
+
+	// --- Phase routing ---
 	switch phase {
 	case agenticv1alpha1.ProposalPhasePending, agenticv1alpha1.ProposalPhaseAnalyzing:
-		return r.handlePending(ctx, log, &proposal, resolved)
+		if needsRevision(&proposal) {
+			return r.handleRevision(ctx, log, &proposal, resolved)
+		}
+		return r.handleAnalysis(ctx, log, &proposal, resolved, approval, policy)
 
-	case agenticv1alpha1.ProposalPhaseProposed:
-		return r.handleRevision(ctx, log, &proposal, resolved)
-
-	case agenticv1alpha1.ProposalPhaseApproved, agenticv1alpha1.ProposalPhaseExecuting:
-		return r.handleApproved(ctx, log, &proposal, resolved)
+	case agenticv1alpha1.ProposalPhaseProposed, agenticv1alpha1.ProposalPhaseExecuting:
+		if needsRevision(&proposal) {
+			return r.handleRevision(ctx, log, &proposal, resolved)
+		}
+		return r.handleExecution(ctx, log, &proposal, resolved, approval, policy)
 
 	case agenticv1alpha1.ProposalPhaseVerifying:
-		return r.handleVerifying(ctx, log, &proposal, resolved)
+		return r.handleVerification(ctx, log, &proposal, resolved, approval, policy)
 
 	default:
 		log.Info("unhandled phase, no-op", "phase", phase)
@@ -150,6 +164,25 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 func (r *ProposalReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&agenticv1alpha1.Proposal{}).
+		Owns(&agenticv1alpha1.ProposalApproval{}).
+		Watches(&agenticv1alpha1.ApprovalPolicy{}, handler.EnqueueRequestsFromMapFunc(
+			func(ctx context.Context, obj client.Object) []ctrl.Request {
+				var proposals agenticv1alpha1.ProposalList
+				if err := r.List(ctx, &proposals); err != nil {
+					return nil
+				}
+				var reqs []ctrl.Request
+				for _, p := range proposals.Items {
+					phase := agenticv1alpha1.DerivePhase(p.Status.Conditions)
+					if !isTerminal(phase) {
+						reqs = append(reqs, ctrl.Request{
+							NamespacedName: client.ObjectKeyFromObject(&p),
+						})
+					}
+				}
+				return reqs
+			},
+		)).
 		Named("proposal").
 		Complete(r)
 }

@@ -1,7 +1,12 @@
 This is revision {{.Revision}} of the analysis for proposal "{{.ProposalName}}" in namespace "{{.Namespace}}".
+{{- if .Feedback}}
 
-The previous analysis options and the user's revision feedback are available in the proposal's
-status. Review the current options and the user's feedback, then produce updated remediation
+## User Feedback
+
+{{.Feedback}}
+{{- end}}
+
+Review the current analysis options and the user's feedback, then produce updated remediation
 options that address the user's request.
 If you disagree with the user's suggestion, return multiple options: one following their request
 and one with your recommendation, with clear explanations and appropriate risk/confidence levels.

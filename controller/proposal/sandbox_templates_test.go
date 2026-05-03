@@ -8,9 +8,9 @@ import (
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
-func testLLMProvider(providerType agenticv1alpha1.LLMProviderType, model string) *agenticv1alpha1.LLMProvider {
+func testLLMProvider(providerType agenticv1alpha1.LLMProviderType) *agenticv1alpha1.LLMProvider {
 	creds := agenticv1alpha1.NamespacedSecretReference{Name: "my-llm-secret", Namespace: "lightspeed"}
-	spec := agenticv1alpha1.LLMProviderSpec{Type: providerType, Model: model}
+	spec := agenticv1alpha1.LLMProviderSpec{Type: providerType}
 	switch providerType {
 	case agenticv1alpha1.LLMProviderAnthropic:
 		spec.Anthropic = &agenticv1alpha1.AnthropicConfig{CredentialsSecret: creds}
@@ -26,8 +26,8 @@ func testLLMProvider(providerType agenticv1alpha1.LLMProviderType, model string)
 	return &agenticv1alpha1.LLMProvider{Spec: spec}
 }
 
-func testLLMProviderWithURL(providerType agenticv1alpha1.LLMProviderType, model, url string) *agenticv1alpha1.LLMProvider {
-	p := testLLMProvider(providerType, model)
+func testLLMProviderWithURL(providerType agenticv1alpha1.LLMProviderType, url string) *agenticv1alpha1.LLMProvider {
+	p := testLLMProvider(providerType)
 	p.Spec.URL = url
 	return p
 }
@@ -54,9 +54,9 @@ func emptyTemplate() *unstructured.Unstructured {
 	}
 }
 
-func mustHash(t *testing.T, llm *agenticv1alpha1.LLMProvider, skills []agenticv1alpha1.SkillsSource, requiredSecrets []agenticv1alpha1.SecretRequirement, phase string) string {
+func mustHash(t *testing.T, llm *agenticv1alpha1.LLMProvider, model string, skills []agenticv1alpha1.SkillsSource, requiredSecrets []agenticv1alpha1.SecretRequirement, phase string) string {
 	t.Helper()
-	h, err := computeTemplateHash(llm, skills, nil, requiredSecrets, phase, "")
+	h, err := computeTemplateHash(llm, model, skills, nil, requiredSecrets, phase, "")
 	if err != nil {
 		t.Fatalf("computeTemplateHash: %v", err)
 	}
@@ -155,11 +155,11 @@ func templateWithSkillsMount() *unstructured.Unstructured {
 // --- computeTemplateHash tests ---
 
 func TestComputeTemplateHash_Deterministic(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex)
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1 := mustHash(t, llm, skills, nil, "analysis")
-	h2 := mustHash(t, llm, skills, nil, "analysis")
+	h1 := mustHash(t, llm, "claude-opus-4-6", skills, nil, "analysis")
+	h2 := mustHash(t, llm, "claude-opus-4-6", skills, nil, "analysis")
 
 	if h1 != h2 {
 		t.Errorf("same input produced different hashes: %q vs %q", h1, h2)
@@ -170,9 +170,10 @@ func TestComputeTemplateHash_Deterministic(t *testing.T) {
 }
 
 func TestComputeTemplateHash_DifferentModel(t *testing.T) {
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex)
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
-	h1 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6"), skills, nil, "analysis")
-	h2 := mustHash(t, testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-sonnet-4-6"), skills, nil, "analysis")
+	h1 := mustHash(t, llm, "claude-opus-4-6", skills, nil, "analysis")
+	h2 := mustHash(t, llm, "claude-sonnet-4-6", skills, nil, "analysis")
 
 	if h1 == h2 {
 		t.Error("different models should produce different hashes")
@@ -180,11 +181,11 @@ func TestComputeTemplateHash_DifferentModel(t *testing.T) {
 }
 
 func TestComputeTemplateHash_DifferentPhase(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex)
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1 := mustHash(t, llm, skills, nil, "analysis")
-	h2 := mustHash(t, llm, skills, nil, "execution")
+	h1 := mustHash(t, llm, "claude-opus-4-6", skills, nil, "analysis")
+	h2 := mustHash(t, llm, "claude-opus-4-6", skills, nil, "execution")
 
 	if h1 == h2 {
 		t.Error("different phases should produce different hashes")
@@ -193,12 +194,12 @@ func TestComputeTemplateHash_DifferentPhase(t *testing.T) {
 
 func TestComputeTemplateHash_DifferentSecret(t *testing.T) {
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
-	llm1 := testLLMProvider(agenticv1alpha1.LLMProviderAnthropic, "claude-opus-4-6")
-	llm2 := testLLMProvider(agenticv1alpha1.LLMProviderAnthropic, "claude-opus-4-6")
+	llm1 := testLLMProvider(agenticv1alpha1.LLMProviderAnthropic)
+	llm2 := testLLMProvider(agenticv1alpha1.LLMProviderAnthropic)
 	llm2.Spec.Anthropic.CredentialsSecret.Name = "different-secret"
 
-	h1 := mustHash(t, llm1, skills, nil, "analysis")
-	h2 := mustHash(t, llm2, skills, nil, "analysis")
+	h1 := mustHash(t, llm1, "claude-opus-4-6", skills, nil, "analysis")
+	h2 := mustHash(t, llm2, "claude-opus-4-6", skills, nil, "analysis")
 
 	if h1 == h2 {
 		t.Error("different secrets should produce different hashes")
@@ -206,11 +207,11 @@ func TestComputeTemplateHash_DifferentSecret(t *testing.T) {
 }
 
 func TestComputeTemplateHash_DifferentRequiredSecrets(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex)
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1 := mustHash(t, llm, skills, nil, "analysis")
-	h2 := mustHash(t, llm, skills, []agenticv1alpha1.SecretRequirement{
+	h1 := mustHash(t, llm, "claude-opus-4-6", skills, nil, "analysis")
+	h2 := mustHash(t, llm, "claude-opus-4-6", skills, []agenticv1alpha1.SecretRequirement{
 		{Name: "my-token", MountAs: "MY_TOKEN"},
 	}, "analysis")
 
@@ -223,9 +224,9 @@ func TestComputeTemplateHash_DifferentRequiredSecrets(t *testing.T) {
 
 func TestPatchLLMCredentials_Anthropic(t *testing.T) {
 	tmpl := emptyTemplate()
-	llm := testLLMProviderWithURL(agenticv1alpha1.LLMProviderAnthropic, "claude-opus-4-6", "https://custom.api")
+	llm := testLLMProviderWithURL(agenticv1alpha1.LLMProviderAnthropic, "https://custom.api")
 
-	if err := patchLLMCredentials(tmpl, llm); err != nil {
+	if err := patchLLMCredentials(tmpl, llm, "claude-opus-4-6"); err != nil {
 		t.Fatalf("patchLLMCredentials: %v", err)
 	}
 
@@ -249,9 +250,9 @@ func TestPatchLLMCredentials_Anthropic(t *testing.T) {
 
 func TestPatchLLMCredentials_Vertex(t *testing.T) {
 	tmpl := emptyTemplate()
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex)
 
-	if err := patchLLMCredentials(tmpl, llm); err != nil {
+	if err := patchLLMCredentials(tmpl, llm, "claude-opus-4-6"); err != nil {
 		t.Fatalf("patchLLMCredentials: %v", err)
 	}
 
@@ -286,9 +287,9 @@ func TestPatchLLMCredentials_Vertex(t *testing.T) {
 
 func TestPatchLLMCredentials_Bedrock(t *testing.T) {
 	tmpl := emptyTemplate()
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderAWSBedrock, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderAWSBedrock)
 
-	if err := patchLLMCredentials(tmpl, llm); err != nil {
+	if err := patchLLMCredentials(tmpl, llm, "claude-opus-4-6"); err != nil {
 		t.Fatalf("patchLLMCredentials: %v", err)
 	}
 
@@ -369,7 +370,7 @@ func TestSetEnvVar_FailsOnNoContainers(t *testing.T) {
 }
 
 func TestEnsureAgentTemplate_NilAgent(t *testing.T) {
-	_, err := EnsureAgentTemplate(nil, nil, "base", "ns", "analysis", nil, testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "m"), nil)
+	_, err := EnsureAgentTemplate(nil, nil, "base", "ns", "analysis", nil, testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex), nil)
 	if err == nil {
 		t.Error("expected error for nil agent")
 	}
@@ -463,12 +464,12 @@ func TestPatchSkillsPaths_NoPaths_NoChange(t *testing.T) {
 }
 
 func TestPatchSkillsPaths_HashChangesWithPaths(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex)
 	noPaths := []agenticv1alpha1.SkillsSource{{Image: "img:latest"}}
 	withPaths := []agenticv1alpha1.SkillsSource{{Image: "img:latest", Paths: []string{"/a", "/b"}}}
 
-	h1 := mustHash(t, llm, noPaths, nil, "analysis")
-	h2 := mustHash(t, llm, withPaths, nil, "analysis")
+	h1 := mustHash(t, llm, "claude-opus-4-6", noPaths, nil, "analysis")
+	h2 := mustHash(t, llm, "claude-opus-4-6", withPaths, nil, "analysis")
 
 	if h1 == h2 {
 		t.Error("hash should differ when paths are added")
@@ -476,14 +477,14 @@ func TestPatchSkillsPaths_HashChangesWithPaths(t *testing.T) {
 }
 
 func TestComputeTemplateHash_DifferentBaseResourceVersion(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex)
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1, err := computeTemplateHash(llm, skills, nil, nil, "analysis", "1000")
+	h1, err := computeTemplateHash(llm, "claude-opus-4-6", skills, nil, nil, "analysis", "1000")
 	if err != nil {
 		t.Fatal(err)
 	}
-	h2, err := computeTemplateHash(llm, skills, nil, nil, "analysis", "2000")
+	h2, err := computeTemplateHash(llm, "claude-opus-4-6", skills, nil, nil, "analysis", "2000")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,14 +495,14 @@ func TestComputeTemplateHash_DifferentBaseResourceVersion(t *testing.T) {
 }
 
 func TestComputeTemplateHash_SameBaseResourceVersion(t *testing.T) {
-	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex, "claude-opus-4-6")
+	llm := testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex)
 	skills := []agenticv1alpha1.SkillsSource{{Image: "quay.io/test/skills:latest"}}
 
-	h1, err := computeTemplateHash(llm, skills, nil, nil, "analysis", "1000")
+	h1, err := computeTemplateHash(llm, "claude-opus-4-6", skills, nil, nil, "analysis", "1000")
 	if err != nil {
 		t.Fatal(err)
 	}
-	h2, err := computeTemplateHash(llm, skills, nil, nil, "analysis", "1000")
+	h2, err := computeTemplateHash(llm, "claude-opus-4-6", skills, nil, nil, "analysis", "1000")
 	if err != nil {
 		t.Fatal(err)
 	}

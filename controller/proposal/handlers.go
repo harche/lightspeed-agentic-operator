@@ -14,18 +14,36 @@ import (
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
-// handlePending runs analysis and transitions to Proposed.
-func (r *ProposalReconciler) handlePending(
+// handleAnalysis checks approval for the analysis step and runs it.
+func (r *ProposalReconciler) handleAnalysis(
 	ctx context.Context,
 	log logr.Logger,
 	proposal *agenticv1alpha1.Proposal,
 	resolved *resolvedWorkflow,
+	approval *agenticv1alpha1.ProposalApproval,
+	policy *agenticv1alpha1.ApprovalPolicy,
 ) (ctrl.Result, error) {
-	log.Info("handling pending", "attempts", *proposal.Status.Attempts)
+	log.Info("handling analysis", "attempts", *proposal.Status.Attempts)
 
-	if proposal.Status.Steps.Analysis.CompletionTime != nil {
-		log.Info("analysis already completed, skipping re-entry")
-		return ctrl.Result{Requeue: true}, nil
+	if isStageDenied(approval, agenticv1alpha1.SandboxStepAnalysis) {
+		return r.denyProposal(ctx, log, proposal, "Analysis denied by user")
+	}
+
+	if !isStageApproved(approval, policy, agenticv1alpha1.SandboxStepAnalysis) {
+		log.Info("analysis pending approval")
+		return ctrl.Result{}, nil
+	}
+
+	analyzed := meta.FindStatusCondition(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionAnalyzed)
+	if analyzed != nil {
+		if analyzed.Status == metav1.ConditionUnknown {
+			log.Info("analysis already in progress, waiting")
+			return ctrl.Result{}, nil
+		}
+		if analyzed.Status == metav1.ConditionTrue {
+			log.Info("analysis already completed")
+			return ctrl.Result{}, nil
+		}
 	}
 
 	base := proposal.DeepCopy()
@@ -56,10 +74,10 @@ func (r *ProposalReconciler) handlePending(
 		Message: fmt.Sprintf("Analysis complete with %d option(s)", len(analysisResult.Options)),
 	})
 	if err := r.statusPatch(ctx, proposal, base); err != nil {
-		return ctrl.Result{}, fmt.Errorf("update to Proposed: %w", err)
+		return ctrl.Result{}, fmt.Errorf("update after analysis: %w", err)
 	}
 
-	log.Info("analysis complete, awaiting approval", "options", len(analysisResult.Options))
+	log.Info("analysis complete", "options", len(analysisResult.Options))
 	return ctrl.Result{}, nil
 }
 
@@ -75,14 +93,13 @@ func (r *ProposalReconciler) handleRevision(
 	log.Info("handling revision", "revision", revision)
 
 	base := proposal.DeepCopy()
-	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionApproved)
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
-	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionAwaitingSync)
 	now := metav1.Now()
 	proposal.Status.Steps.Analysis.StartTime = &now
 	proposal.Status.Steps.Analysis.CompletionTime = nil
 	proposal.Status.Steps.Analysis.SelectedOption = nil
+	resetExecutionAndVerification(&proposal.Status.Steps)
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
 		Status:  metav1.ConditionUnknown,
@@ -113,54 +130,31 @@ func (r *ProposalReconciler) handleRevision(
 		Message: fmt.Sprintf("Revision %d complete with %d option(s)", revision, len(analysisResult.Options)),
 	})
 	if err := r.statusPatch(ctx, proposal, base); err != nil {
-		return ctrl.Result{}, fmt.Errorf("update to Proposed (revision): %w", err)
+		return ctrl.Result{}, fmt.Errorf("update after revision: %w", err)
 	}
 
 	log.Info("revision analysis complete", "revision", revision, "options", len(analysisResult.Options))
 	return ctrl.Result{}, nil
 }
 
-// handleApproved runs execution (or skips to AwaitingSync/Completed).
-func (r *ProposalReconciler) handleApproved(
+// handleExecution checks approval and runs execution (or skips if not configured).
+func (r *ProposalReconciler) handleExecution(
 	ctx context.Context,
 	log logr.Logger,
 	proposal *agenticv1alpha1.Proposal,
 	resolved *resolvedWorkflow,
+	approval *agenticv1alpha1.ProposalApproval,
+	policy *agenticv1alpha1.ApprovalPolicy,
 ) (ctrl.Result, error) {
-	log.Info("handling approved")
+	log.Info("handling execution")
 
-	// Guard against re-entry: if execution already completed, go straight to verification.
-	if proposal.Status.Steps.Execution.CompletionTime != nil {
-		log.Info("execution already completed, moving to verification")
+	if resolved.Execution == nil {
 		base := proposal.DeepCopy()
 		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 			Type:    agenticv1alpha1.ProposalConditionExecuted,
 			Status:  metav1.ConditionTrue,
-			Reason:  reasonComplete,
-			Message: "Execution already completed (re-entry guard)",
-		})
-		if err := r.statusPatch(ctx, proposal, base); err != nil {
-			return ctrl.Result{}, fmt.Errorf("update to Verifying (re-entry guard): %w", err)
-		}
-		return ctrl.Result{Requeue: true}, nil
-	}
-
-	base := proposal.DeepCopy()
-	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
-		Type:    agenticv1alpha1.ProposalConditionApproved,
-		Status:  metav1.ConditionTrue,
-		Reason:  reasonUserApproved,
-		Message: "Proposal approved by user",
-	})
-
-	selectedOption := r.selectedOption(proposal)
-
-	if resolved.Execution == nil {
-		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
-			Type:    agenticv1alpha1.ProposalConditionExecuted,
-			Status:  metav1.ConditionTrue,
 			Reason:  reasonSkipped,
-			Message: "Execution step not configured in workflow",
+			Message: "Execution step not configured",
 		})
 
 		if resolved.Verification == nil {
@@ -172,19 +166,50 @@ func (r *ProposalReconciler) handleApproved(
 			return ctrl.Result{}, nil
 		}
 
-		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
-			Type:    agenticv1alpha1.ProposalConditionAwaitingSync,
-			Status:  metav1.ConditionTrue,
-			Reason:  reasonAwaitingSync,
-			Message: "Waiting for external application before verification",
-		})
 		if err := r.statusPatch(ctx, proposal, base); err != nil {
-			return ctrl.Result{}, fmt.Errorf("update to AwaitingSync: %w", err)
+			return ctrl.Result{}, fmt.Errorf("update after execution skip: %w", err)
 		}
-		log.Info("awaiting external sync")
 		return ctrl.Result{}, nil
 	}
 
+	if isStageDenied(approval, agenticv1alpha1.SandboxStepExecution) {
+		return r.denyProposal(ctx, log, proposal, "Execution denied by user")
+	}
+
+	if !isStageApproved(approval, policy, agenticv1alpha1.SandboxStepExecution) {
+		log.Info("execution pending approval")
+		return ctrl.Result{}, nil
+	}
+
+	executed := meta.FindStatusCondition(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)
+	if executed != nil {
+		if executed.Status == metav1.ConditionUnknown {
+			log.Info("execution already in progress, waiting")
+			return ctrl.Result{}, nil
+		}
+		if executed.Status == metav1.ConditionTrue {
+			log.Info("execution already completed")
+			return ctrl.Result{}, nil
+		}
+	}
+
+	// Copy selected option from ProposalApproval and prune non-selected options.
+	// Skip if already pruned (e.g., on retry after verification failure).
+	if proposal.Status.Steps.Analysis.SelectedOption == nil {
+		base := proposal.DeepCopy()
+		option := getStageOption(approval)
+		if option != nil {
+			proposal.Status.Steps.Analysis.SelectedOption = option
+		}
+		pruneToSelectedOption(&proposal.Status.Steps.Analysis)
+		if err := r.statusPatch(ctx, proposal, base); err != nil {
+			return ctrl.Result{}, fmt.Errorf("persist selected option: %w", err)
+		}
+	}
+
+	selectedOption := r.selectedOption(proposal)
+
+	base := proposal.DeepCopy()
 	if selectedOption != nil && (len(selectedOption.RBAC.NamespaceScoped) > 0 || len(selectedOption.RBAC.ClusterScoped) > 0) {
 		if err := ensureExecutionRBAC(ctx, r.Client, proposal, &selectedOption.RBAC, defaultSandboxSA, proposal.Namespace); err != nil {
 			return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, fmt.Errorf("ensure execution RBAC: %w", err))
@@ -241,15 +266,17 @@ func (r *ProposalReconciler) handleApproved(
 	}
 
 	log.Info("execution complete, verifying")
-	return ctrl.Result{Requeue: true}, nil
+	return ctrl.Result{}, nil
 }
 
-// handleVerifying runs the verification agent.
-func (r *ProposalReconciler) handleVerifying(
+// handleVerification checks approval and runs verification.
+func (r *ProposalReconciler) handleVerification(
 	ctx context.Context,
 	log logr.Logger,
 	proposal *agenticv1alpha1.Proposal,
 	resolved *resolvedWorkflow,
+	approval *agenticv1alpha1.ProposalApproval,
+	policy *agenticv1alpha1.ApprovalPolicy,
 ) (ctrl.Result, error) {
 	log.Info("verifying")
 
@@ -260,6 +287,21 @@ func (r *ProposalReconciler) handleVerifying(
 		if err := r.statusPatch(ctx, proposal, base); err != nil {
 			return ctrl.Result{}, err
 		}
+		return ctrl.Result{}, nil
+	}
+
+	if isStageDenied(approval, agenticv1alpha1.SandboxStepVerification) {
+		return r.denyProposal(ctx, log, proposal, "Verification denied by user")
+	}
+
+	if !isStageApproved(approval, policy, agenticv1alpha1.SandboxStepVerification) {
+		log.Info("verification pending approval")
+		return ctrl.Result{}, nil
+	}
+
+	verified := meta.FindStatusCondition(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
+	if verified != nil && verified.Status == metav1.ConditionUnknown {
+		log.Info("verification already in progress, waiting")
 		return ctrl.Result{}, nil
 	}
 
@@ -313,6 +355,7 @@ func (r *ProposalReconciler) handleVerifying(
 			log.Info("verification failed, retrying execution", "retryCount", next, "maxRetries", maxRetries, "summary", verifyResult.Summary)
 			proposal.Status.Steps.Execution.RetryCount = &next
 			resetExecutionAndVerification(&proposal.Status.Steps)
+			meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)
 			meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 				Type:    agenticv1alpha1.ProposalConditionVerified,
 				Status:  metav1.ConditionFalse,
@@ -322,10 +365,10 @@ func (r *ProposalReconciler) handleVerifying(
 			if err := r.statusPatch(ctx, proposal, base); err != nil {
 				return ctrl.Result{}, fmt.Errorf("update for execution retry: %w", err)
 			}
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{}, nil
 		}
 
-		log.Info("verification retries exhausted, returning to Proposed", "retryCount", retryCount, "summary", verifyResult.Summary)
+		log.Info("verification retries exhausted, returning to analysis", "retryCount", retryCount, "summary", verifyResult.Summary)
 		proposal.Status.Steps.Analysis.SelectedOption = nil
 		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 			Type:    agenticv1alpha1.ProposalConditionVerified,
@@ -334,7 +377,7 @@ func (r *ProposalReconciler) handleVerifying(
 			Message: fmt.Sprintf("Verification failed after %d attempt(s): %s", retryCount, verifyResult.Summary),
 		})
 		if err := r.statusPatch(ctx, proposal, base); err != nil {
-			return ctrl.Result{}, fmt.Errorf("update to Proposed (retries exhausted): %w", err)
+			return ctrl.Result{}, fmt.Errorf("update (retries exhausted): %w", err)
 		}
 		return ctrl.Result{}, nil
 	}
@@ -353,10 +396,7 @@ func (r *ProposalReconciler) handleVerifying(
 	return ctrl.Result{}, nil
 }
 
-// handleFailed performs cleanup for system failures. Failed is a terminal
-// phase — system failures (agent errors, sandbox crashes, network issues)
-// are not retryable. Objective failures (verification checks not passed)
-// are handled inline in handleVerifying with their own retry loop.
+// handleFailed performs cleanup for system failures.
 func (r *ProposalReconciler) handleFailed(
 	ctx context.Context,
 	log logr.Logger,
@@ -429,5 +469,26 @@ func (r *ProposalReconciler) handleEscalated(
 	}
 
 	log.Info("created escalation child", "child", childName)
+	return ctrl.Result{}, nil
+}
+
+// denyProposal transitions the proposal to Denied (terminal).
+func (r *ProposalReconciler) denyProposal(
+	ctx context.Context,
+	log logr.Logger,
+	proposal *agenticv1alpha1.Proposal,
+	message string,
+) (ctrl.Result, error) {
+	log.Info("denying proposal", "message", message)
+	base := proposal.DeepCopy()
+	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+		Type:    agenticv1alpha1.ProposalConditionDenied,
+		Status:  metav1.ConditionTrue,
+		Reason:  reasonUserDenied,
+		Message: message,
+	})
+	if err := r.statusPatch(ctx, proposal, base); err != nil {
+		return ctrl.Result{}, fmt.Errorf("update to Denied: %w", err)
+	}
 	return ctrl.Result{}, nil
 }

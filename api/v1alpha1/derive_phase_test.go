@@ -29,139 +29,111 @@ func TestDerivePhase(t *testing.T) {
 		{
 			name: "analyzing",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionUnknown, "AnalysisInProgress"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionUnknown, "InProgress"),
 			},
 			want: ProposalPhaseAnalyzing,
 		},
 		{
 			name: "analysis complete - proposed",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
 			},
 			want: ProposalPhaseProposed,
 		},
 		{
 			name: "analysis failed",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionFalse, "AnalysisFailed"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionFalse, "Failed"),
 			},
 			want: ProposalPhaseFailed,
 		},
 		{
-			name: "approved - awaiting execution",
-			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
-			},
-			want: ProposalPhaseApproved,
-		},
-		{
 			name: "denied",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionFalse, "UserDenied"),
+				cond(ProposalConditionDenied, metav1.ConditionTrue, "UserDenied"),
 			},
 			want: ProposalPhaseDenied,
 		},
 		{
 			name: "executing",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
-				cond(ProposalConditionExecuted, metav1.ConditionUnknown, "ExecutionInProgress"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionExecuted, metav1.ConditionUnknown, "InProgress"),
 			},
 			want: ProposalPhaseExecuting,
 		},
 		{
 			name: "execution failed",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
-				cond(ProposalConditionExecuted, metav1.ConditionFalse, "ExecutionFailed"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionExecuted, metav1.ConditionFalse, "Failed"),
 			},
 			want: ProposalPhaseFailed,
 		},
 		{
 			name: "execution complete - verifying",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
-				cond(ProposalConditionExecuted, metav1.ConditionTrue, "ExecutionComplete"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionExecuted, metav1.ConditionTrue, "Complete"),
 			},
 			want: ProposalPhaseVerifying,
 		},
 		{
 			name: "verifying in progress",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
-				cond(ProposalConditionExecuted, metav1.ConditionTrue, "ExecutionComplete"),
-				cond(ProposalConditionVerified, metav1.ConditionUnknown, "VerificationInProgress"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionExecuted, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionVerified, metav1.ConditionUnknown, "InProgress"),
 			},
 			want: ProposalPhaseVerifying,
 		},
 		{
 			name: "verification passed - completed",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
-				cond(ProposalConditionExecuted, metav1.ConditionTrue, "ExecutionComplete"),
-				cond(ProposalConditionVerified, metav1.ConditionTrue, "VerificationPassed"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionExecuted, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionVerified, metav1.ConditionTrue, "Passed"),
 			},
 			want: ProposalPhaseCompleted,
 		},
 		{
 			name: "verification failed - terminal",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
-				cond(ProposalConditionExecuted, metav1.ConditionTrue, "ExecutionComplete"),
-				cond(ProposalConditionVerified, metav1.ConditionFalse, "VerificationFailed"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionExecuted, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionVerified, metav1.ConditionFalse, "Failed"),
 			},
 			want: ProposalPhaseFailed,
 		},
 		{
 			name: "verification failed - retrying execution",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
 				cond(ProposalConditionVerified, metav1.ConditionFalse, "RetryingExecution"),
 			},
-			want: ProposalPhaseApproved,
+			want: ProposalPhaseExecuting,
 		},
 		{
 			name: "verification failed - retries exhausted",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
 				cond(ProposalConditionVerified, metav1.ConditionFalse, "RetriesExhausted"),
 			},
-			want: ProposalPhaseProposed,
-		},
-		{
-			name: "awaiting sync",
-			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
-				cond(ProposalConditionExecuted, metav1.ConditionTrue, "ExecutionSkipped"),
-				cond(ProposalConditionAwaitingSync, metav1.ConditionTrue, "AwaitingSync"),
-			},
-			want: ProposalPhaseAwaitingSync,
+			want: ProposalPhaseAnalyzing,
 		},
 		{
 			name: "advisory completed - exec and verify skipped",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
-				cond(ProposalConditionExecuted, metav1.ConditionTrue, "ExecutionSkipped"),
-				cond(ProposalConditionVerified, metav1.ConditionTrue, "VerificationSkipped"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionExecuted, metav1.ConditionTrue, "Skipped"),
+				cond(ProposalConditionVerified, metav1.ConditionTrue, "Skipped"),
 			},
 			want: ProposalPhaseCompleted,
 		},
 		{
 			name: "escalated",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
 				cond(ProposalConditionEscalated, metav1.ConditionTrue, "MaxAttemptsExhausted"),
 			},
 			want: ProposalPhaseEscalated,
@@ -169,9 +141,8 @@ func TestDerivePhase(t *testing.T) {
 		{
 			name: "escalated takes priority over other conditions",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionTrue, "UserApproved"),
-				cond(ProposalConditionExecuted, metav1.ConditionFalse, "ExecutionFailed"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionExecuted, metav1.ConditionFalse, "Failed"),
 				cond(ProposalConditionEscalated, metav1.ConditionTrue, "MaxAttemptsExhausted"),
 			},
 			want: ProposalPhaseEscalated,
@@ -179,8 +150,8 @@ func TestDerivePhase(t *testing.T) {
 		{
 			name: "denied takes priority over analyzed",
 			conditions: []metav1.Condition{
-				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "AnalysisComplete"),
-				cond(ProposalConditionApproved, metav1.ConditionFalse, "UserDenied"),
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionDenied, metav1.ConditionTrue, "UserDenied"),
 			},
 			want: ProposalPhaseDenied,
 		},

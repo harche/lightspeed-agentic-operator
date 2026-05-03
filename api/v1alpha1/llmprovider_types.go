@@ -141,19 +141,6 @@ type LLMProviderSpec struct {
 	// +required
 	Type LLMProviderType `json:"type,omitempty"`
 
-	// model is the LLM model identifier as recognized by the provider
-	// (e.g., "claude-opus-4-6", "claude-haiku-4-5", "gpt-4o").
-	// Different agents can reference different LLMProviders to use different
-	// models for different tasks (e.g., a capable model for analysis,
-	// a fast model for execution). Must be 1-256 characters, starting with
-	// an alphanumeric character and containing only alphanumerics, dots,
-	// hyphens, underscores, slashes, colons, and at-signs.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=256
-	// +kubebuilder:validation:XValidation:rule="self.matches('^[a-zA-Z0-9][a-zA-Z0-9._\\\\-/:@]*$')",message="model must start with an alphanumeric character and contain only alphanumerics, dots, hyphens, underscores, slashes, colons, and at-signs"
-	Model string `json:"model,omitempty"`
-
 	// url is an optional override for the provider API endpoint.
 	// Most providers have well-known endpoints that the operator resolves
 	// automatically, so this is only needed for custom deployments or
@@ -197,7 +184,6 @@ type LLMProviderSpec struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
-// +kubebuilder:printcolumn:name="Model",type=string,JSONPath=`.spec.model`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // LLMProvider defines an LLM provider configuration. It is the first link in
@@ -205,38 +191,21 @@ type LLMProviderSpec struct {
 // referenced by Agent resources via spec.llmProvider.
 //
 // LLMProvider is cluster-scoped — the cluster admin manages LLM infrastructure
-// centrally. The operator uses the credentials and model to configure the LLM
-// client inside agent sandbox pods.
+// centrally. The operator uses the credentials to configure the LLM client
+// inside agent sandbox pods. The model is specified on the Agent CR, allowing
+// multiple agents to share one LLMProvider with different models.
 //
-// Typically you create a small number of providers representing different
-// capability/cost tiers (e.g., "smart" for complex analysis, "fast" for
-// routine execution) and then reference them from multiple Agent resources.
+// Typically you create one provider per backend (e.g., one for Vertex AI)
+// and then reference it from multiple Agent resources with different models.
 //
-// Example — a high-capability provider for analysis tasks:
-//
-//	apiVersion: agentic.openshift.io/v1alpha1
-//	kind: LLMProvider
-//	metadata:
-//	  name: smart
-//	spec:
-//	  type: GoogleCloudVertex
-//	  model: claude-opus-4-6
-//	  googleCloudVertex:
-//	    credentialsSecret:
-//	      name: llm-credentials
-//	      namespace: openshift-lightspeed
-//	    project: my-gcp-project
-//	    region: us-central1
-//
-// Example — a fast, cost-efficient provider for execution tasks:
+// Example — a Vertex AI provider (model specified on Agent, not here):
 //
 //	apiVersion: agentic.openshift.io/v1alpha1
 //	kind: LLMProvider
 //	metadata:
-//	  name: fast
+//	  name: vertex-ai
 //	spec:
 //	  type: GoogleCloudVertex
-//	  model: claude-haiku-4-5
 //	  googleCloudVertex:
 //	    credentialsSecret:
 //	      name: llm-credentials

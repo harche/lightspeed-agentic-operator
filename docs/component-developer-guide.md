@@ -9,7 +9,7 @@ You are a **component team** (ACS, CVO, CMO, OSSM, or any product team) that wan
 1. A **skills image** (OCI) containing Claude Code Skills your agent should use.
 2. An **adapter** (webhook, event source, controller) that creates `Proposal` CRs at runtime.
 
-You interact with **one CRD**: `Proposal`. Everything else (LLM infrastructure, agent tiers) is managed by the cluster admin.
+You interact with **one CRD**: `Proposal`. Everything else (LLM infrastructure, agent tiers, approval policy) is managed by the cluster admin.
 
 ## Architecture overview
 
@@ -20,16 +20,18 @@ Your Adapter                      Cluster Admin (Day 0)
     v                                  v
  Proposal ----analysis.agent----> Agent ----> LLMProvider
  (namespaced)                  (cluster-scoped)  (cluster-scoped)
-    |
-    | spec.tools
-    v
- Skills Image
- + Secrets
+    |                                  |
+    | spec.tools                       | creates
+    v                                  v
+ Skills Image                    ApprovalPolicy
+ + Secrets                       (cluster-scoped singleton)
 ```
 
 Your adapter creates a `Proposal` in your namespace. The Proposal defines the workflow shape inline (which steps run and which agent handles each step) and provides your domain-specific tools (skills image, secrets). The operator resolves the agent, picks the right LLM provider, and runs the workflow.
 
-You do not need to know how `LLMProvider` or `Agent` work internally. You reference agents by name string only.
+The operator also creates a `ProposalApproval` resource (1:1 with each Proposal) that tracks per-step approval state. Users approve or deny individual steps via the CLI, console, or direct API.
+
+You do not need to know how `LLMProvider`, `Agent`, or `ApprovalPolicy` work internally. You reference agents by name string only.
 
 ## Quick start
 
@@ -107,31 +109,25 @@ That's it. The operator picks it up and runs the workflow.
 
 ## Lifecycle
 
+Every step (analysis, execution, verification) has a built-in approval gate. The step does not run until approval is present — either auto-approved via the cluster-wide `ApprovalPolicy` or explicitly approved by the user on the `ProposalApproval` resource.
+
 ```
                           +---------+
                           | Pending |
                           +----+----+
                                |
-                          +----v-----+
-                          | Analyzing|
-                          +----+-----+
-                               |
-                          +----v-----+     +--------+
-                          | Proposed +---->| Denied |
-                          +----+-----+     +--------+
-                               |
-                          +----v-----+
-                          | Approved |
-                          +----+-----+
+                          +----v------+
+                          | Analyzing |
+                          +----+------+
                                |
                     +----------+-----------+
                     |                      |
-              +-----v------+      +-------v-------+
-              | Executing  |      | AwaitingSync  |
-              +-----+------+      | (no execution)|
-                    |              +-------+-------+
-              +-----v------+              |
-              | Verifying  |<-------------+
+              +-----v------+       +------v----+
+              | Executing  |       |  Denied   |
+              +-----+------+       +-----------+
+                    |
+              +-----v------+
+              | Verifying  |
               +-----+------+
                     |
           +---------+---------+
@@ -142,27 +138,47 @@ That's it. The operator picks it up and runs the workflow.
 ```
 
 - **Pending** -- Proposal created, waiting for reconciliation.
-- **Analyzing** -- Agent is examining cluster state and producing a diagnosis.
-- **Proposed** -- Analysis complete. Remediation options are available for review. Waiting for user approval.
-- **Approved** -- User approved. Execution (or AwaitingSync) begins.
-- **Denied** -- User denied. Terminal.
-- **Executing** -- Agent is applying the remediation.
-- **AwaitingSync** -- Execution was skipped (assisted/advisory workflow). User applies changes manually.
-- **Verifying** -- Agent is checking whether the remediation worked.
+- **Analyzing** -- Analysis step approved (or pending approval). Agent is running or waiting.
+- **Executing** -- Analysis complete. Execution step approved (or pending approval). Agent is running or waiting.
+- **Denied** -- User denied a step on the ProposalApproval. Terminal.
+- **Verifying** -- Execution complete (or skipped). Verification step approved (or pending approval).
 - **Completed** -- Verification passed. Terminal (success).
 - **Failed** -- A step failed. May retry (up to `maxAttempts`) or escalate.
 - **Escalated** -- Max retries exhausted. A child Proposal is created with failure history.
 
+### Approval flow
+
+When a Proposal is created, the operator creates a `ProposalApproval` resource (same name, same namespace, owned by the Proposal). The `ApprovalPolicy` singleton determines which steps auto-approve.
+
+Users approve steps via CLI:
+```bash
+# Approve analysis
+oc agentic proposal approve fix-my-issue-123 --stage=analysis
+
+# Approve execution with option selection and agent override
+oc agentic proposal approve fix-my-issue-123 --stage=execution --option=0 --agent=fast
+
+# Approve verification
+oc agentic proposal approve fix-my-issue-123 --stage=verification
+
+# Approve all remaining steps
+oc agentic proposal approve fix-my-issue-123 --all
+
+# Deny a step (terminal for the entire proposal)
+oc agentic proposal deny fix-my-issue-123 --stage=execution
+```
+
 ### Watching for completion
 
-Use a standard Kubernetes watch on the `status.phase` field or the `Verified` condition:
+Use a standard Kubernetes watch on conditions. Phase is derived from conditions, not stored:
 
 ```go
 // Go example
 watch, _ := client.Watch(ctx, &v1alpha1.ProposalList{}, ...)
 for event := range watch.ResultChan() {
     proposal := event.Object.(*v1alpha1.Proposal)
-    switch proposal.Status.Phase {
+    phase := v1alpha1.DerivePhase(proposal.Status.Conditions)
+    switch phase {
     case v1alpha1.ProposalPhaseCompleted:
         // Remediation succeeded
     case v1alpha1.ProposalPhaseFailed:
@@ -278,7 +294,7 @@ The workflow shape is defined directly on the Proposal by including or omitting 
 | Pattern | Steps | Use when |
 |---------|-------|----------|
 | Remediation | `analysis` + `execution` + `verification` | Agent should fix the issue directly. |
-| Assisted | `analysis` + `verification` (no `execution`) | Agent analyzes and proposes a fix, user applies it (e.g., via GitOps), then agent verifies. |
+| Assisted | `analysis` + `verification` (no `execution`) | Agent analyzes and proposes a fix, user applies it (e.g., via GitOps), then approves verification. |
 | Advisory | `analysis` only | Agent investigates and reports findings. No execution. |
 
 ### Examples
@@ -453,8 +469,9 @@ stackrox/                          openshift-cluster-version/
 
 ## What your adapter does NOT do
 
-- **Pick agent tiers.** Your adapter selects agent names (e.g., `smart`, `fast`, `default`) per step. The cluster admin configures what those agents mean (LLM provider, model, settings).
+- **Pick agent tiers.** Your adapter selects agent names (e.g., `smart`, `fast`, `default`) per step. The cluster admin configures what those agents mean (LLM provider, model, timeouts).
 - **Manage LLM credentials.** The cluster admin configures LLMProvider and Agent CRs. Your adapter never touches these.
+- **Manage approval policy.** The cluster admin configures the ApprovalPolicy singleton. Your adapter never touches it.
 - **Create RBAC for execution.** The analysis agent requests RBAC permissions as part of its output. The operator's policy engine validates and creates the actual Kubernetes RBAC resources.
 - **Manage the sandbox pod.** The operator creates and manages sandbox pods for each step.
 

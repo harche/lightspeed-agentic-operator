@@ -1,6 +1,10 @@
-# LLM providers — cluster-scoped, define once, reference by name from Agent CRs.
+# LLM providers — cluster-scoped, define once per backend.
 #
 # CRD chain: LLMProvider → Agent ← Proposal
+#
+# LLMProvider is purely about provider connection (type, credentials, endpoint).
+# The model is specified on the Agent CR, allowing multiple agents to share one
+# LLMProvider with different models.
 #
 # The type field is the discriminator. Exactly one per-provider config
 # block must be set, matching the type value.
@@ -8,24 +12,9 @@
 apiVersion: agentic.openshift.io/v1alpha1
 kind: LLMProvider
 metadata:
-  name: smart
+  name: vertex-ai
 spec:
   type: GoogleCloudVertex
-  model: claude-opus-4-6
-  googleCloudVertex:
-    credentialsSecret:
-      name: llm-credentials
-      namespace: openshift-lightspeed
-    project: my-gcp-project
-    region: us-central1
----
-apiVersion: agentic.openshift.io/v1alpha1
-kind: LLMProvider
-metadata:
-  name: fast
-spec:
-  type: GoogleCloudVertex
-  model: claude-haiku-4-5
   googleCloudVertex:
     credentialsSecret:
       name: llm-credentials

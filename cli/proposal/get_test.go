@@ -12,7 +12,7 @@ import (
 
 func TestGet_BasicDetail(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseProposed)
+	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhasePending)
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
 		WithObjects(p).Build()
@@ -28,7 +28,7 @@ func TestGet_BasicDetail(t *testing.T) {
 	}
 
 	output := out.String()
-	for _, want := range []string{"Name:", "fix-crash", "Namespace:", "default", "Phase:", "Proposed"} {
+	for _, want := range []string{"Name:", "fix-crash", "Namespace:", "default", "Phase:", "Pending"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("expected %q in output, got:\n%s", want, output)
 		}
@@ -37,7 +37,7 @@ func TestGet_BasicDetail(t *testing.T) {
 
 func TestGet_WithAnalysisOptions(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseProposed)
+	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseExecuting)
 	selected := int32(0)
 	p.Status.Steps.Analysis = agenticv1alpha1.AnalysisStepStatus{
 		Conditions: []metav1.Condition{
@@ -264,7 +264,7 @@ func TestGet_WithConditions(t *testing.T) {
 
 func TestGet_JSONOutput(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseProposed)
+	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhasePending)
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
 		WithObjects(p).Build()

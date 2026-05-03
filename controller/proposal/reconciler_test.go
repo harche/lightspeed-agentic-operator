@@ -9,7 +9,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -78,6 +77,7 @@ func testDefaultAgent() *agenticv1alpha1.Agent {
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		Spec: agenticv1alpha1.AgentSpec{
 			LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "smart"},
+			Model:       "claude-opus-4-6",
 		},
 	}
 }
@@ -92,8 +92,7 @@ func testLLM(name string) *agenticv1alpha1.LLMProvider {
 	return &agenticv1alpha1.LLMProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: agenticv1alpha1.LLMProviderSpec{
-			Type:  agenticv1alpha1.LLMProviderGoogleCloudVertex,
-			Model: "claude-opus-4-6",
+			Type: agenticv1alpha1.LLMProviderGoogleCloudVertex,
 			GoogleCloudVertex: &agenticv1alpha1.GoogleCloudVertexConfig{
 				CredentialsSecret: agenticv1alpha1.NamespacedSecretReference{Name: "llm-secret", Namespace: "lightspeed"},
 				Project:           "test-project",
@@ -117,11 +116,26 @@ func testProposal() *agenticv1alpha1.Proposal {
 	}
 }
 
+// testAutoApprovePolicy returns an ApprovalPolicy that auto-approves analysis
+// and verification stages, so tests only need to explicitly approve execution
+// (which carries the selected option).
+func testAutoApprovePolicy() *agenticv1alpha1.ApprovalPolicy {
+	return &agenticv1alpha1.ApprovalPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: agenticv1alpha1.ApprovalPolicySpec{
+			Stages: []agenticv1alpha1.ApprovalPolicyStage{
+				{Name: agenticv1alpha1.SandboxStepAnalysis, Approval: agenticv1alpha1.ApprovalModeAutomatic},
+				{Name: agenticv1alpha1.SandboxStepVerification, Approval: agenticv1alpha1.ApprovalModeAutomatic},
+			},
+		},
+	}
+}
+
 // defaultObjects returns the standard set of cluster-scoped and namespaced
 // objects needed to resolve a full workflow.
 func defaultObjects() []client.Object {
 	return []client.Object{
-		testDefaultAgent(), testLLM("smart"),
+		testDefaultAgent(), testLLM("smart"), testAutoApprovePolicy(),
 	}
 }
 
@@ -139,20 +153,32 @@ func getProposal(r *ProposalReconciler, name string) (*agenticv1alpha1.Proposal,
 
 func approveProposal(t *testing.T, fc client.WithWatch, name string) {
 	t.Helper()
-	var p agenticv1alpha1.Proposal
-	if err := fc.Get(context.Background(), types.NamespacedName{Name: name, Namespace: "default"}, &p); err != nil {
-		t.Fatalf("get proposal for approval: %v", err)
+	approveProposalWithOption(t, fc, name, 0)
+}
+
+func approveProposalWithOption(t *testing.T, fc client.WithWatch, name string, optionIndex int32) {
+	t.Helper()
+	var approval agenticv1alpha1.ProposalApproval
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: name, Namespace: "default"}, &approval); err != nil {
+		t.Fatalf("get ProposalApproval for approval: %v", err)
 	}
-	base := p.DeepCopy()
-	selected := int32(0)
-	p.Status.Steps.Analysis.SelectedOption = &selected
-	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
-		Type:   agenticv1alpha1.ProposalConditionApproved,
-		Status: metav1.ConditionTrue,
-		Reason: "UserApproved",
-	})
-	if err := fc.Status().Patch(context.Background(), &p, client.MergeFrom(base)); err != nil {
-		t.Fatalf("approve: %v", err)
+	base := approval.DeepCopy()
+	hasExecution := false
+	for i, s := range approval.Spec.Stages {
+		if s.Type == agenticv1alpha1.ApprovalStageExecution {
+			approval.Spec.Stages[i].Execution = &agenticv1alpha1.ExecutionApproval{Option: &optionIndex}
+			hasExecution = true
+			break
+		}
+	}
+	if !hasExecution {
+		approval.Spec.Stages = append(approval.Spec.Stages, agenticv1alpha1.ApprovalStage{
+			Type:      agenticv1alpha1.ApprovalStageExecution,
+			Execution: &agenticv1alpha1.ExecutionApproval{Option: &optionIndex},
+		})
+	}
+	if err := fc.Patch(context.Background(), &approval, client.MergeFrom(base)); err != nil {
+		t.Fatalf("approve execution with option %d: %v", optionIndex, err)
 	}
 }
 
@@ -243,7 +269,7 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 	p, _ := getProposal(r, "fresh")
 	phase := agenticv1alpha1.DerivePhase(p.Status.Conditions)
 	if phase != agenticv1alpha1.ProposalPhaseProposed {
-		t.Fatalf("expected Proposed, got %s", phase)
+		t.Fatalf("expected Proposed (analysis complete), got %s", phase)
 	}
 	if p.Status.Attempts == nil || *p.Status.Attempts != 1 {
 		t.Fatal("attempt not initialized to 1")
@@ -259,7 +285,7 @@ func TestReconcile_Denied_Terminal(t *testing.T) {
 		Attempts: &one,
 		Conditions: []metav1.Condition{
 			{Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionTrue, Reason: "AnalysisComplete"},
-			{Type: agenticv1alpha1.ProposalConditionApproved, Status: metav1.ConditionFalse, Reason: "UserDenied"},
+			{Type: agenticv1alpha1.ProposalConditionDenied, Status: metav1.ConditionTrue, Reason: "UserDenied"},
 		},
 	}
 

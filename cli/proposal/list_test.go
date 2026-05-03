@@ -14,7 +14,7 @@ import (
 
 func TestList_InNamespace(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p1 := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseProposed)
+	p1 := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseAnalyzing)
 	p2 := testProposalWithStatus("p2", "default", agenticv1alpha1.ProposalPhaseCompleted)
 	p3 := testProposalWithStatus("p3", "other", agenticv1alpha1.ProposalPhasePending)
 
@@ -41,7 +41,7 @@ func TestList_InNamespace(t *testing.T) {
 
 func TestList_AllNamespaces(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p1 := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseProposed)
+	p1 := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseAnalyzing)
 	p2 := testProposalWithStatus("p2", "other", agenticv1alpha1.ProposalPhasePending)
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
@@ -67,7 +67,7 @@ func TestList_AllNamespaces(t *testing.T) {
 
 func TestList_FilterByPhase(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p1 := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseProposed)
+	p1 := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseAnalyzing)
 	p2 := testProposalWithStatus("p2", "default", agenticv1alpha1.ProposalPhaseCompleted)
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
@@ -76,7 +76,7 @@ func TestList_FilterByPhase(t *testing.T) {
 	o := &ListOptions{
 		client:    fc,
 		namespace: "default",
-		phase:     "Proposed",
+		phase:     "Analyzing",
 		IOStreams:  streams,
 	}
 	if err := o.Run(context.Background()); err != nil {
@@ -112,7 +112,7 @@ func TestList_Empty(t *testing.T) {
 
 func TestList_JSONOutput(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p1 := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseProposed)
+	p1 := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseAnalyzing)
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
 		WithObjects(p1).Build()
@@ -134,7 +134,7 @@ func TestList_JSONOutput(t *testing.T) {
 
 func TestList_WideOutput(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseProposed)
+	p := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseAnalyzing)
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
 		WithObjects(p).Build()
@@ -193,7 +193,7 @@ func TestList_Validate(t *testing.T) {
 		opts    ListOptions
 		wantErr bool
 	}{
-		{"valid phase", ListOptions{phase: "Proposed"}, false},
+		{"valid phase", ListOptions{phase: "Analyzing"}, false},
 		{"invalid phase", ListOptions{phase: "Invalid"}, true},
 		{"valid output", ListOptions{output: "json"}, false},
 		{"invalid output", ListOptions{output: "xml"}, true},
@@ -229,7 +229,7 @@ func TestList_EmptyAllNamespaces(t *testing.T) {
 
 func TestList_YAMLOutput(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseProposed)
+	p := testProposalWithStatus("p1", "default", agenticv1alpha1.ProposalPhaseAnalyzing)
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
 		WithObjects(p).Build()
@@ -252,7 +252,7 @@ func TestList_YAMLOutput(t *testing.T) {
 // Verify that client.ListOption is used correctly for namespace filtering.
 func TestList_NamespaceFiltering(t *testing.T) {
 	streams, out, _ := fakeStreams()
-	p := testProposalWithStatus("p1", "target-ns", agenticv1alpha1.ProposalPhaseProposed)
+	p := testProposalWithStatus("p1", "target-ns", agenticv1alpha1.ProposalPhaseAnalyzing)
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
 		WithObjects(p).Build()

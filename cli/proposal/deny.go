@@ -6,8 +6,6 @@ import (
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 	"github.com/spf13/cobra"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -16,6 +14,7 @@ import (
 type DenyOptions struct {
 	configFlags *genericclioptions.ConfigFlags
 	name        string
+	stage       string
 
 	client    client.Client
 	namespace string
@@ -31,8 +30,11 @@ func NewDenyCmd(streams genericclioptions.IOStreams) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "deny NAME",
-		Short: "Deny a proposal in the Proposed phase",
-		Example: `  # Deny a proposal
+		Short: "Deny a proposal step",
+		Example: `  # Deny the execution step
+  oc agentic proposal deny fix-crash --stage=execution
+
+  # Deny the next pending step
   oc agentic proposal deny fix-crash`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -44,6 +46,7 @@ func NewDenyCmd(streams genericclioptions.IOStreams) *cobra.Command {
 	}
 
 	o.configFlags.AddFlags(cmd.Flags())
+	cmd.Flags().StringVar(&o.stage, "stage", "", "Step to deny: analysis, execution, or verification (defaults to next pending)")
 
 	return cmd
 }
@@ -65,22 +68,71 @@ func (o *DenyOptions) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to get proposal %q: %w", o.name, err)
 	}
 
-	phase := agenticv1alpha1.DerivePhase(p.Status.Conditions)
-	if phase != agenticv1alpha1.ProposalPhaseProposed {
-		return fmt.Errorf("cannot deny proposal in phase %s (must be Proposed)", phase)
+	approval := &agenticv1alpha1.ProposalApproval{}
+	if err := o.client.Get(ctx, types.NamespacedName{Name: o.name, Namespace: o.namespace}, approval); err != nil {
+		return fmt.Errorf("failed to get ProposalApproval %q: %w", o.name, err)
 	}
 
-	patch := client.MergeFrom(p.DeepCopy())
-	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
-		Type:    agenticv1alpha1.ProposalConditionApproved,
-		Status:  metav1.ConditionFalse,
-		Reason:  "UserDenied",
-		Message: "Proposal denied by user via CLI",
-	})
-	if err := o.client.Status().Patch(ctx, p, patch); err != nil {
-		return fmt.Errorf("failed to deny proposal: %w", err)
+	stageName := o.stage
+	if stageName == "" {
+		stageName = o.nextPendingStage(p, approval)
+		if stageName == "" {
+			return fmt.Errorf("no pending stages to deny")
+		}
 	}
 
-	fmt.Fprintf(o.Out, "proposal/%s denied\n", o.name)
+	stageType := normalizeStageType(stageName)
+
+	for _, s := range approval.Spec.Stages {
+		if s.Type == stageType {
+			if s.Denied {
+				return fmt.Errorf("stage %s is already denied", stageName)
+			}
+			return fmt.Errorf("stage %s is already approved, cannot deny", stageName)
+		}
+	}
+
+	entry := agenticv1alpha1.ApprovalStage{Type: stageType, Denied: true}
+	switch stageType {
+	case agenticv1alpha1.ApprovalStageAnalysis:
+		entry.Analysis = &agenticv1alpha1.AnalysisApproval{}
+	case agenticv1alpha1.ApprovalStageExecution:
+		entry.Execution = &agenticv1alpha1.ExecutionApproval{}
+	case agenticv1alpha1.ApprovalStageVerification:
+		entry.Verification = &agenticv1alpha1.VerificationApproval{}
+	}
+
+	patch := client.MergeFrom(approval.DeepCopy())
+	approval.Spec.Stages = append(approval.Spec.Stages, entry)
+	if err := o.client.Patch(ctx, approval, patch); err != nil {
+		return fmt.Errorf("failed to deny stage %s: %w", stageName, err)
+	}
+
+	fmt.Fprintf(o.Out, "proposal/%s stage %s denied\n", o.name, stageName)
 	return nil
 }
+
+func (o *DenyOptions) nextPendingStage(p *agenticv1alpha1.Proposal, approval *agenticv1alpha1.ProposalApproval) string {
+	approved := map[agenticv1alpha1.ApprovalStageType]bool{}
+	for _, s := range approval.Spec.Stages {
+		approved[s.Type] = true
+	}
+
+	stages := []struct {
+		step     *agenticv1alpha1.ProposalStep
+		stageType agenticv1alpha1.ApprovalStageType
+		name     string
+	}{
+		{p.Spec.Analysis, agenticv1alpha1.ApprovalStageAnalysis, "analysis"},
+		{p.Spec.Execution, agenticv1alpha1.ApprovalStageExecution, "execution"},
+		{p.Spec.Verification, agenticv1alpha1.ApprovalStageVerification, "verification"},
+	}
+
+	for _, s := range stages {
+		if s.step != nil && !approved[s.stageType] {
+			return s.name
+		}
+	}
+	return ""
+}
+

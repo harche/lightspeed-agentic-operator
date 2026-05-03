@@ -1,7 +1,10 @@
 package proposal
 
 import (
+	"strings"
 	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
@@ -43,5 +46,40 @@ func TestNeedsRevision(t *testing.T) {
 				t.Errorf("needsRevision() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBuildRevisionContext_WithFeedback(t *testing.T) {
+	rev := int32(1)
+	proposal := &agenticv1alpha1.Proposal{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-proposal", Namespace: "default"},
+		Spec: agenticv1alpha1.ProposalSpec{
+			Revision:         &rev,
+			RevisionFeedback: "Please focus on the memory issue, not CPU",
+		},
+	}
+	result := buildRevisionContext(proposal)
+	if !strings.Contains(result, "Please focus on the memory issue, not CPU") {
+		t.Errorf("expected feedback in revision context, got: %s", result)
+	}
+	if !strings.Contains(result, "## User Feedback") {
+		t.Errorf("expected User Feedback header in revision context, got: %s", result)
+	}
+}
+
+func TestBuildRevisionContext_WithoutFeedback(t *testing.T) {
+	rev := int32(1)
+	proposal := &agenticv1alpha1.Proposal{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-proposal", Namespace: "default"},
+		Spec: agenticv1alpha1.ProposalSpec{
+			Revision: &rev,
+		},
+	}
+	result := buildRevisionContext(proposal)
+	if strings.Contains(result, "## User Feedback") {
+		t.Errorf("expected no User Feedback header when feedback is empty, got: %s", result)
+	}
+	if !strings.Contains(result, "revision 1") {
+		t.Errorf("expected revision number in context, got: %s", result)
 	}
 }

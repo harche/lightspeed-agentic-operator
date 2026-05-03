@@ -45,24 +45,45 @@ func testProposalWithStatus(name, namespace string, phase agenticv1alpha1.Propos
 
 func setPhaseConditions(s *agenticv1alpha1.ProposalStatus, phase agenticv1alpha1.ProposalPhase) {
 	switch phase {
-	case agenticv1alpha1.ProposalPhaseProposed:
-		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
-			Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionTrue, Reason: "AnalysisComplete",
-		})
 	case agenticv1alpha1.ProposalPhaseDenied:
 		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionDenied, Status: metav1.ConditionTrue, Reason: "UserDenied",
+		})
+	case agenticv1alpha1.ProposalPhaseAnalyzing:
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionUnknown, Reason: "InProgress",
+		})
+	case agenticv1alpha1.ProposalPhaseExecuting:
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionTrue, Reason: "AnalysisComplete",
+		})
+	case agenticv1alpha1.ProposalPhaseVerifying:
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
 			Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionTrue, Reason: "AnalysisComplete",
 		})
 		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
-			Type: agenticv1alpha1.ProposalConditionApproved, Status: metav1.ConditionFalse, Reason: "UserDenied",
+			Type: agenticv1alpha1.ProposalConditionExecuted, Status: metav1.ConditionTrue, Reason: "ExecutionComplete",
 		})
-	case agenticv1alpha1.ProposalPhaseApproved:
+	case agenticv1alpha1.ProposalPhaseCompleted:
 		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
 			Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionTrue, Reason: "AnalysisComplete",
 		})
 		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
-			Type: agenticv1alpha1.ProposalConditionApproved, Status: metav1.ConditionTrue, Reason: "UserApproved",
+			Type: agenticv1alpha1.ProposalConditionExecuted, Status: metav1.ConditionTrue, Reason: "ExecutionComplete",
 		})
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionVerified, Status: metav1.ConditionTrue, Reason: "VerificationPassed",
+		})
+	case agenticv1alpha1.ProposalPhaseFailed:
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionFalse, Reason: "AnalysisFailed",
+		})
+	case agenticv1alpha1.ProposalPhaseEscalated:
+		meta.SetStatusCondition(&s.Conditions, metav1.Condition{
+			Type: agenticv1alpha1.ProposalConditionEscalated, Status: metav1.ConditionTrue, Reason: "MaxRetriesExhausted",
+		})
+	case agenticv1alpha1.ProposalPhasePending:
+		// No conditions — fresh proposal
 	}
 }
 

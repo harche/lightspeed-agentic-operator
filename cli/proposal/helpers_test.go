@@ -21,10 +21,7 @@ func TestIsTerminalPhase(t *testing.T) {
 		{agenticv1alpha1.ProposalPhaseEscalated, true},
 		{agenticv1alpha1.ProposalPhasePending, false},
 		{agenticv1alpha1.ProposalPhaseAnalyzing, false},
-		{agenticv1alpha1.ProposalPhaseProposed, false},
-		{agenticv1alpha1.ProposalPhaseApproved, false},
 		{agenticv1alpha1.ProposalPhaseExecuting, false},
-		{agenticv1alpha1.ProposalPhaseAwaitingSync, false},
 		{agenticv1alpha1.ProposalPhaseVerifying, false},
 	}
 	for _, tc := range tests {
@@ -43,8 +40,8 @@ func TestPhaseColor(t *testing.T) {
 	if c := PhaseColor(agenticv1alpha1.ProposalPhaseFailed); c != ColorRed {
 		t.Errorf("expected red for Failed, got %q", c)
 	}
-	if c := PhaseColor(agenticv1alpha1.ProposalPhaseProposed); c != ColorCyan {
-		t.Errorf("expected cyan for Proposed, got %q", c)
+	if c := PhaseColor(agenticv1alpha1.ProposalPhasePending); c != ColorReset {
+		t.Errorf("expected reset for Pending, got %q", c)
 	}
 	if c := PhaseColor(agenticv1alpha1.ProposalPhaseEscalated); c != ColorMagenta {
 		t.Errorf("expected magenta for Escalated, got %q", c)

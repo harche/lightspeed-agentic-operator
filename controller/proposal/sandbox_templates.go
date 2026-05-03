@@ -45,6 +45,7 @@ const (
 
 type templateHashInput struct {
 	LLM                    agenticv1alpha1.LLMProviderSpec     `json:"llm"`
+	Model                  string                              `json:"model"`
 	Skills                 []agenticv1alpha1.SkillsSource      `json:"skills"`
 	MCPServers             []agenticv1alpha1.MCPServerConfig   `json:"mcpServers,omitempty"`
 	RequiredSecrets        []agenticv1alpha1.SecretRequirement `json:"requiredSecrets,omitempty"`
@@ -54,6 +55,7 @@ type templateHashInput struct {
 
 func computeTemplateHash(
 	llm *agenticv1alpha1.LLMProvider,
+	model string,
 	skills []agenticv1alpha1.SkillsSource,
 	mcpServers []agenticv1alpha1.MCPServerConfig,
 	requiredSecrets []agenticv1alpha1.SecretRequirement,
@@ -62,6 +64,7 @@ func computeTemplateHash(
 ) (string, error) {
 	input := templateHashInput{
 		LLM:                 llm.Spec,
+		Model:               model,
 		Skills:              skills,
 		MCPServers:          mcpServers,
 		RequiredSecrets:     requiredSecrets,
@@ -118,7 +121,7 @@ func EnsureAgentTemplate(
 		requiredSecrets = tools.RequiredSecrets
 	}
 
-	hash, err := computeTemplateHash(llm, skills, mcpServers, requiredSecrets, step, base.GetResourceVersion())
+	hash, err := computeTemplateHash(llm, agent.Spec.Model, skills, mcpServers, requiredSecrets, step, base.GetResourceVersion())
 	if err != nil {
 		return "", fmt.Errorf("compute template hash: %w", err)
 	}
@@ -171,7 +174,7 @@ func EnsureAgentTemplate(
 	if err := patchAgentMode(derived, step); err != nil {
 		return "", fmt.Errorf("patch agent mode: %w", err)
 	}
-	if err := patchLLMCredentials(derived, llm); err != nil {
+	if err := patchLLMCredentials(derived, llm, agent.Spec.Model); err != nil {
 		return "", fmt.Errorf("patch LLM credentials: %w", err)
 	}
 
@@ -226,13 +229,13 @@ func credentialsSecretName(llm *agenticv1alpha1.LLMProvider) string {
 	}
 }
 
-func patchLLMCredentials(tmpl *unstructured.Unstructured, llm *agenticv1alpha1.LLMProvider) error {
+func patchLLMCredentials(tmpl *unstructured.Unstructured, llm *agenticv1alpha1.LLMProvider, model string) error {
 	secretName := credentialsSecretName(llm)
 
 	if err := addEnvFromSecret(tmpl, secretName); err != nil {
 		return fmt.Errorf("add credentials envFrom: %w", err)
 	}
-	if err := setEnvVar(tmpl, "ANTHROPIC_MODEL", llm.Spec.Model); err != nil {
+	if err := setEnvVar(tmpl, "ANTHROPIC_MODEL", model); err != nil {
 		return fmt.Errorf("set ANTHROPIC_MODEL: %w", err)
 	}
 

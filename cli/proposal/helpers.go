@@ -40,14 +40,11 @@ const (
 var validProposalPhases = []string{
 	string(agenticv1alpha1.ProposalPhasePending),
 	string(agenticv1alpha1.ProposalPhaseAnalyzing),
-	string(agenticv1alpha1.ProposalPhaseProposed),
-	string(agenticv1alpha1.ProposalPhaseApproved),
-	string(agenticv1alpha1.ProposalPhaseDenied),
 	string(agenticv1alpha1.ProposalPhaseExecuting),
-	string(agenticv1alpha1.ProposalPhaseAwaitingSync),
 	string(agenticv1alpha1.ProposalPhaseVerifying),
 	string(agenticv1alpha1.ProposalPhaseCompleted),
 	string(agenticv1alpha1.ProposalPhaseFailed),
+	string(agenticv1alpha1.ProposalPhaseDenied),
 	string(agenticv1alpha1.ProposalPhaseEscalated),
 }
 
@@ -116,10 +113,6 @@ func PhaseColor(phase agenticv1alpha1.ProposalPhase) string {
 		agenticv1alpha1.ProposalPhaseExecuting,
 		agenticv1alpha1.ProposalPhaseVerifying:
 		return ColorYellow
-	case agenticv1alpha1.ProposalPhaseProposed:
-		return ColorCyan
-	case agenticv1alpha1.ProposalPhaseApproved:
-		return ColorBlue
 	case agenticv1alpha1.ProposalPhaseEscalated:
 		return ColorMagenta
 	default:

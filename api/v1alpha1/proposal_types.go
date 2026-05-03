@@ -27,17 +27,15 @@ import (
 type ProposalPhase string
 
 const (
-	ProposalPhasePending      ProposalPhase = "Pending"
-	ProposalPhaseAnalyzing    ProposalPhase = "Analyzing"
-	ProposalPhaseProposed     ProposalPhase = "Proposed"
-	ProposalPhaseApproved     ProposalPhase = "Approved"
-	ProposalPhaseExecuting    ProposalPhase = "Executing"
-	ProposalPhaseAwaitingSync ProposalPhase = "AwaitingSync"
-	ProposalPhaseVerifying    ProposalPhase = "Verifying"
-	ProposalPhaseCompleted    ProposalPhase = "Completed"
-	ProposalPhaseFailed       ProposalPhase = "Failed"
-	ProposalPhaseDenied       ProposalPhase = "Denied"
-	ProposalPhaseEscalated    ProposalPhase = "Escalated"
+	ProposalPhasePending   ProposalPhase = "Pending"
+	ProposalPhaseAnalyzing ProposalPhase = "Analyzing"
+	ProposalPhaseProposed  ProposalPhase = "Proposed"
+	ProposalPhaseExecuting ProposalPhase = "Executing"
+	ProposalPhaseVerifying ProposalPhase = "Verifying"
+	ProposalPhaseCompleted ProposalPhase = "Completed"
+	ProposalPhaseFailed    ProposalPhase = "Failed"
+	ProposalPhaseDenied    ProposalPhase = "Denied"
+	ProposalPhaseEscalated ProposalPhase = "Escalated"
 )
 
 // Condition reasons used by DerivePhase for state transitions.
@@ -65,8 +63,7 @@ func DerivePhase(conditions []metav1.Condition) ProposalPhase {
 		return ProposalPhaseEscalated
 	}
 
-	approved := get(ProposalConditionApproved)
-	if approved != nil && approved.Status == metav1.ConditionFalse {
+	if c := get(ProposalConditionDenied); c != nil && c.Status == metav1.ConditionTrue {
 		return ProposalPhaseDenied
 	}
 
@@ -79,17 +76,13 @@ func DerivePhase(conditions []metav1.Condition) ProposalPhase {
 		default:
 			switch c.Reason {
 			case ReasonRetryingExecution:
-				return ProposalPhaseApproved
+				return ProposalPhaseExecuting
 			case ReasonRetriesExhausted:
-				return ProposalPhaseProposed
+				return ProposalPhaseAnalyzing
 			default:
 				return ProposalPhaseFailed
 			}
 		}
-	}
-
-	if c := get(ProposalConditionAwaitingSync); c != nil && c.Status == metav1.ConditionTrue {
-		return ProposalPhaseAwaitingSync
 	}
 
 	if c := get(ProposalConditionExecuted); c != nil {
@@ -101,10 +94,6 @@ func DerivePhase(conditions []metav1.Condition) ProposalPhase {
 		default:
 			return ProposalPhaseFailed
 		}
-	}
-
-	if approved != nil && approved.Status == metav1.ConditionTrue {
-		return ProposalPhaseApproved
 	}
 
 	if c := get(ProposalConditionAnalyzed); c != nil {
@@ -120,6 +109,18 @@ func DerivePhase(conditions []metav1.Condition) ProposalPhase {
 
 	return ProposalPhasePending
 }
+
+// StepPhase summarizes a single step's lifecycle state for display.
+// Derived from per-step conditions via DeriveStepPhase; never stored on the CRD.
+type StepPhase string
+
+const (
+	StepPhasePendingApproval StepPhase = "PendingApproval"
+	StepPhaseRunning         StepPhase = "Running"
+	StepPhaseCompleted       StepPhase = "Completed"
+	StepPhaseFailed          StepPhase = "Failed"
+	StepPhaseSkipped         StepPhase = "Skipped"
+)
 
 // SandboxStep identifies which workflow step a sandbox pod is running for.
 // Used in PreviousAttempt to record which step failed, and internally by the
@@ -143,38 +144,32 @@ const (
 //
 // The lifecycle is derived from the combination of conditions:
 //
-//	No conditions          -> just created, pending
-//	Analyzed=Unknown       -> analysis in progress
-//	Analyzed=True          -> analysis complete, awaiting approval
-//	Approved=True          -> user approved; execution pending or in progress
-//	Approved=False         -> user denied (terminal)
-//	Executed=True          -> execution complete
-//	AwaitingSync=True      -> execution skipped, manual sync needed
-//	Verified=True          -> verification passed (terminal: success)
-//	Escalated=True         -> max retries exhausted (terminal)
-//	Any condition=False    -> step failed; check reason and message
+//	No conditions       -> just created, pending
+//	Analyzed=Unknown    -> analysis in progress
+//	Analyzed=True       -> analysis complete, next step queued
+//	Executed=Unknown    -> execution in progress
+//	Executed=True       -> execution complete
+//	Verified=Unknown    -> verification in progress
+//	Verified=True       -> verification passed (terminal: success)
+//	Denied=True         -> user denied a step (terminal)
+//	Escalated=True      -> max retries exhausted (terminal)
+//	Any condition=False -> step failed; check reason and message
 const (
 	// ProposalConditionAnalyzed indicates whether analysis has completed.
 	// Status=True when analysis succeeds, Status=False on failure,
 	// Status=Unknown while analysis is in progress.
 	ProposalConditionAnalyzed string = "Analyzed"
-	// ProposalConditionApproved indicates the user's approval decision.
-	// Status=True when approved, Status=False when denied.
-	// Users approve or deny by patching this condition on the status
-	// subresource (via CLI, console, or direct API call).
-	ProposalConditionApproved string = "Approved"
 	// ProposalConditionExecuted indicates whether execution has completed.
 	// Status=True when execution succeeds, Status=False on failure,
 	// Status=Unknown while execution is in progress.
 	ProposalConditionExecuted string = "Executed"
-	// ProposalConditionAwaitingSync indicates that execution was skipped
-	// and the user is expected to apply changes manually or via GitOps.
-	// Status=True when awaiting sync, removed when synced.
-	ProposalConditionAwaitingSync string = "AwaitingSync"
 	// ProposalConditionVerified indicates whether verification has passed.
 	// Status=True when verification succeeds, Status=False on failure,
 	// Status=Unknown while verification is in progress.
 	ProposalConditionVerified string = "Verified"
+	// ProposalConditionDenied indicates the user denied a step on the
+	// ProposalApproval resource. Status=True when denied (terminal).
+	ProposalConditionDenied string = "Denied"
 	// ProposalConditionEscalated indicates the proposal exhausted all retry
 	// attempts and a child proposal was created.
 	ProposalConditionEscalated string = "Escalated"
@@ -319,6 +314,17 @@ type ProposalSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Revision *int32 `json:"revision,omitempty"`
+
+	// revisionFeedback is the user's free-text feedback that accompanies a
+	// revision request. When the user increments spec.revision, they set
+	// this field to describe what they want changed about the analysis.
+	// The operator includes this text in the revision context sent to the
+	// analysis agent.
+	//
+	// Mutable: updated alongside spec.revision to provide revision context.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32768
+	RevisionFeedback string `json:"revisionFeedback,omitempty"`
 }
 
 // ProposalStatus defines the observed state of Proposal. All fields are

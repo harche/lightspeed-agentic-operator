@@ -1,8 +1,9 @@
 # Assisted proposals — analyze + verify, user applies changes manually.
 #
 # Execution is skipped. The agent analyzes the issue and proposes changes,
-# then the user applies them (e.g., via git PR). After the user signals
-# sync, the verification step checks the result.
+# then the user applies them (e.g., via git PR). After the user approves
+# the verification step on the ProposalApproval resource, the verification
+# agent checks the result.
 #
 # Requires: LLMProvider + Agent from 00/01
 ---

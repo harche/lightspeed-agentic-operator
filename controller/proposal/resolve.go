@@ -22,7 +22,7 @@ type resolvedWorkflow struct {
 	Verification *resolvedStep // nil = skip verification
 }
 
-func resolveProposal(ctx context.Context, c client.Client, proposal *agenticv1alpha1.Proposal) (*resolvedWorkflow, error) {
+func resolveProposal(ctx context.Context, c client.Client, proposal *agenticv1alpha1.Proposal, approval *agenticv1alpha1.ProposalApproval) (*resolvedWorkflow, error) {
 	agentCache := map[string]*agenticv1alpha1.Agent{}
 	llmCache := map[string]*agenticv1alpha1.LLMProvider{}
 
@@ -59,16 +59,23 @@ func resolveProposal(ctx context.Context, c client.Client, proposal *agenticv1al
 		return &proposal.Spec.Tools
 	}
 
+	effectiveAgent := func(stage agenticv1alpha1.SandboxStep, step *agenticv1alpha1.ProposalStep) string {
+		if override := getStageOverrideAgent(approval, stage); override != "" {
+			return override
+		}
+		return stepAgentName(step)
+	}
+
 	resolved := &resolvedWorkflow{}
 
-	agent, llm, err := resolveAgent(stepAgentName(proposal.Spec.Analysis))
+	agent, llm, err := resolveAgent(effectiveAgent(agenticv1alpha1.SandboxStepAnalysis, proposal.Spec.Analysis))
 	if err != nil {
 		return nil, fmt.Errorf("resolve analysis step: %w", err)
 	}
 	resolved.Analysis = resolvedStep{Agent: agent, LLM: llm, Tools: toolsForStep(proposal.Spec.Analysis)}
 
 	if proposal.Spec.Execution != nil {
-		agent, llm, err := resolveAgent(stepAgentName(proposal.Spec.Execution))
+		agent, llm, err := resolveAgent(effectiveAgent(agenticv1alpha1.SandboxStepExecution, proposal.Spec.Execution))
 		if err != nil {
 			return nil, fmt.Errorf("resolve execution step: %w", err)
 		}
@@ -76,7 +83,7 @@ func resolveProposal(ctx context.Context, c client.Client, proposal *agenticv1al
 	}
 
 	if proposal.Spec.Verification != nil {
-		agent, llm, err := resolveAgent(stepAgentName(proposal.Spec.Verification))
+		agent, llm, err := resolveAgent(effectiveAgent(agenticv1alpha1.SandboxStepVerification, proposal.Spec.Verification))
 		if err != nil {
 			return nil, fmt.Errorf("resolve verification step: %w", err)
 		}
