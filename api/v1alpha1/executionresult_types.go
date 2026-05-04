@@ -1,0 +1,109 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1alpha1
+
+import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:printcolumn:name="Proposal",type=string,JSONPath=`.proposalName`
+// +kubebuilder:printcolumn:name="Attempt",type=integer,JSONPath=`.attempt`
+// +kubebuilder:printcolumn:name="Retry",type=integer,JSONPath=`.retryIndex`
+// +kubebuilder:printcolumn:name="Success",type=boolean,JSONPath=`.success`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+
+// ExecutionResult records the output of a single execution step execution.
+// Created by the operator after the execution agent completes. Immutable
+// after creation -- never updated. Owned by the parent Proposal for
+// garbage collection.
+type ExecutionResult struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// proposalName is the name of the parent Proposal in the same namespace.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	ProposalName string `json:"proposalName"`
+
+	// attempt is the 1-based overall attempt number.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	Attempt int32 `json:"attempt"`
+
+	// retryIndex is the 0-based retry index within the current analysis.
+	// First execution has retryIndex 0, first retry has retryIndex 1, etc.
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	RetryIndex int32 `json:"retryIndex"`
+
+	// success indicates whether the execution agent reported success.
+	// +required
+	Success bool `json:"success"`
+
+	// actionsTaken lists what the agent did.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=100
+	ActionsTaken []ExecutionAction `json:"actionsTaken,omitempty"`
+
+	// verification is the lightweight inline verification the execution
+	// agent performs immediately after completing its actions.
+	// +optional
+	Verification ExecutionVerification `json:"verification,omitzero"`
+
+	// components contains optional adapter-defined structured data.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=20
+	Components []apiextensionsv1.JSON `json:"components,omitempty"`
+
+	// sandbox tracks the sandbox pod used for this execution.
+	// +optional
+	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+
+	// startTime is when execution started.
+	// +optional
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// completionTime is when execution completed.
+	// +optional
+	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+
+	// failureReason is populated when success is false.
+	// +optional
+	// +kubebuilder:validation:MaxLength=8192
+	FailureReason string `json:"failureReason,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// ExecutionResultList contains a list of ExecutionResult.
+type ExecutionResultList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ExecutionResult `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&ExecutionResult{}, &ExecutionResultList{})
+}

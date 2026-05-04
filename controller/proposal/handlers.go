@@ -8,6 +8,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -66,7 +67,11 @@ func (r *ProposalReconciler) handleAnalysis(
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
 	proposal.Status.Steps.Analysis.CompletionTime = &completedAt
-	applyAnalysisResult(&proposal.Status.Steps.Analysis, analysisResult)
+	crName, crErr := r.createAnalysisResult(ctx, proposal, analysisResult, proposal.Status.Steps.Analysis.Sandbox, proposal.Status.Steps.Analysis.StartTime, &completedAt, "")
+	if crErr != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("create analysis result: %w", crErr))
+	}
+	proposal.Status.Steps.Analysis.Results = append(proposal.Status.Steps.Analysis.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: analysisResult.Success})
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
 		Status:  metav1.ConditionTrue,
@@ -127,7 +132,11 @@ func (r *ProposalReconciler) handleRevision(
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
 	proposal.Status.Steps.Analysis.CompletionTime = &completedAt
-	applyAnalysisResult(&proposal.Status.Steps.Analysis, analysisResult)
+	crName, crErr := r.createAnalysisResult(ctx, proposal, analysisResult, proposal.Status.Steps.Analysis.Sandbox, proposal.Status.Steps.Analysis.StartTime, &completedAt, "")
+	if crErr != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("create analysis result: %w", crErr))
+	}
+	proposal.Status.Steps.Analysis.Results = append(proposal.Status.Steps.Analysis.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: analysisResult.Success})
 	proposal.Status.Steps.Analysis.ObservedRevision = &revision
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
@@ -199,21 +208,23 @@ func (r *ProposalReconciler) handleExecution(
 		}
 	}
 
-	// Copy selected option from ProposalApproval and prune non-selected options.
-	// Skip if already pruned (e.g., on retry after verification failure).
+	// Copy selected option from ProposalApproval.
+	// Skip if already set (e.g., on retry after verification failure).
 	if proposal.Status.Steps.Analysis.SelectedOption == nil {
 		base := proposal.DeepCopy()
 		option := getStageOption(approval)
 		if option != nil {
 			proposal.Status.Steps.Analysis.SelectedOption = option
 		}
-		pruneToSelectedOption(&proposal.Status.Steps.Analysis)
 		if err := r.statusPatch(ctx, proposal, base); err != nil {
 			return ctrl.Result{}, fmt.Errorf("persist selected option: %w", err)
 		}
 	}
 
-	selectedOption := r.selectedOption(proposal)
+	selectedOption, selErr := r.selectedOption(ctx, proposal)
+	if selErr != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, fmt.Errorf("resolve selected option: %w", selErr))
+	}
 
 	base := proposal.DeepCopy()
 	if selectedOption != nil && (len(selectedOption.RBAC.NamespaceScoped) > 0 || len(selectedOption.RBAC.ClusterScoped) > 0) {
@@ -250,7 +261,11 @@ func (r *ProposalReconciler) handleExecution(
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
 	proposal.Status.Steps.Execution.CompletionTime = &completedAt
-	applyExecutionResult(&proposal.Status.Steps.Execution, execResult)
+	execCRName, execCRErr := r.createExecutionResult(ctx, proposal, execResult, proposal.Status.Steps.Execution.Sandbox, proposal.Status.Steps.Execution.StartTime, &completedAt, "")
+	if execCRErr != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, fmt.Errorf("create execution result: %w", execCRErr))
+	}
+	proposal.Status.Steps.Execution.Results = append(proposal.Status.Steps.Execution.Results, agenticv1alpha1.StepResultRef{Name: execCRName, Success: execResult.Success})
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionExecuted,
 		Status:  metav1.ConditionTrue,
@@ -320,14 +335,22 @@ func (r *ProposalReconciler) handleVerification(
 		Message: "Verification agent is running",
 	})
 
-	selectedOption := r.selectedOption(proposal)
+	selectedOption, selErr := r.selectedOption(ctx, proposal)
+	if selErr != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionVerified, fmt.Errorf("resolve selected option: %w", selErr))
+	}
 
 	var execOutput *ExecutionOutput
-	if len(proposal.Status.Steps.Execution.ActionsTaken) > 0 {
-		execOutput = &ExecutionOutput{
-			ActionsTaken: proposal.Status.Steps.Execution.ActionsTaken,
-			Verification: proposal.Status.Steps.Execution.Verification,
-			Components:   proposal.Status.Steps.Execution.Components,
+	if refs := proposal.Status.Steps.Execution.Results; len(refs) > 0 {
+		latestRef := refs[len(refs)-1]
+		var execCR agenticv1alpha1.ExecutionResult
+		if err := r.Get(ctx, types.NamespacedName{Name: latestRef.Name, Namespace: proposal.Namespace}, &execCR); err == nil {
+			execOutput = &ExecutionOutput{
+				Success:      execCR.Success,
+				ActionsTaken: execCR.ActionsTaken,
+				Verification: execCR.Verification,
+				Components:   execCR.Components,
+			}
 		}
 	}
 
@@ -339,7 +362,11 @@ func (r *ProposalReconciler) handleVerification(
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
 	proposal.Status.Steps.Verification.CompletionTime = &completedAt
-	applyVerificationResult(&proposal.Status.Steps.Verification, verifyResult)
+	verifyCRName, verifyCRErr := r.createVerificationResult(ctx, proposal, verifyResult, proposal.Status.Steps.Verification.Sandbox, proposal.Status.Steps.Verification.StartTime, &completedAt, "")
+	if verifyCRErr != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionVerified, fmt.Errorf("create verification result: %w", verifyCRErr))
+	}
+	proposal.Status.Steps.Verification.Results = append(proposal.Status.Steps.Verification.Results, agenticv1alpha1.StepResultRef{Name: verifyCRName, Success: verifyResult.Success})
 
 	allPassed := verifyResult.Success
 	for _, check := range verifyResult.Checks {
@@ -413,20 +440,6 @@ func (r *ProposalReconciler) handleFailed(
 	if proposal.Annotations[rbacNamespacesAnnotation] != "" {
 		if err := cleanupExecutionRBAC(ctx, r.Client, proposal); err != nil {
 			log.Error(err, "RBAC cleanup on failure")
-		}
-	}
-
-	currentAttempt := *proposal.Status.Attempts
-	if !attemptAlreadyRecorded(proposal.Status.PreviousAttempts, currentAttempt) {
-		base := proposal.DeepCopy()
-		failedStep, failureReason := determineFailure(proposal)
-		proposal.Status.PreviousAttempts = append(proposal.Status.PreviousAttempts, agenticv1alpha1.PreviousAttempt{
-			Attempt:       currentAttempt,
-			FailedStep:    failedStep,
-			FailureReason: failureReason,
-		})
-		if err := r.statusPatch(ctx, proposal, base); err != nil {
-			return ctrl.Result{}, fmt.Errorf("record system failure: %w", err)
 		}
 	}
 	return ctrl.Result{}, nil

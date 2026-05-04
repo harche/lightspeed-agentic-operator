@@ -192,28 +192,6 @@ type ProposalStep struct {
 	Tools *ToolsSpec `json:"tools,omitempty"`
 }
 
-// PreviousAttempt captures the state of a failed attempt. When a proposal
-// fails and retries, the operator records the failure context here so that
-// the analysis agent on the next attempt can learn from previous failures.
-// If maxAttempts is reached, the full history of PreviousAttempts is
-// included in the escalation child proposal.
-type PreviousAttempt struct {
-	// attempt is the 1-based attempt number that failed.
-	// +required
-	// +kubebuilder:validation:Minimum=1
-	Attempt int32 `json:"attempt,omitempty"`
-	// failedStep is which workflow step failed (analysis, execution, or verification).
-	// +optional
-	FailedStep SandboxStep `json:"failedStep,omitempty"`
-	// failureReason is the error message or explanation from the failed step.
-	// Omit when no failure has occurred; an empty string is treated the same
-	// as omitted (no failure). Maximum 8192 characters.
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=8192
-	FailureReason string `json:"failureReason,omitempty"`
-}
-
 // ProposalSpec defines the desired state of Proposal.
 //
 // A Proposal defines the workflow shape inline, specifying which steps
@@ -353,19 +331,9 @@ type ProposalStatus struct {
 
 	// steps contains the per-step observed state (analysis, execution,
 	// verification). Each step independently tracks its timing, sandbox
-	// info, and results.
+	// info, and references to result CRs.
 	// +optional
 	Steps StepsStatus `json:"steps,omitzero"`
-
-	// previousAttempts contains the failure history from earlier attempts.
-	// Each entry records which step failed and why, giving the analysis
-	// agent on the next attempt context to avoid repeating the same mistake.
-	// Maximum 20 items.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=20
-	PreviousAttempts []PreviousAttempt `json:"previousAttempts,omitempty"`
 }
 
 // +kubebuilder:object:root=true

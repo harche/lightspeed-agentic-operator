@@ -256,13 +256,9 @@ func buildAgentContext(proposal *agenticv1alpha1.Proposal) *agentContext {
 		ctx.Attempt = *proposal.Status.Attempts
 	}
 
-	if n := len(proposal.Status.PreviousAttempts); n > 0 {
-		ctx.PreviousAttempts = make([]agentPreviousAttempt, 0, n)
-	}
-	for _, pa := range proposal.Status.PreviousAttempts {
+	for _, ea := range collectFailedAttempts(&proposal.Status.Steps) {
 		ctx.PreviousAttempts = append(ctx.PreviousAttempts, agentPreviousAttempt{
-			Attempt:       pa.Attempt,
-			FailureReason: pa.FailureReason,
+			FailureReason: ea.FailureReason,
 		})
 	}
 

@@ -143,7 +143,14 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
 		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	if len(p.Status.Steps.Analysis.Options) == 0 {
+	if len(p.Status.Steps.Analysis.Results) == 0 {
+		t.Fatal("analysis results not set")
+	}
+	var analysisResult agenticv1alpha1.AnalysisResult
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Analysis.Results[0].Name, Namespace: "default"}, &analysisResult); err != nil {
+		t.Fatalf("get AnalysisResult: %v", err)
+	}
+	if len(analysisResult.Options) == 0 {
 		t.Fatal("analysis options not set")
 	}
 
@@ -163,7 +170,14 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
 		t.Fatalf("expected Verifying, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	if len(p.Status.Steps.Execution.ActionsTaken) == 0 {
+	if len(p.Status.Steps.Execution.Results) == 0 {
+		t.Fatal("execution results not set")
+	}
+	var execResult agenticv1alpha1.ExecutionResult
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Execution.Results[0].Name, Namespace: "default"}, &execResult); err != nil {
+		t.Fatalf("get ExecutionResult: %v", err)
+	}
+	if len(execResult.ActionsTaken) == 0 {
 		t.Fatal("execution actions not set")
 	}
 
@@ -177,7 +191,14 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseCompleted {
 		t.Fatalf("expected Completed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	if p.Status.Steps.Verification.Summary == "" {
+	if len(p.Status.Steps.Verification.Results) == 0 {
+		t.Fatal("verification results not set")
+	}
+	var verifyResult agenticv1alpha1.VerificationResult
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Verification.Results[0].Name, Namespace: "default"}, &verifyResult); err != nil {
+		t.Fatalf("get VerificationResult: %v", err)
+	}
+	if verifyResult.Summary == "" {
 		t.Fatal("verification summary not set")
 	}
 }
@@ -213,8 +234,11 @@ func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseFailed {
 		t.Fatalf("expected Failed (terminal), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	if len(p.Status.PreviousAttempts) != 1 {
-		t.Fatalf("expected 1 previous attempt recorded, got %d", len(p.Status.PreviousAttempts))
+	if len(p.Status.Steps.Analysis.Results) != 1 {
+		t.Fatalf("expected 1 analysis result recorded, got %d", len(p.Status.Steps.Analysis.Results))
+	}
+	if p.Status.Steps.Analysis.Results[0].Success {
+		t.Fatal("expected failed analysis result")
 	}
 }
 
@@ -446,7 +470,7 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
 		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	initialOptionsCount := len(p.Status.Steps.Analysis.Options)
+	initialResultCount := len(p.Status.Steps.Analysis.Results)
 
 	// Submit revision
 	reviseProposal(t, fc, "fix-crash", 1)
@@ -462,10 +486,9 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 	if p.Status.Steps.Analysis.ObservedRevision == nil || *p.Status.Steps.Analysis.ObservedRevision != 1 {
 		t.Fatal("observedRevision not set to 1")
 	}
-	if len(p.Status.Steps.Analysis.Options) == 0 {
-		t.Fatal("options should be populated after revision")
+	if len(p.Status.Steps.Analysis.Results) <= initialResultCount {
+		t.Fatal("results should have a new entry after revision")
 	}
-	_ = initialOptionsCount // options are replaced inline
 
 	// Approve and continue
 	approveProposal(t, fc, "fix-crash")
@@ -909,14 +932,21 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
 		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	if len(p.Status.Steps.Analysis.Options) != 1 {
-		t.Fatalf("expected 1 option, got %d", len(p.Status.Steps.Analysis.Options))
+	if len(p.Status.Steps.Analysis.Results) != 1 {
+		t.Fatalf("expected 1 analysis result, got %d", len(p.Status.Steps.Analysis.Results))
 	}
-	if p.Status.Steps.Analysis.Options[0].Title != "Increase memory limit" {
-		t.Errorf("option title = %q", p.Status.Steps.Analysis.Options[0].Title)
+	var ar agenticv1alpha1.AnalysisResult
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Analysis.Results[0].Name, Namespace: "default"}, &ar); err != nil {
+		t.Fatalf("get AnalysisResult: %v", err)
 	}
-	if p.Status.Steps.Analysis.Options[0].Diagnosis.Confidence != "High" {
-		t.Errorf("confidence = %q", p.Status.Steps.Analysis.Options[0].Diagnosis.Confidence)
+	if len(ar.Options) != 1 {
+		t.Fatalf("expected 1 option, got %d", len(ar.Options))
+	}
+	if ar.Options[0].Title != "Increase memory limit" {
+		t.Errorf("option title = %q", ar.Options[0].Title)
+	}
+	if ar.Options[0].Diagnosis.Confidence != "High" {
+		t.Errorf("confidence = %q", ar.Options[0].Diagnosis.Confidence)
 	}
 
 	// Approve
@@ -934,14 +964,21 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseVerifying {
 		t.Fatalf("expected Verifying, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	if len(p.Status.Steps.Execution.ActionsTaken) != 1 {
-		t.Fatalf("expected 1 action, got %d", len(p.Status.Steps.Execution.ActionsTaken))
+	if len(p.Status.Steps.Execution.Results) != 1 {
+		t.Fatalf("expected 1 execution result, got %d", len(p.Status.Steps.Execution.Results))
 	}
-	if p.Status.Steps.Execution.ActionsTaken[0].Outcome != agenticv1alpha1.ActionOutcomeSucceeded {
-		t.Errorf("action outcome = %q", p.Status.Steps.Execution.ActionsTaken[0].Outcome)
+	var er agenticv1alpha1.ExecutionResult
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Execution.Results[0].Name, Namespace: "default"}, &er); err != nil {
+		t.Fatalf("get ExecutionResult: %v", err)
 	}
-	if p.Status.Steps.Execution.Verification.ConditionOutcome != agenticv1alpha1.ConditionOutcomeImproved {
-		t.Errorf("inline verification = %q", p.Status.Steps.Execution.Verification.ConditionOutcome)
+	if len(er.ActionsTaken) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(er.ActionsTaken))
+	}
+	if er.ActionsTaken[0].Outcome != agenticv1alpha1.ActionOutcomeSucceeded {
+		t.Errorf("action outcome = %q", er.ActionsTaken[0].Outcome)
+	}
+	if er.Verification.ConditionOutcome != agenticv1alpha1.ConditionOutcomeImproved {
+		t.Errorf("inline verification = %q", er.Verification.ConditionOutcome)
 	}
 
 	// Reconcile 3: Verifying → Completed (via sandbox verification)
@@ -952,14 +989,21 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseCompleted {
 		t.Fatalf("expected Completed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	if p.Status.Steps.Verification.Summary != "All verification checks passed" {
-		t.Errorf("summary = %q", p.Status.Steps.Verification.Summary)
+	if len(p.Status.Steps.Verification.Results) != 1 {
+		t.Fatalf("expected 1 verification result, got %d", len(p.Status.Steps.Verification.Results))
 	}
-	if len(p.Status.Steps.Verification.Checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(p.Status.Steps.Verification.Checks))
+	var vr agenticv1alpha1.VerificationResult
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Verification.Results[0].Name, Namespace: "default"}, &vr); err != nil {
+		t.Fatalf("get VerificationResult: %v", err)
 	}
-	if p.Status.Steps.Verification.Checks[0].Result != agenticv1alpha1.CheckResultPassed {
-		t.Errorf("check result = %q", p.Status.Steps.Verification.Checks[0].Result)
+	if vr.Summary != "All verification checks passed" {
+		t.Errorf("summary = %q", vr.Summary)
+	}
+	if len(vr.Checks) != 1 {
+		t.Fatalf("expected 1 check, got %d", len(vr.Checks))
+	}
+	if vr.Checks[0].Result != agenticv1alpha1.CheckResultPassed {
+		t.Errorf("check result = %q", vr.Checks[0].Result)
 	}
 
 	// Verify sandbox was claimed for each phase (release is deferred to terminal phase)
@@ -1075,7 +1119,7 @@ func TestReconcile_VerificationSuccessFalse_RetriesExecution(t *testing.T) {
 	}
 }
 
-func TestReconcile_ExecutionPrunesNonSelectedOptions(t *testing.T) {
+func TestReconcile_ExecutionSelectsOption(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal()
 
@@ -1098,29 +1142,30 @@ func TestReconcile_ExecutionPrunesNonSelectedOptions(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 
 	p, _ := getProposal(r, "fix-crash")
-	if len(p.Status.Steps.Analysis.Options) != 3 {
-		t.Fatalf("expected 3 options after analysis, got %d", len(p.Status.Steps.Analysis.Options))
+	if len(p.Status.Steps.Analysis.Results) == 0 {
+		t.Fatal("expected analysis results after analysis")
+	}
+	var ar agenticv1alpha1.AnalysisResult
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Analysis.Results[0].Name, Namespace: "default"}, &ar); err != nil {
+		t.Fatalf("get AnalysisResult: %v", err)
+	}
+	if len(ar.Options) != 3 {
+		t.Fatalf("expected 3 options in AnalysisResult, got %d", len(ar.Options))
 	}
 
 	// Approve option 1 (Option B)
 	approveProposalWithOption(t, fc, "fix-crash", 1)
 
-	// Execution reconcile — should prune
+	// Execution reconcile — selectedOption is persisted
 	reconcileOnce(r, "fix-crash")
 
 	p, _ = getProposal(r, "fix-crash")
-	if len(p.Status.Steps.Analysis.Options) != 1 {
-		t.Fatalf("expected 1 option after prune, got %d", len(p.Status.Steps.Analysis.Options))
-	}
-	if p.Status.Steps.Analysis.Options[0].Title != "Option B" {
-		t.Errorf("expected pruned option title %q, got %q", "Option B", p.Status.Steps.Analysis.Options[0].Title)
-	}
-	if p.Status.Steps.Analysis.SelectedOption == nil || *p.Status.Steps.Analysis.SelectedOption != 0 {
-		t.Errorf("expected SelectedOption=0 after prune, got %v", p.Status.Steps.Analysis.SelectedOption)
+	if p.Status.Steps.Analysis.SelectedOption == nil || *p.Status.Steps.Analysis.SelectedOption != 1 {
+		t.Errorf("expected SelectedOption=1, got %v", p.Status.Steps.Analysis.SelectedOption)
 	}
 }
 
-func TestReconcile_ExecutionPruneSingleOption(t *testing.T) {
+func TestReconcile_ExecutionSingleOption(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal()
 
@@ -1140,15 +1185,15 @@ func TestReconcile_ExecutionPruneSingleOption(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 
 	p, _ := getProposal(r, "fix-crash")
-	if len(p.Status.Steps.Analysis.Options) != 1 {
-		t.Fatalf("expected 1 option (no-op prune), got %d", len(p.Status.Steps.Analysis.Options))
+	if len(p.Status.Steps.Analysis.Results) == 0 {
+		t.Fatal("expected analysis results")
 	}
 	if p.Status.Steps.Analysis.SelectedOption == nil || *p.Status.Steps.Analysis.SelectedOption != 0 {
 		t.Errorf("expected SelectedOption=0, got %v", p.Status.Steps.Analysis.SelectedOption)
 	}
 }
 
-func TestReconcile_RetryAfterPrune(t *testing.T) {
+func TestReconcile_RetryPreservesSelectedOption(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal()
 	maxAttempts := int32(3)
@@ -1180,7 +1225,7 @@ func TestReconcile_RetryAfterPrune(t *testing.T) {
 	// Approve option 2 (Option C)
 	approveProposalWithOption(t, fc, "fix-crash", 2)
 
-	// Execution (prunes options)
+	// Execution
 	reconcileOnce(r, "fix-crash")
 
 	// Verification fails → triggers retry
@@ -1191,22 +1236,28 @@ func TestReconcile_RetryAfterPrune(t *testing.T) {
 		t.Fatalf("expected Executing (retry), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
-	// Verify pruned state survived the retry reset
-	if len(p.Status.Steps.Analysis.Options) != 1 {
-		t.Fatalf("expected 1 option after retry, got %d", len(p.Status.Steps.Analysis.Options))
+	// Verify selected option survived the retry reset
+	if p.Status.Steps.Analysis.SelectedOption == nil || *p.Status.Steps.Analysis.SelectedOption != 2 {
+		t.Errorf("expected SelectedOption=2 after retry, got %v", p.Status.Steps.Analysis.SelectedOption)
 	}
-	if p.Status.Steps.Analysis.Options[0].Title != "Option C" {
-		t.Errorf("expected option title %q after retry, got %q", "Option C", p.Status.Steps.Analysis.Options[0].Title)
+
+	// Verify AnalysisResult CR still has all 3 options
+	var ar agenticv1alpha1.AnalysisResult
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Analysis.Results[0].Name, Namespace: "default"}, &ar); err != nil {
+		t.Fatalf("get AnalysisResult: %v", err)
 	}
-	if p.Status.Steps.Analysis.SelectedOption == nil || *p.Status.Steps.Analysis.SelectedOption != 0 {
-		t.Errorf("expected SelectedOption=0 after retry, got %v", p.Status.Steps.Analysis.SelectedOption)
+	if len(ar.Options) != 3 {
+		t.Fatalf("expected 3 options in AnalysisResult after retry, got %d", len(ar.Options))
+	}
+	if ar.Options[2].Title != "Option C" {
+		t.Errorf("expected option[2] title %q, got %q", "Option C", ar.Options[2].Title)
 	}
 
 	// Re-execute after retry — selectedOption() should still resolve
 	reconcileOnce(r, "fix-crash")
 
 	p, _ = getProposal(r, "fix-crash")
-	if p.Status.Steps.Analysis.SelectedOption == nil || *p.Status.Steps.Analysis.SelectedOption != 0 {
-		t.Errorf("expected SelectedOption=0 after re-execution, got %v", p.Status.Steps.Analysis.SelectedOption)
+	if p.Status.Steps.Analysis.SelectedOption == nil || *p.Status.Steps.Analysis.SelectedOption != 2 {
+		t.Errorf("expected SelectedOption=2 after re-execution, got %v", p.Status.Steps.Analysis.SelectedOption)
 	}
 }

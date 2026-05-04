@@ -32,6 +32,9 @@ type ProposalReconciler struct {
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposalapprovals,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=proposalapprovals/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=approvalpolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=agentic.openshift.io,resources=analysisresults,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=agentic.openshift.io,resources=executionresults,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=agentic.openshift.io,resources=verificationresults,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;create;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;create;delete
 
@@ -165,6 +168,9 @@ func (r *ProposalReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&agenticv1alpha1.Proposal{}).
 		Owns(&agenticv1alpha1.ProposalApproval{}).
+		Owns(&agenticv1alpha1.AnalysisResult{}).
+		Owns(&agenticv1alpha1.ExecutionResult{}).
+		Owns(&agenticv1alpha1.VerificationResult{}).
 		Watches(&agenticv1alpha1.ApprovalPolicy{}, handler.EnqueueRequestsFromMapFunc(
 			func(ctx context.Context, obj client.Object) []ctrl.Request {
 				var proposals agenticv1alpha1.ProposalList

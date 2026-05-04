@@ -277,8 +277,12 @@ func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 		},
 		Status: agenticv1alpha1.ProposalStatus{
 			Attempts: &attempt,
-			PreviousAttempts: []agenticv1alpha1.PreviousAttempt{
-				{Attempt: 1, FailureReason: "analysis timeout"},
+			Steps: agenticv1alpha1.StepsStatus{
+				Execution: agenticv1alpha1.ExecutionStepStatus{
+					Results: []agenticv1alpha1.StepResultRef{
+						{Name: "fix-crash-execution-1", Success: false},
+					},
+				},
 			},
 		},
 	}
@@ -297,7 +301,7 @@ func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 	if len(httpClient.lastCtx.PreviousAttempts) != 1 {
 		t.Fatalf("previousAttempts count = %d, want 1", len(httpClient.lastCtx.PreviousAttempts))
 	}
-	if httpClient.lastCtx.PreviousAttempts[0].FailureReason != "analysis timeout" {
+	if httpClient.lastCtx.PreviousAttempts[0].FailureReason != "execution attempt 1 failed" {
 		t.Errorf("failureReason = %q", httpClient.lastCtx.PreviousAttempts[0].FailureReason)
 	}
 }

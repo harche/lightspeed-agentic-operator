@@ -12,6 +12,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -66,6 +67,29 @@ func (r *ProposalReconciler) failStep(ctx context.Context, log logr.Logger, prop
 		proposal.Status.Steps.Verification.CompletionTime = &completedAt
 	}
 
+	var crName string
+	var createErr error
+	switch conditionType {
+	case agenticv1alpha1.ProposalConditionAnalyzed:
+		crName, createErr = r.createAnalysisResult(ctx, proposal, nil, proposal.Status.Steps.Analysis.Sandbox, proposal.Status.Steps.Analysis.StartTime, &completedAt, err.Error())
+		if createErr == nil {
+			proposal.Status.Steps.Analysis.Results = append(proposal.Status.Steps.Analysis.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: false})
+		}
+	case agenticv1alpha1.ProposalConditionExecuted:
+		crName, createErr = r.createExecutionResult(ctx, proposal, nil, proposal.Status.Steps.Execution.Sandbox, proposal.Status.Steps.Execution.StartTime, &completedAt, err.Error())
+		if createErr == nil {
+			proposal.Status.Steps.Execution.Results = append(proposal.Status.Steps.Execution.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: false})
+		}
+	case agenticv1alpha1.ProposalConditionVerified:
+		crName, createErr = r.createVerificationResult(ctx, proposal, nil, proposal.Status.Steps.Verification.Sandbox, proposal.Status.Steps.Verification.StartTime, &completedAt, err.Error())
+		if createErr == nil {
+			proposal.Status.Steps.Verification.Results = append(proposal.Status.Steps.Verification.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: false})
+		}
+	}
+	if createErr != nil {
+		log.Error(createErr, "failed to create failure result CR")
+	}
+
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    conditionType,
 		Status:  metav1.ConditionFalse,
@@ -105,88 +129,31 @@ func setVerificationSkipped(proposal *agenticv1alpha1.Proposal) {
 	})
 }
 
-func (r *ProposalReconciler) selectedOption(proposal *agenticv1alpha1.Proposal) *agenticv1alpha1.RemediationOption {
+func (r *ProposalReconciler) selectedOption(ctx context.Context, proposal *agenticv1alpha1.Proposal) (*agenticv1alpha1.RemediationOption, error) {
 	analysis := proposal.Status.Steps.Analysis
-	if analysis.SelectedOption == nil || len(analysis.Options) == 0 {
-		return nil
+	if analysis.SelectedOption == nil || len(analysis.Results) == 0 {
+		return nil, nil
+	}
+	latestRef := analysis.Results[len(analysis.Results)-1]
+	var result agenticv1alpha1.AnalysisResult
+	if err := r.Get(ctx, types.NamespacedName{Name: latestRef.Name, Namespace: proposal.Namespace}, &result); err != nil {
+		return nil, fmt.Errorf("get AnalysisResult %s: %w", latestRef.Name, err)
 	}
 	idx := int(*analysis.SelectedOption)
-	if idx < 0 || idx >= len(analysis.Options) {
-		r.Log.Info("selectedOption index out of range", "index", idx, "options", len(analysis.Options), "proposal", proposal.Name)
-		return nil
+	if idx < 0 || idx >= len(result.Options) {
+		r.Log.Info("selectedOption index out of range", "index", idx, "options", len(result.Options), "proposal", proposal.Name)
+		return nil, nil
 	}
-	return &analysis.Options[idx]
-}
-
-func pruneToSelectedOption(analysis *agenticv1alpha1.AnalysisStepStatus) {
-	if analysis.SelectedOption == nil || len(analysis.Options) == 0 {
-		return
-	}
-	idx := int(*analysis.SelectedOption)
-	if idx < 0 || idx >= len(analysis.Options) {
-		return
-	}
-	analysis.Options = []agenticv1alpha1.RemediationOption{analysis.Options[idx]}
-	zero := int32(0)
-	analysis.SelectedOption = &zero
-}
-
-func applyAnalysisResult(step *agenticv1alpha1.AnalysisStepStatus, result *AnalysisOutput) {
-	step.Options = result.Options
-	step.Components = result.Components
-}
-
-func applyExecutionResult(step *agenticv1alpha1.ExecutionStepStatus, result *ExecutionOutput) {
-	step.Success = &result.Success
-	step.ActionsTaken = result.ActionsTaken
-	step.Verification = result.Verification
-	step.Components = result.Components
-}
-
-func applyVerificationResult(step *agenticv1alpha1.VerificationStepStatus, result *VerificationOutput) {
-	step.Success = &result.Success
-	step.Checks = result.Checks
-	step.Summary = result.Summary
-	step.Components = result.Components
+	return &result.Options[idx], nil
 }
 
 func resetExecutionAndVerification(steps *agenticv1alpha1.StepsStatus) {
 	steps.Execution.StartTime = nil
 	steps.Execution.CompletionTime = nil
-	steps.Execution.ActionsTaken = nil
-	steps.Execution.Verification = agenticv1alpha1.ExecutionVerification{}
-	steps.Execution.Components = nil
-	steps.Verification = agenticv1alpha1.VerificationStepStatus{}
-}
-
-func determineFailure(proposal *agenticv1alpha1.Proposal) (agenticv1alpha1.SandboxStep, string) {
-	for _, c := range proposal.Status.Conditions {
-		if c.Status != metav1.ConditionFalse {
-			continue
-		}
-		var step agenticv1alpha1.SandboxStep
-		switch c.Type {
-		case agenticv1alpha1.ProposalConditionAnalyzed:
-			step = agenticv1alpha1.SandboxStepAnalysis
-		case agenticv1alpha1.ProposalConditionExecuted:
-			step = agenticv1alpha1.SandboxStepExecution
-		case agenticv1alpha1.ProposalConditionVerified:
-			step = agenticv1alpha1.SandboxStepVerification
-		default:
-			continue
-		}
-		return step, c.Message
-	}
-	return "", ""
-}
-
-func attemptAlreadyRecorded(attempts []agenticv1alpha1.PreviousAttempt, num int32) bool {
-	for _, a := range attempts {
-		if a.Attempt == num {
-			return true
-		}
-	}
-	return false
+	steps.Execution.Sandbox = agenticv1alpha1.SandboxInfo{}
+	steps.Verification.StartTime = nil
+	steps.Verification.CompletionTime = nil
+	steps.Verification.Sandbox = agenticv1alpha1.SandboxInfo{}
 }
 
 func maxAttempts(proposal *agenticv1alpha1.Proposal) int {
@@ -209,20 +176,32 @@ type escalationAttempt struct {
 	FailureReason string
 }
 
+func collectFailedAttempts(steps *agenticv1alpha1.StepsStatus) []escalationAttempt {
+	var attempts []escalationAttempt
+	for i, ref := range steps.Analysis.Results {
+		if !ref.Success {
+			attempts = append(attempts, escalationAttempt{FailedStep: "analysis", FailureReason: fmt.Sprintf("analysis attempt %d failed", i+1)})
+		}
+	}
+	for i, ref := range steps.Execution.Results {
+		if !ref.Success {
+			attempts = append(attempts, escalationAttempt{FailedStep: "execution", FailureReason: fmt.Sprintf("execution attempt %d failed", i+1)})
+		}
+	}
+	for i, ref := range steps.Verification.Results {
+		if !ref.Success {
+			attempts = append(attempts, escalationAttempt{FailedStep: "verification", FailureReason: fmt.Sprintf("verification attempt %d failed", i+1)})
+		}
+	}
+	return attempts
+}
+
 func buildEscalationRequest(proposal *agenticv1alpha1.Proposal) string {
 	data := escalationData{
-		Name:         proposal.Name,
-		Request:      proposal.Spec.Request,
-		AttemptCount: *proposal.Status.Attempts,
-	}
-	data.PreviousAttempts = make([]escalationAttempt, 0, len(proposal.Status.PreviousAttempts))
-	for _, pa := range proposal.Status.PreviousAttempts {
-		a := escalationAttempt{Attempt: pa.Attempt}
-		if pa.FailedStep != "" {
-			a.FailedStep = string(pa.FailedStep)
-		}
-		a.FailureReason = pa.FailureReason
-		data.PreviousAttempts = append(data.PreviousAttempts, a)
+		Name:             proposal.Name,
+		Request:          proposal.Spec.Request,
+		AttemptCount:     *proposal.Status.Attempts,
+		PreviousAttempts: collectFailedAttempts(&proposal.Status.Steps),
 	}
 	return renderTemplate("escalation_request.tmpl", data)
 }

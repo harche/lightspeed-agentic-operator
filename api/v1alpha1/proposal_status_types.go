@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -158,6 +157,19 @@ type SandboxInfo struct {
 	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 }
 
+// StepResultRef is a lightweight reference to a result CR with an inline
+// success field for quick scanning without fetching the CR.
+type StepResultRef struct {
+	// name is the name of the result CR.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+	// success indicates the outcome of this step attempt.
+	// +required
+	Success bool `json:"success"`
+}
+
 // AnalysisStepStatus is the observed state of the analysis step.
 type AnalysisStepStatus struct {
 	// conditions for this step.
@@ -178,25 +190,8 @@ type AnalysisStepStatus struct {
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
-	// options contains one or more remediation options returned by the
-	// analysis agent. Each option has its own diagnosis, plan,
-	// verification strategy, and RBAC requirements.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=10
-	Options []RemediationOption `json:"options,omitempty"`
-	// components contains optional adapter-specific UI components that
-	// apply to the analysis step as a whole.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=20
-	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 	// selectedOption is the 0-based index into the options array
-	// that the user approved. Set when the user approves the proposal.
-	// The operator uses this to determine which option's RBAC and plan
-	// to use for execution. Minimum value: 0.
+	// of the latest AnalysisResult CR that the user approved.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	SelectedOption *int32 `json:"selectedOption,omitempty"`
@@ -206,6 +201,12 @@ type AnalysisStepStatus struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	ObservedRevision *int32 `json:"observedRevision,omitempty"`
+	// results references AnalysisResult CRs, newest last.
+	// Each entry corresponds to one analysis attempt.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=20
+	Results []StepResultRef `json:"results,omitempty"`
 }
 
 // ExecutionStepStatus is the observed state of the execution step.
@@ -228,25 +229,6 @@ type ExecutionStepStatus struct {
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
-	// success indicates whether the execution agent reported overall success.
-	// +optional
-	Success *bool `json:"success,omitempty"`
-	// actionsTaken lists what the agent did.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=100
-	ActionsTaken []ExecutionAction `json:"actionsTaken,omitempty"`
-	// verification is the lightweight inline verification the execution
-	// agent performs immediately after completing its actions.
-	// +optional
-	Verification ExecutionVerification `json:"verification,omitzero"`
-	// components contains optional adapter-defined structured data.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=20
-	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 	// retryCount tracks how many times execution+verification has been
 	// retried for the current analysis option. Reset when a new analysis
 	// is run (initial or revision). The operator increments this on each
@@ -254,6 +236,12 @@ type ExecutionStepStatus struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	RetryCount *int32 `json:"retryCount,omitempty"`
+	// results references ExecutionResult CRs, newest last.
+	// Each entry corresponds to one execution attempt (including retries).
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=20
+	Results []StepResultRef `json:"results,omitempty"`
 }
 
 // VerificationStepStatus is the observed state of the verification step.
@@ -276,26 +264,12 @@ type VerificationStepStatus struct {
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
-	// success indicates whether the verification agent reported overall success.
-	// +optional
-	Success *bool `json:"success,omitempty"`
-	// checks contains individual verification check results.
+	// results references VerificationResult CRs, newest last.
+	// Each entry corresponds to one verification attempt (including retries).
 	// +optional
 	// +listType=atomic
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=50
-	Checks []VerifyCheck `json:"checks,omitempty"`
-	// summary is a Markdown-formatted verification summary.
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=32768
-	Summary string `json:"summary,omitempty"`
-	// components contains optional adapter-defined structured data.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
-	Components []apiextensionsv1.JSON `json:"components,omitempty"`
+	Results []StepResultRef `json:"results,omitempty"`
 }
 
 // StepsStatus contains the per-step observed state for all three workflow
