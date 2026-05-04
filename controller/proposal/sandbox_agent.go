@@ -8,7 +8,6 @@ import (
 	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -250,11 +249,9 @@ func (s *SandboxAgentCaller) patchSandboxInfo(ctx context.Context, proposal *age
 	}
 
 	base := current.DeepCopy()
-	now := metav1.Now()
 	info := agenticv1alpha1.SandboxInfo{
 		ClaimName: claimName,
 		Namespace: s.Namespace,
-		StartTime: &now,
 	}
 
 	switch step {

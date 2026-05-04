@@ -543,9 +543,6 @@ func TestSandboxAgentCaller_Analyze_PatchesSandboxInfo(t *testing.T) {
 	if updated.Status.Steps.Analysis.Sandbox.Namespace != "test-ns" {
 		t.Errorf("sandbox namespace = %q, want %q", updated.Status.Steps.Analysis.Sandbox.Namespace, "test-ns")
 	}
-	if updated.Status.Steps.Analysis.Sandbox.StartTime == nil {
-		t.Error("sandbox startTime should be set")
-	}
 }
 
 func TestSandboxAgentCaller_Execute_PatchesSandboxInfo(t *testing.T) {

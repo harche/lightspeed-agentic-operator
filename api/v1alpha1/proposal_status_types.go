@@ -156,12 +156,6 @@ type SandboxInfo struct {
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Label().validate(self).hasValue()",message="must be a valid DNS label: lowercase alphanumeric characters and hyphens, starting with an alphabetic character and ending with an alphanumeric character"
 	Namespace string `json:"namespace,omitempty"`
-	// startTime is when the sandbox pod was created.
-	// +optional
-	StartTime *metav1.Time `json:"startTime,omitempty"`
-	// completionTime is when the sandbox pod finished (success or failure).
-	// +optional
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 }
 
 // StepResultRef is a lightweight reference to a result CR with an inline
