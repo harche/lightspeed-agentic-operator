@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,7 +48,7 @@ func newReconcilerWithPolicy(t *testing.T, proposal *agenticv1alpha1.Proposal, a
 	}
 	objs = append(objs, extraObjs...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 	// Initial reconcile creates ProposalApproval (auto-approved stages based on policy).
 	reconcileOnce(r, proposal.Name)
@@ -220,7 +221,8 @@ func TestManualApproval_FullLifecycle(t *testing.T) {
 	result, err = reconcileOnce(r, "fix-crash")
 	mustNotRequeue(t, result, err, "after execution approval")
 	p := assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseVerifying)
-	if p.Status.Steps.Execution.CompletionTime == nil {
+	executed := meta.FindStatusCondition(p.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)
+	if executed == nil || executed.Status != metav1.ConditionTrue {
 		t.Fatal("execution should have completed")
 	}
 
@@ -369,7 +371,7 @@ func TestManualApproval_VerificationFails(t *testing.T) {
 func TestManualApproval_VerificationFailRetry(t *testing.T) {
 	proposal := testProposal()
 	maxAttempts := int32(3)
-	proposal.Spec.MaxAttempts = &maxAttempts
+	proposal.Spec.MaxAttempts = maxAttempts
 	agent := newTestAgentCaller()
 	r, fc := newManualReconciler(t, proposal, agent)
 
@@ -400,7 +402,7 @@ func TestManualApproval_VerificationFailRetry(t *testing.T) {
 func TestManualApproval_FullRetryExhaustion(t *testing.T) {
 	proposal := testProposal()
 	maxAttempts := int32(3)
-	proposal.Spec.MaxAttempts = &maxAttempts
+	proposal.Spec.MaxAttempts = maxAttempts
 	agent := newTestAgentCaller()
 	r, fc := newManualReconciler(t, proposal, agent)
 
@@ -466,7 +468,7 @@ func TestManualApproval_FullRetryExhaustion(t *testing.T) {
 func TestManualApproval_RetryThenSucceed(t *testing.T) {
 	proposal := testProposal()
 	maxAttempts := int32(3)
-	proposal.Spec.MaxAttempts = &maxAttempts
+	proposal.Spec.MaxAttempts = maxAttempts
 	agent := newTestAgentCaller()
 	r, fc := newManualReconciler(t, proposal, agent)
 
@@ -514,7 +516,7 @@ func TestNoPolicy_DefaultsToManual(t *testing.T) {
 	// No ApprovalPolicy object at all
 	objs := []client.Object{proposal, testDefaultAgent(), testLLM("smart")}
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
 	// Initial reconcile creates ProposalApproval; analysis should wait for approval
@@ -853,7 +855,7 @@ func approveEscalation(t *testing.T, fc client.WithWatch, name string) {
 func TestEscalation_ApproveAndComplete(t *testing.T) {
 	proposal := testProposal()
 	maxAttempts := int32(1)
-	proposal.Spec.MaxAttempts = &maxAttempts
+	proposal.Spec.MaxAttempts = maxAttempts
 	agent := newTestAgentCaller()
 	agent.verifyResult = &VerificationOutput{
 		Success: false,
@@ -884,7 +886,7 @@ func TestEscalation_ApproveAndComplete(t *testing.T) {
 	if len(p.Status.Steps.Escalation.Results) == 0 {
 		t.Fatal("expected EscalationResult ref in status")
 	}
-	if !p.Status.Steps.Escalation.Results[0].Success {
+	if p.Status.Steps.Escalation.Results[0].Outcome != agenticv1alpha1.ActionOutcomeSucceeded {
 		t.Fatal("expected escalation result to be successful")
 	}
 }
@@ -979,7 +981,7 @@ func TestEscalation_AutoApprove(t *testing.T) {
 func TestEscalation_InProgressIsIdempotent(t *testing.T) {
 	proposal := testProposal()
 	maxAttempts := int32(1)
-	proposal.Spec.MaxAttempts = &maxAttempts
+	proposal.Spec.MaxAttempts = maxAttempts
 	agent := newTestAgentCaller()
 	agent.verifyResult = &VerificationOutput{
 		Success: false,

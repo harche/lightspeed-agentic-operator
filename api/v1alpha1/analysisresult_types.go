@@ -23,15 +23,15 @@ import (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Proposal",type=string,JSONPath=`.proposalName`
 // +kubebuilder:printcolumn:name="Attempt",type=integer,JSONPath=`.attempt`
-// +kubebuilder:printcolumn:name="Success",type=boolean,JSONPath=`.success`
+// +kubebuilder:printcolumn:name="Outcome",type=string,JSONPath=`.status.conditions[?(@.type=="Completed")].reason`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // AnalysisResult records the output of a single analysis step execution.
-// Created by the operator after the analysis agent completes. Immutable
-// after creation -- never updated. Owned by the parent Proposal for
-// garbage collection.
+// Created by the operator after the analysis agent completes. Owned by
+// the parent Proposal for garbage collection.
 type AnalysisResult struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -49,10 +49,6 @@ type AnalysisResult struct {
 	// +kubebuilder:validation:Minimum=1
 	Attempt int32 `json:"attempt"`
 
-	// success indicates whether the analysis agent completed successfully.
-	// +required
-	Success bool `json:"success"`
-
 	// options contains the remediation options returned by the analysis agent.
 	// +optional
 	// +listType=atomic
@@ -69,18 +65,14 @@ type AnalysisResult struct {
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
 
-	// startTime is when analysis started.
-	// +optional
-	StartTime *metav1.Time `json:"startTime,omitempty"`
-
-	// completionTime is when analysis completed.
-	// +optional
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
-
-	// failureReason is populated when success is false.
+	// failureReason is populated when the step failed due to a system error.
 	// +optional
 	// +kubebuilder:validation:MaxLength=8192
 	FailureReason string `json:"failureReason,omitempty"`
+
+	// status contains conditions tracking the result lifecycle.
+	// +optional
+	Status ResultStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

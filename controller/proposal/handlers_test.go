@@ -95,7 +95,7 @@ func TestReconcile_WorkflowVariants(t *testing.T) {
 			objs := []client.Object{proposal, testDefaultAgent(), testLLM("smart"), testAutoApprovePolicy()}
 			fc := fake.NewClientBuilder().WithScheme(scheme).
 				WithObjects(objs...).
-				WithStatusSubresource(proposal).Build()
+				WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 			r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -126,7 +126,7 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -153,6 +153,7 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if len(analysisResult.Options) == 0 {
 		t.Fatal("analysis options not set")
 	}
+	assertResultConditions(t, analysisResult.Status.Conditions, "Succeeded")
 
 	// Approve
 	approveProposal(t, fc, "fix-crash")
@@ -180,6 +181,7 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if len(execResult.ActionsTaken) == 0 {
 		t.Fatal("execution actions not set")
 	}
+	assertResultConditions(t, execResult.Status.Conditions, "Succeeded")
 
 	// Reconcile 3: Verifying → Completed
 	_, err = reconcileOnce(r, "fix-crash")
@@ -201,6 +203,7 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if verifyResult.Summary == "" {
 		t.Fatal("verification summary not set")
 	}
+	assertResultConditions(t, verifyResult.Status.Conditions, "Succeeded")
 }
 
 func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
@@ -211,7 +214,7 @@ func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
 	proposal := testProposal()
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -237,7 +240,7 @@ func TestReconcile_AnalysisSystemFailure_Terminal(t *testing.T) {
 	if len(p.Status.Steps.Analysis.Results) != 1 {
 		t.Fatalf("expected 1 analysis result recorded, got %d", len(p.Status.Steps.Analysis.Results))
 	}
-	if p.Status.Steps.Analysis.Results[0].Success {
+	if p.Status.Steps.Analysis.Results[0].Outcome != agenticv1alpha1.ActionOutcomeFailed {
 		t.Fatal("expected failed analysis result")
 	}
 }
@@ -248,11 +251,11 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 
 	maxAttempts := int32(2)
 	proposal := testProposal()
-	proposal.Spec.MaxAttempts = &maxAttempts
+	proposal.Spec.MaxAttempts = maxAttempts
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -318,7 +321,7 @@ func TestReconcile_SystemFailure_Execution_Terminal(t *testing.T) {
 	proposal := testProposal()
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -355,7 +358,7 @@ func TestReconcile_SystemFailure_Verification_Terminal(t *testing.T) {
 	proposal := testProposal()
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -392,11 +395,11 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 
 	maxAttempts := int32(1)
 	proposal := testProposal()
-	proposal.Spec.MaxAttempts = &maxAttempts
+	proposal.Spec.MaxAttempts = maxAttempts
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -455,7 +458,7 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -504,7 +507,7 @@ func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -542,7 +545,7 @@ func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -585,7 +588,7 @@ func TestReconcile_RevisionResetsSelectedOption(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -620,7 +623,7 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -663,7 +666,7 @@ func TestReconcile_RevisionWithFeedback(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -729,7 +732,7 @@ func TestReconcile_ExecutionRBACCreatedOnApproval(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -821,7 +824,7 @@ func TestReconcile_ExecutionRBACCleanedOnFailure(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
 
@@ -917,7 +920,7 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: sandboxAgent}
 
@@ -1018,7 +1021,7 @@ func TestReconcile_ExecutingPhase_DoesNotReExecute(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	agent := newTestAgentCaller()
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
@@ -1055,13 +1058,13 @@ func TestReconcile_ExecutingPhase_DoesNotReExecute(t *testing.T) {
 	}
 }
 
-func TestReconcile_ExecutionSuccessFalse_FailsStep(t *testing.T) {
+func TestReconcile_ExecutionOutcomeFailed_FailsStep(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal()
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	agent := newTestAgentCaller()
 	agent.executeResult = &ExecutionOutput{
@@ -1083,15 +1086,15 @@ func TestReconcile_ExecutionSuccessFalse_FailsStep(t *testing.T) {
 	}
 }
 
-func TestReconcile_VerificationSuccessFalse_RetriesExecution(t *testing.T) {
+func TestReconcile_VerificationOutcomeFailed_RetriesExecution(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal()
 	maxAttempts := int32(3)
-	proposal.Spec.MaxAttempts = &maxAttempts
+	proposal.Spec.MaxAttempts = maxAttempts
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	agent := newTestAgentCaller()
 	agent.verifyResult = &VerificationOutput{
@@ -1122,7 +1125,7 @@ func TestReconcile_ExecutionSelectsOption(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	agent := newTestAgentCaller()
 	agent.analyzeResult = &AnalysisOutput{
@@ -1168,7 +1171,7 @@ func TestReconcile_ExecutionSingleOption(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -1194,11 +1197,11 @@ func TestReconcile_RetryPreservesSelectedOption(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal()
 	maxAttempts := int32(3)
-	proposal.Spec.MaxAttempts = &maxAttempts
+	proposal.Spec.MaxAttempts = maxAttempts
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	agent := newTestAgentCaller()
 	agent.analyzeResult = &AnalysisOutput{
@@ -1256,5 +1259,98 @@ func TestReconcile_RetryPreservesSelectedOption(t *testing.T) {
 	p, _ = getProposal(r, "fix-crash")
 	if p.Status.Steps.Analysis.SelectedOption == nil || *p.Status.Steps.Analysis.SelectedOption != 2 {
 		t.Errorf("expected SelectedOption=2 after re-execution, got %v", p.Status.Steps.Analysis.SelectedOption)
+	}
+}
+
+func assertResultConditions(t *testing.T, conditions []metav1.Condition, wantReason string) {
+	t.Helper()
+	if len(conditions) < 2 {
+		t.Fatalf("expected at least 2 conditions (Started, Completed), got %d", len(conditions))
+	}
+	var started, completed *metav1.Condition
+	for i := range conditions {
+		switch conditions[i].Type {
+		case agenticv1alpha1.ResultConditionStarted:
+			started = &conditions[i]
+		case agenticv1alpha1.ResultConditionCompleted:
+			completed = &conditions[i]
+		}
+	}
+	if started == nil {
+		t.Fatal("missing Started condition on result CR")
+	}
+	if started.Status != metav1.ConditionTrue {
+		t.Errorf("Started condition status = %s, want True", started.Status)
+	}
+	if started.Reason != agenticv1alpha1.ResultReasonStepStarted {
+		t.Errorf("Started condition reason = %q, want %q", started.Reason, agenticv1alpha1.ResultReasonStepStarted)
+	}
+	if completed == nil {
+		t.Fatal("missing Completed condition on result CR")
+	}
+	if completed.Status != metav1.ConditionTrue {
+		t.Errorf("Completed condition status = %s, want True", completed.Status)
+	}
+	if completed.Reason != wantReason {
+		t.Errorf("Completed condition reason = %q, want %q", completed.Reason, wantReason)
+	}
+	if !started.LastTransitionTime.Before(&completed.LastTransitionTime) && started.LastTransitionTime.Time != completed.LastTransitionTime.Time {
+		t.Errorf("Started time (%v) should be <= Completed time (%v)", started.LastTransitionTime, completed.LastTransitionTime)
+	}
+}
+
+func TestResultCR_FailureConditions(t *testing.T) {
+	agent := newTestAgentCaller()
+	agent.analyzeErr = fmt.Errorf("LLM call failed")
+
+	scheme := testScheme()
+	proposal := testProposal()
+
+	objs := append([]client.Object{proposal}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
+
+	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: agent}
+
+	reconcileOnce(r, "fix-crash")
+	p, _ := getProposal(r, "fix-crash")
+
+	if len(p.Status.Steps.Analysis.Results) == 0 {
+		t.Fatal("expected failure result ref")
+	}
+	ref := p.Status.Steps.Analysis.Results[0]
+	if ref.Outcome != agenticv1alpha1.ActionOutcomeFailed {
+		t.Fatalf("expected Failed outcome on ref, got %s", ref.Outcome)
+	}
+
+	var ar agenticv1alpha1.AnalysisResult
+	if err := fc.Get(context.Background(), types.NamespacedName{Name: ref.Name, Namespace: "default"}, &ar); err != nil {
+		t.Fatalf("get AnalysisResult: %v", err)
+	}
+
+	assertResultConditions(t, ar.Status.Conditions, "Failed")
+	if ar.FailureReason == "" {
+		t.Error("expected failureReason to be set")
+	}
+}
+
+func TestConditionTime(t *testing.T) {
+	now := metav1.Now()
+	conditions := []metav1.Condition{
+		{Type: "Foo", Status: metav1.ConditionTrue, LastTransitionTime: now, Reason: "R"},
+		{Type: "Bar", Status: metav1.ConditionFalse, LastTransitionTime: now, Reason: "R"},
+	}
+
+	got := conditionTime(conditions, "Foo")
+	if got == nil {
+		t.Fatal("expected non-nil time for existing condition")
+	}
+	if !got.Equal(&now) {
+		t.Errorf("expected %v, got %v", now, *got)
+	}
+
+	got = conditionTime(conditions, "Missing")
+	if got != nil {
+		t.Errorf("expected nil for missing condition, got %v", *got)
 	}
 }

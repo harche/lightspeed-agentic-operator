@@ -70,7 +70,7 @@ func newTestSandboxAgentCaller(sandbox *mockSandboxProvider, httpClient *mockHTT
 func newTestSandboxAgentCallerWithProposal(sandbox *mockSandboxProvider, httpClient *mockHTTPClient, proposal *agenticv1alpha1.Proposal) *SandboxAgentCaller {
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
 		WithObjects(proposal).
-		WithStatusSubresource(proposal).
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).
 		Build()
 	_ = fc.Create(context.Background(), fakeBaseTemplate())
 	return &SandboxAgentCaller{
@@ -280,7 +280,7 @@ func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 			Steps: agenticv1alpha1.StepsStatus{
 				Execution: agenticv1alpha1.ExecutionStepStatus{
 					Results: []agenticv1alpha1.StepResultRef{
-						{Name: "fix-crash-execution-1", Success: false},
+						{Name: "fix-crash-execution-1", Outcome: agenticv1alpha1.ActionOutcomeFailed},
 					},
 				},
 			},

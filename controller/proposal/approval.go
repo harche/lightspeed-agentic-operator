@@ -158,14 +158,20 @@ func getStageOverrideAgent(approval *agenticv1alpha1.ProposalApproval, stage age
 	return ""
 }
 
-func getStageOption(approval *agenticv1alpha1.ProposalApproval) *int32 {
-	if approval == nil {
-		return nil
-	}
-	for _, s := range approval.Spec.Stages {
-		if s.Type == agenticv1alpha1.ApprovalStageExecution && s.Execution != nil {
-			return s.Execution.Option
+func getStageOption(approval *agenticv1alpha1.ProposalApproval, policy *agenticv1alpha1.ApprovalPolicy) *int32 {
+	if approval != nil {
+		for _, s := range approval.Spec.Stages {
+			if s.Type == agenticv1alpha1.ApprovalStageExecution && s.Execution != nil && s.Execution.Option != nil {
+				return s.Execution.Option
+			}
 		}
 	}
-	return nil
+	if policy != nil {
+		for _, ps := range policy.Spec.Stages {
+			if ps.Name == agenticv1alpha1.SandboxStepExecution && ps.DefaultOption != nil {
+				return ps.DefaultOption
+			}
+		}
+	}
+	return ptr.To(int32(0))
 }

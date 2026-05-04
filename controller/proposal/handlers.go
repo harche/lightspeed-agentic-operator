@@ -47,8 +47,6 @@ func (r *ProposalReconciler) handleAnalysis(
 	}
 
 	base := proposal.DeepCopy()
-	now := metav1.Now()
-	proposal.Status.Steps.Analysis.StartTime = &now
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
 		Status:  metav1.ConditionUnknown,
@@ -65,12 +63,12 @@ func (r *ProposalReconciler) handleAnalysis(
 	}
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
-	proposal.Status.Steps.Analysis.CompletionTime = &completedAt
-	crName, crErr := r.createAnalysisResult(ctx, proposal, analysisResult, proposal.Status.Steps.Analysis.Sandbox, proposal.Status.Steps.Analysis.StartTime, &completedAt, "")
+	startTime := conditionTime(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionAnalyzed)
+	crName, crErr := r.createAnalysisResult(ctx, proposal, analysisResult, proposal.Status.Steps.Analysis.Sandbox, startTime, &completedAt, "")
 	if crErr != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("create analysis result: %w", crErr))
 	}
-	proposal.Status.Steps.Analysis.Results = append(proposal.Status.Steps.Analysis.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: analysisResult.Success})
+	proposal.Status.Steps.Analysis.Results = append(proposal.Status.Steps.Analysis.Results, agenticv1alpha1.StepResultRef{Name: crName, Outcome: agenticv1alpha1.ActionOutcomeFromBool(analysisResult.Success)})
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
 		Status:  metav1.ConditionTrue,
@@ -106,9 +104,6 @@ func (r *ProposalReconciler) handleRevision(
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionEscalated)
-	now := metav1.Now()
-	proposal.Status.Steps.Analysis.StartTime = &now
-	proposal.Status.Steps.Analysis.CompletionTime = nil
 	proposal.Status.Steps.Analysis.SelectedOption = nil
 	resetExecutionAndVerification(&proposal.Status.Steps)
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
@@ -131,12 +126,12 @@ func (r *ProposalReconciler) handleRevision(
 
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
-	proposal.Status.Steps.Analysis.CompletionTime = &completedAt
-	crName, crErr := r.createAnalysisResult(ctx, proposal, analysisResult, proposal.Status.Steps.Analysis.Sandbox, proposal.Status.Steps.Analysis.StartTime, &completedAt, "")
+	startTime := conditionTime(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionAnalyzed)
+	crName, crErr := r.createAnalysisResult(ctx, proposal, analysisResult, proposal.Status.Steps.Analysis.Sandbox, startTime, &completedAt, "")
 	if crErr != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionAnalyzed, fmt.Errorf("create analysis result: %w", crErr))
 	}
-	proposal.Status.Steps.Analysis.Results = append(proposal.Status.Steps.Analysis.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: analysisResult.Success})
+	proposal.Status.Steps.Analysis.Results = append(proposal.Status.Steps.Analysis.Results, agenticv1alpha1.StepResultRef{Name: crName, Outcome: agenticv1alpha1.ActionOutcomeFromBool(analysisResult.Success)})
 	proposal.Status.Steps.Analysis.ObservedRevision = &revision
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionAnalyzed,
@@ -212,7 +207,7 @@ func (r *ProposalReconciler) handleExecution(
 	// Skip if already set (e.g., on retry after verification failure).
 	if proposal.Status.Steps.Analysis.SelectedOption == nil {
 		base := proposal.DeepCopy()
-		option := getStageOption(approval)
+		option := getStageOption(approval, policy)
 		if option != nil {
 			proposal.Status.Steps.Analysis.SelectedOption = option
 		}
@@ -238,8 +233,6 @@ func (r *ProposalReconciler) handleExecution(
 	}
 
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
-	now := metav1.Now()
-	proposal.Status.Steps.Execution.StartTime = &now
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionExecuted,
 		Status:  metav1.ConditionUnknown,
@@ -260,12 +253,12 @@ func (r *ProposalReconciler) handleExecution(
 
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
-	proposal.Status.Steps.Execution.CompletionTime = &completedAt
-	execCRName, execCRErr := r.createExecutionResult(ctx, proposal, execResult, proposal.Status.Steps.Execution.Sandbox, proposal.Status.Steps.Execution.StartTime, &completedAt, "")
+	startTime := conditionTime(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)
+	execCRName, execCRErr := r.createExecutionResult(ctx, proposal, execResult, proposal.Status.Steps.Execution.Sandbox, startTime, &completedAt, "")
 	if execCRErr != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionExecuted, fmt.Errorf("create execution result: %w", execCRErr))
 	}
-	proposal.Status.Steps.Execution.Results = append(proposal.Status.Steps.Execution.Results, agenticv1alpha1.StepResultRef{Name: execCRName, Success: execResult.Success})
+	proposal.Status.Steps.Execution.Results = append(proposal.Status.Steps.Execution.Results, agenticv1alpha1.StepResultRef{Name: execCRName, Outcome: agenticv1alpha1.ActionOutcomeFromBool(execResult.Success)})
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionExecuted,
 		Status:  metav1.ConditionTrue,
@@ -326,8 +319,6 @@ func (r *ProposalReconciler) handleVerification(
 		return ctrl.Result{}, nil
 	}
 
-	now := metav1.Now()
-	proposal.Status.Steps.Verification.StartTime = &now
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionVerified,
 		Status:  metav1.ConditionUnknown,
@@ -346,7 +337,7 @@ func (r *ProposalReconciler) handleVerification(
 		var execCR agenticv1alpha1.ExecutionResult
 		if err := r.Get(ctx, types.NamespacedName{Name: latestRef.Name, Namespace: proposal.Namespace}, &execCR); err == nil {
 			execOutput = &ExecutionOutput{
-				Success:      execCR.Success,
+				Success:      latestRef.Outcome == agenticv1alpha1.ActionOutcomeSucceeded,
 				ActionsTaken: execCR.ActionsTaken,
 				Verification: execCR.Verification,
 				Components:   execCR.Components,
@@ -361,12 +352,12 @@ func (r *ProposalReconciler) handleVerification(
 
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
-	proposal.Status.Steps.Verification.CompletionTime = &completedAt
-	verifyCRName, verifyCRErr := r.createVerificationResult(ctx, proposal, verifyResult, proposal.Status.Steps.Verification.Sandbox, proposal.Status.Steps.Verification.StartTime, &completedAt, "")
+	startTime := conditionTime(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
+	verifyCRName, verifyCRErr := r.createVerificationResult(ctx, proposal, verifyResult, proposal.Status.Steps.Verification.Sandbox, startTime, &completedAt, "")
 	if verifyCRErr != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionVerified, fmt.Errorf("create verification result: %w", verifyCRErr))
 	}
-	proposal.Status.Steps.Verification.Results = append(proposal.Status.Steps.Verification.Results, agenticv1alpha1.StepResultRef{Name: verifyCRName, Success: verifyResult.Success})
+	proposal.Status.Steps.Verification.Results = append(proposal.Status.Steps.Verification.Results, agenticv1alpha1.StepResultRef{Name: verifyCRName, Outcome: agenticv1alpha1.ActionOutcomeFromBool(verifyResult.Success)})
 
 	allPassed := verifyResult.Success
 	for _, check := range verifyResult.Checks {
@@ -498,8 +489,6 @@ func (r *ProposalReconciler) handleEscalation(
 	}
 
 	base := proposal.DeepCopy()
-	now := metav1.Now()
-	proposal.Status.Steps.Escalation.StartTime = &now
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:    agenticv1alpha1.ProposalConditionEscalated,
 		Status:  metav1.ConditionUnknown,
@@ -518,12 +507,12 @@ func (r *ProposalReconciler) handleEscalation(
 
 	base = proposal.DeepCopy()
 	completedAt := metav1.Now()
-	proposal.Status.Steps.Escalation.CompletionTime = &completedAt
-	crName, crErr := r.createEscalationResult(ctx, proposal, escalationResult, proposal.Status.Steps.Escalation.Sandbox, proposal.Status.Steps.Escalation.StartTime, &completedAt, "")
+	startTime := conditionTime(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionEscalated)
+	crName, crErr := r.createEscalationResult(ctx, proposal, escalationResult, proposal.Status.Steps.Escalation.Sandbox, startTime, &completedAt, "")
 	if crErr != nil {
 		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionEscalated, fmt.Errorf("create escalation result: %w", crErr))
 	}
-	proposal.Status.Steps.Escalation.Results = append(proposal.Status.Steps.Escalation.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: escalationResult.Success})
+	proposal.Status.Steps.Escalation.Results = append(proposal.Status.Steps.Escalation.Results, agenticv1alpha1.StepResultRef{Name: crName, Outcome: agenticv1alpha1.ActionOutcomeFromBool(escalationResult.Success)})
 
 	if proposal.Annotations[rbacNamespacesAnnotation] != "" {
 		if cleanErr := cleanupExecutionRBAC(ctx, r.Client, proposal); cleanErr != nil {
@@ -543,6 +532,13 @@ func (r *ProposalReconciler) handleEscalation(
 
 	log.Info("escalation complete", "summary", escalationResult.Summary)
 	return ctrl.Result{}, nil
+}
+
+func conditionTime(conditions []metav1.Condition, condType string) *metav1.Time {
+	if c := meta.FindStatusCondition(conditions, condType); c != nil {
+		return &c.LastTransitionTime
+	}
+	return nil
 }
 
 // denyProposal transitions the proposal to Denied (terminal).

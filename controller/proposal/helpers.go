@@ -33,8 +33,7 @@ func renderTemplate(name string, data any) string {
 }
 
 const (
-	rbacCleanupFinalizer  = "agentic.openshift.io/execution-rbac-cleanup"
-	defaultMaxAttempts = 0
+	rbacCleanupFinalizer = "agentic.openshift.io/execution-rbac-cleanup"
 
 	reasonInProgress        = "InProgress"
 	reasonComplete          = "Complete"
@@ -53,44 +52,37 @@ const (
 )
 
 
+// failStep marks a step as failed and creates a failure result CR.
+// The caller must have set the step condition to ConditionUnknown before
+// calling failStep so that conditionTime can extract the start time.
 func (r *ProposalReconciler) failStep(ctx context.Context, log logr.Logger, proposal *agenticv1alpha1.Proposal, conditionType string, err error) (ctrl.Result, error) {
 	log.Error(err, "step failed", "condition", conditionType)
 	base := proposal.DeepCopy()
 	completedAt := metav1.Now()
-
-	switch conditionType {
-	case agenticv1alpha1.ProposalConditionAnalyzed:
-		proposal.Status.Steps.Analysis.CompletionTime = &completedAt
-	case agenticv1alpha1.ProposalConditionExecuted:
-		proposal.Status.Steps.Execution.CompletionTime = &completedAt
-	case agenticv1alpha1.ProposalConditionVerified:
-		proposal.Status.Steps.Verification.CompletionTime = &completedAt
-	case agenticv1alpha1.ProposalConditionEscalated:
-		proposal.Status.Steps.Escalation.CompletionTime = &completedAt
-	}
+	startTime := conditionTime(proposal.Status.Conditions, conditionType)
 
 	var crName string
 	var createErr error
 	switch conditionType {
 	case agenticv1alpha1.ProposalConditionAnalyzed:
-		crName, createErr = r.createAnalysisResult(ctx, proposal, nil, proposal.Status.Steps.Analysis.Sandbox, proposal.Status.Steps.Analysis.StartTime, &completedAt, err.Error())
+		crName, createErr = r.createAnalysisResult(ctx, proposal, nil, proposal.Status.Steps.Analysis.Sandbox, startTime, &completedAt, err.Error())
 		if createErr == nil {
-			proposal.Status.Steps.Analysis.Results = append(proposal.Status.Steps.Analysis.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: false})
+			proposal.Status.Steps.Analysis.Results = append(proposal.Status.Steps.Analysis.Results, agenticv1alpha1.StepResultRef{Name: crName, Outcome: agenticv1alpha1.ActionOutcomeFailed})
 		}
 	case agenticv1alpha1.ProposalConditionExecuted:
-		crName, createErr = r.createExecutionResult(ctx, proposal, nil, proposal.Status.Steps.Execution.Sandbox, proposal.Status.Steps.Execution.StartTime, &completedAt, err.Error())
+		crName, createErr = r.createExecutionResult(ctx, proposal, nil, proposal.Status.Steps.Execution.Sandbox, startTime, &completedAt, err.Error())
 		if createErr == nil {
-			proposal.Status.Steps.Execution.Results = append(proposal.Status.Steps.Execution.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: false})
+			proposal.Status.Steps.Execution.Results = append(proposal.Status.Steps.Execution.Results, agenticv1alpha1.StepResultRef{Name: crName, Outcome: agenticv1alpha1.ActionOutcomeFailed})
 		}
 	case agenticv1alpha1.ProposalConditionVerified:
-		crName, createErr = r.createVerificationResult(ctx, proposal, nil, proposal.Status.Steps.Verification.Sandbox, proposal.Status.Steps.Verification.StartTime, &completedAt, err.Error())
+		crName, createErr = r.createVerificationResult(ctx, proposal, nil, proposal.Status.Steps.Verification.Sandbox, startTime, &completedAt, err.Error())
 		if createErr == nil {
-			proposal.Status.Steps.Verification.Results = append(proposal.Status.Steps.Verification.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: false})
+			proposal.Status.Steps.Verification.Results = append(proposal.Status.Steps.Verification.Results, agenticv1alpha1.StepResultRef{Name: crName, Outcome: agenticv1alpha1.ActionOutcomeFailed})
 		}
 	case agenticv1alpha1.ProposalConditionEscalated:
-		crName, createErr = r.createEscalationResult(ctx, proposal, nil, proposal.Status.Steps.Escalation.Sandbox, proposal.Status.Steps.Escalation.StartTime, &completedAt, err.Error())
+		crName, createErr = r.createEscalationResult(ctx, proposal, nil, proposal.Status.Steps.Escalation.Sandbox, startTime, &completedAt, err.Error())
 		if createErr == nil {
-			proposal.Status.Steps.Escalation.Results = append(proposal.Status.Steps.Escalation.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: false})
+			proposal.Status.Steps.Escalation.Results = append(proposal.Status.Steps.Escalation.Results, agenticv1alpha1.StepResultRef{Name: crName, Outcome: agenticv1alpha1.ActionOutcomeFailed})
 		}
 	}
 	if createErr != nil {
@@ -156,19 +148,12 @@ func (r *ProposalReconciler) selectedOption(ctx context.Context, proposal *agent
 }
 
 func resetExecutionAndVerification(steps *agenticv1alpha1.StepsStatus) {
-	steps.Execution.StartTime = nil
-	steps.Execution.CompletionTime = nil
 	steps.Execution.Sandbox = agenticv1alpha1.SandboxInfo{}
-	steps.Verification.StartTime = nil
-	steps.Verification.CompletionTime = nil
 	steps.Verification.Sandbox = agenticv1alpha1.SandboxInfo{}
 }
 
 func maxAttempts(proposal *agenticv1alpha1.Proposal) int {
-	if proposal.Spec.MaxAttempts != nil {
-		return int(*proposal.Spec.MaxAttempts)
-	}
-	return defaultMaxAttempts
+	return int(proposal.Spec.MaxAttempts)
 }
 
 type escalationData struct {

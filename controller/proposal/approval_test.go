@@ -93,6 +93,80 @@ func TestEnsureProposalApproval_NoPolicy(t *testing.T) {
 	}
 }
 
+func TestGetStageOption_FromApproval(t *testing.T) {
+	option := int32(2)
+	approval := &agenticv1alpha1.ProposalApproval{
+		Spec: agenticv1alpha1.ProposalApprovalSpec{
+			Stages: []agenticv1alpha1.ApprovalStage{
+				{
+					Type:      agenticv1alpha1.ApprovalStageExecution,
+					Execution: &agenticv1alpha1.ExecutionApproval{Option: &option},
+				},
+			},
+		},
+	}
+	got := getStageOption(approval, nil)
+	if got == nil || *got != 2 {
+		t.Errorf("expected option 2 from approval, got %v", got)
+	}
+}
+
+func TestGetStageOption_FromPolicyDefaultOption(t *testing.T) {
+	defaultOpt := int32(1)
+	policy := &agenticv1alpha1.ApprovalPolicy{
+		Spec: agenticv1alpha1.ApprovalPolicySpec{
+			Stages: []agenticv1alpha1.ApprovalPolicyStage{
+				{
+					Name:          agenticv1alpha1.SandboxStepExecution,
+					Approval:      agenticv1alpha1.ApprovalModeAutomatic,
+					DefaultOption: &defaultOpt,
+				},
+			},
+		},
+	}
+	got := getStageOption(nil, policy)
+	if got == nil || *got != 1 {
+		t.Errorf("expected option 1 from policy defaultOption, got %v", got)
+	}
+}
+
+func TestGetStageOption_ApprovalTakesPrecedence(t *testing.T) {
+	approvalOpt := int32(2)
+	policyOpt := int32(0)
+	approval := &agenticv1alpha1.ProposalApproval{
+		Spec: agenticv1alpha1.ProposalApprovalSpec{
+			Stages: []agenticv1alpha1.ApprovalStage{
+				{
+					Type:      agenticv1alpha1.ApprovalStageExecution,
+					Execution: &agenticv1alpha1.ExecutionApproval{Option: &approvalOpt},
+				},
+			},
+		},
+	}
+	policy := &agenticv1alpha1.ApprovalPolicy{
+		Spec: agenticv1alpha1.ApprovalPolicySpec{
+			Stages: []agenticv1alpha1.ApprovalPolicyStage{
+				{
+					Name:          agenticv1alpha1.SandboxStepExecution,
+					Approval:      agenticv1alpha1.ApprovalModeAutomatic,
+					DefaultOption: &policyOpt,
+				},
+			},
+		},
+	}
+	got := getStageOption(approval, policy)
+	if got == nil || *got != 2 {
+		t.Errorf("approval should take precedence, expected 2, got %v", got)
+	}
+}
+
+func TestGetStageOption_FallbackToZero(t *testing.T) {
+	got := getStageOption(nil, nil)
+	if got == nil || *got != 0 {
+		t.Errorf("expected fallback to 0, got %v", got)
+	}
+}
+
 func TestEnsureProposalApproval_Idempotent(t *testing.T) {
 	proposal := testProposal()
 	proposal.UID = "test-uid-456"

@@ -102,9 +102,9 @@ func testLLM(name string) *agenticv1alpha1.LLMProvider {
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: agenticv1alpha1.LLMProviderSpec{
 			Type: agenticv1alpha1.LLMProviderGoogleCloudVertex,
-			GoogleCloudVertex: &agenticv1alpha1.GoogleCloudVertexConfig{
-				CredentialsSecret: agenticv1alpha1.NamespacedSecretReference{Name: "llm-secret", Namespace: "lightspeed"},
-				Project:           "test-project",
+			GoogleCloudVertex: agenticv1alpha1.GoogleCloudVertexConfig{
+				CredentialsSecret: agenticv1alpha1.SecretReference{Name: "llm-secret"},
+				ProjectID:         "test-project",
 				Region:            "us-central1",
 			},
 		},
@@ -266,7 +266,7 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 
 	objs := append([]client.Object{proposal}, defaultObjects()...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
-		WithStatusSubresource(proposal).Build()
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
@@ -298,7 +298,7 @@ func TestReconcile_Denied_Terminal(t *testing.T) {
 		},
 	}
 
-	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(proposal).WithStatusSubresource(proposal).Build()
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(proposal).WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 	r := &ProposalReconciler{Client: fc, Log: logr.Discard(), Agent: newTestAgentCaller()}
 
 	result, err := reconcileOnce(r, "fix-crash")

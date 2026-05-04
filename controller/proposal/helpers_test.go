@@ -20,7 +20,7 @@ func TestSelectedOption_FromAnalysisResult(t *testing.T) {
 	proposal.Namespace = "default"
 	proposal.Status.Steps.Analysis.SelectedOption = ptr32(2)
 	proposal.Status.Steps.Analysis.Results = []agenticv1alpha1.StepResultRef{
-		{Name: "test-analysis-1", Success: true},
+		{Name: "test-analysis-1", Outcome: agenticv1alpha1.ActionOutcomeSucceeded},
 	}
 
 	// Create an AnalysisResult CR with the options
@@ -76,7 +76,7 @@ func TestSelectedOption_OutOfRange(t *testing.T) {
 	proposal.Namespace = "default"
 	proposal.Status.Steps.Analysis.SelectedOption = ptr32(5)
 	proposal.Status.Steps.Analysis.Results = []agenticv1alpha1.StepResultRef{
-		{Name: "test-analysis-1", Success: true},
+		{Name: "test-analysis-1", Outcome: agenticv1alpha1.ActionOutcomeSucceeded},
 	}
 
 	analysisResult := &agenticv1alpha1.AnalysisResult{}

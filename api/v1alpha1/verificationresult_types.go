@@ -23,16 +23,16 @@ import (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Proposal",type=string,JSONPath=`.proposalName`
 // +kubebuilder:printcolumn:name="Attempt",type=integer,JSONPath=`.attempt`
 // +kubebuilder:printcolumn:name="Retry",type=integer,JSONPath=`.retryIndex`
-// +kubebuilder:printcolumn:name="Success",type=boolean,JSONPath=`.success`
+// +kubebuilder:printcolumn:name="Outcome",type=string,JSONPath=`.status.conditions[?(@.type=="Completed")].reason`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // VerificationResult records the output of a single verification step
 // execution. Created by the operator after the verification agent
-// completes. Immutable after creation -- never updated. Owned by the
-// parent Proposal for garbage collection.
+// completes. Owned by the parent Proposal for garbage collection.
 type VerificationResult struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -55,10 +55,6 @@ type VerificationResult struct {
 	// +kubebuilder:validation:Minimum=0
 	RetryIndex int32 `json:"retryIndex"`
 
-	// success indicates whether the verification agent reported success.
-	// +required
-	Success bool `json:"success"`
-
 	// checks contains individual verification check results.
 	// +optional
 	// +listType=atomic
@@ -80,18 +76,14 @@ type VerificationResult struct {
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
 
-	// startTime is when verification started.
-	// +optional
-	StartTime *metav1.Time `json:"startTime,omitempty"`
-
-	// completionTime is when verification completed.
-	// +optional
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
-
-	// failureReason is populated when success is false due to a system error.
+	// failureReason is populated when the step failed due to a system error.
 	// +optional
 	// +kubebuilder:validation:MaxLength=8192
 	FailureReason string `json:"failureReason,omitempty"`
+
+	// status contains conditions tracking the result lifecycle.
+	// +optional
+	Status ResultStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

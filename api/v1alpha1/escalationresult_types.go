@@ -22,15 +22,15 @@ import (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Proposal",type=string,JSONPath=`.proposalName`
 // +kubebuilder:printcolumn:name="Attempt",type=integer,JSONPath=`.attempt`
-// +kubebuilder:printcolumn:name="Success",type=boolean,JSONPath=`.success`
+// +kubebuilder:printcolumn:name="Outcome",type=string,JSONPath=`.status.conditions[?(@.type=="Completed")].reason`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // EscalationResult records the output of the escalation step. Created by
-// the operator after the escalation agent completes. Immutable after
-// creation -- never updated. Owned by the parent Proposal for garbage
-// collection.
+// the operator after the escalation agent completes. Owned by the parent
+// Proposal for garbage collection.
 type EscalationResult struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -48,19 +48,12 @@ type EscalationResult struct {
 	// +kubebuilder:validation:Minimum=1
 	Attempt int32 `json:"attempt"`
 
-	// success indicates whether the escalation agent reported success.
-	// +required
-	Success bool `json:"success"`
-
 	// summary is a Markdown-formatted escalation summary.
 	// +optional
 	// +kubebuilder:validation:MaxLength=32768
 	Summary string `json:"summary,omitempty"`
 
 	// content is freeform escalation content produced by the agent.
-	// TODO: When RH support or GitHub backend is wired up, this field
-	// will contain the structured ticket payload. For now the agent
-	// returns freeform escalation content.
 	// +optional
 	// +kubebuilder:validation:MaxLength=65536
 	Content string `json:"content,omitempty"`
@@ -69,18 +62,14 @@ type EscalationResult struct {
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
 
-	// startTime is when escalation started.
-	// +optional
-	StartTime *metav1.Time `json:"startTime,omitempty"`
-
-	// completionTime is when escalation completed.
-	// +optional
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
-
-	// failureReason is populated when success is false due to a system error.
+	// failureReason is populated when the step failed due to a system error.
 	// +optional
 	// +kubebuilder:validation:MaxLength=8192
 	FailureReason string `json:"failureReason,omitempty"`
+
+	// status contains conditions tracking the result lifecycle.
+	// +optional
+	Status ResultStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

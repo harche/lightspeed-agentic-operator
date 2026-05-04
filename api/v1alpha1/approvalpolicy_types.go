@@ -30,6 +30,8 @@ const (
 )
 
 // ApprovalPolicyStage configures the approval mode for a single workflow step.
+//
+// +kubebuilder:validation:XValidation:rule="self.name != 'Execution' || self.approval != 'Automatic' || has(self.defaultOption)",message="defaultOption is required when execution approval is Automatic"
 type ApprovalPolicyStage struct {
 	// name is the workflow step this policy applies to.
 	// +required
@@ -39,6 +41,13 @@ type ApprovalPolicyStage struct {
 	// explicit user approval on the ProposalApproval resource.
 	// +required
 	Approval ApprovalMode `json:"approval"`
+
+	// defaultOption is the 0-based index into the analysis options array
+	// to use when execution is auto-approved. Required when name is
+	// Execution and approval is Automatic.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	DefaultOption *int32 `json:"defaultOption,omitempty"`
 }
 
 // ApprovalPolicySpec defines the desired state of ApprovalPolicy.

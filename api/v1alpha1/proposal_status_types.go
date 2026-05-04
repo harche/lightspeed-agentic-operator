@@ -29,6 +29,13 @@ const (
 	ActionOutcomeFailed    ActionOutcome = "Failed"
 )
 
+func ActionOutcomeFromBool(success bool) ActionOutcome {
+	if success {
+		return ActionOutcomeSucceeded
+	}
+	return ActionOutcomeFailed
+}
+
 // ConditionOutcome indicates whether the target condition improved after remediation.
 // +kubebuilder:validation:Enum=Improved;Unchanged;Degraded
 type ConditionOutcome string
@@ -165,9 +172,10 @@ type StepResultRef struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
-	// success indicates the outcome of this step attempt.
+	// outcome indicates the result of this step attempt.
+	// Must be one of: Succeeded, Failed.
 	// +required
-	Success bool `json:"success"`
+	Outcome ActionOutcome `json:"outcome"`
 }
 
 // AnalysisStepStatus is the observed state of the analysis step.
@@ -181,12 +189,6 @@ type AnalysisStepStatus struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	// startTime is when the step started.
-	// +optional
-	StartTime *metav1.Time `json:"startTime,omitempty"`
-	// completionTime is when the step completed.
-	// +optional
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
@@ -220,12 +222,6 @@ type ExecutionStepStatus struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	// startTime is when the step started.
-	// +optional
-	StartTime *metav1.Time `json:"startTime,omitempty"`
-	// completionTime is when the step completed.
-	// +optional
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
@@ -255,12 +251,6 @@ type VerificationStepStatus struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	// startTime is when the step started.
-	// +optional
-	StartTime *metav1.Time `json:"startTime,omitempty"`
-	// completionTime is when the step completed.
-	// +optional
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
@@ -285,12 +275,6 @@ type EscalationStepStatus struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	// startTime is when the step started.
-	// +optional
-	StartTime *metav1.Time `json:"startTime,omitempty"`
-	// completionTime is when the step completed.
-	// +optional
-	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 	// sandbox tracks the sandbox used.
 	// +optional
 	Sandbox SandboxInfo `json:"sandbox,omitzero"`
