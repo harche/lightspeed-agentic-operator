@@ -165,8 +165,19 @@ var VerificationOutputSchema = json.RawMessage(`{
   "required": ["success", "checks", "summary"]
 }`)
 
+var EscalationOutputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "success": { "type": "boolean" },
+    "summary": { "type": "string" },
+    "content": { "type": "string" }
+  },
+  "required": ["success", "summary", "content"]
+}`)
+
 var defaultOutputSchemas = map[string]json.RawMessage{
 	"analysis":     AnalysisOutputSchema,
 	"execution":    ExecutionOutputSchema,
 	"verification": VerificationOutputSchema,
+	"escalation":   EscalationOutputSchema,
 }

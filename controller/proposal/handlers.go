@@ -473,9 +473,15 @@ func (r *ProposalReconciler) handleEscalation(
 	}
 
 	escalated := meta.FindStatusCondition(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionEscalated)
-	if escalated != nil && escalated.Status == metav1.ConditionTrue {
-		log.Info("escalation already completed")
-		return ctrl.Result{}, nil
+	if escalated != nil {
+		if escalated.Status == metav1.ConditionUnknown && escalated.Reason == reasonInProgress {
+			log.Info("escalation already in progress, waiting")
+			return ctrl.Result{}, nil
+		}
+		if escalated.Status == metav1.ConditionTrue {
+			log.Info("escalation already completed")
+			return ctrl.Result{}, nil
+		}
 	}
 
 	step := resolved.Analysis

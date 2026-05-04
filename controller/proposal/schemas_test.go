@@ -13,6 +13,7 @@ func TestDefaultOutputSchemas_AllPhasesPresent(t *testing.T) {
 		{"analysis", "options"},
 		{"execution", "actionsTaken"},
 		{"verification", "checks"},
+		{"escalation", "content"},
 	}
 
 	for _, tt := range tests {
@@ -70,6 +71,26 @@ func TestExecutionOutputSchema_ValidJSON(t *testing.T) {
 	}
 	if !requiredSet["actionsTaken"] {
 		t.Error("ExecutionOutputSchema should require actionsTaken")
+	}
+}
+
+func TestEscalationOutputSchema_ValidJSON(t *testing.T) {
+	var parsed map[string]any
+	if err := json.Unmarshal(EscalationOutputSchema, &parsed); err != nil {
+		t.Fatalf("EscalationOutputSchema is not valid JSON: %v", err)
+	}
+	required, ok := parsed["required"].([]any)
+	if !ok {
+		t.Fatal("missing required field")
+	}
+	requiredSet := map[string]bool{}
+	for _, r := range required {
+		requiredSet[r.(string)] = true
+	}
+	for _, key := range []string{"success", "summary", "content"} {
+		if !requiredSet[key] {
+			t.Errorf("EscalationOutputSchema should require %q", key)
+		}
 	}
 }
 

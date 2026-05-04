@@ -973,6 +973,53 @@ func TestEscalation_AutoApprove(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Escalation: re-reconcile while in progress is a no-op
+// ---------------------------------------------------------------------------
+
+func TestEscalation_InProgressIsIdempotent(t *testing.T) {
+	proposal := testProposal()
+	maxAttempts := int32(1)
+	proposal.Spec.MaxAttempts = &maxAttempts
+	agent := newTestAgentCaller()
+	agent.verifyResult = &VerificationOutput{
+		Success: false,
+		Summary: "Pod still crashing",
+		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Result: agenticv1alpha1.CheckResultFailed}},
+	}
+	r, fc := newManualReconciler(t, proposal, agent)
+
+	// Drive to Escalating phase
+	approveAnalysis(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+	approveExecution(t, fc, "fix-crash", 0)
+	reconcileOnce(r, "fix-crash")
+	approveVerification(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash") // verify fails, retry
+	reconcileOnce(r, "fix-crash") // re-execute
+	reconcileOnce(r, "fix-crash") // verify fails again, retries exhausted → Escalating
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalating)
+
+	// Approve escalation and run it
+	approveEscalation(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+	p := assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalated)
+
+	// Record how many EscalationResult refs exist
+	resultCount := len(p.Status.Steps.Escalation.Results)
+	if resultCount != 1 {
+		t.Fatalf("expected exactly 1 escalation result, got %d", resultCount)
+	}
+
+	// Re-reconcile: should be a no-op, no additional results
+	reconcileOnce(r, "fix-crash")
+	p = assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalated)
+	if len(p.Status.Steps.Escalation.Results) != resultCount {
+		t.Fatalf("re-reconcile created duplicate results: got %d, want %d",
+			len(p.Status.Steps.Escalation.Results), resultCount)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Policy change after ProposalApproval creation (the fallback path)
 // ---------------------------------------------------------------------------
 
