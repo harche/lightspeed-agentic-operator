@@ -102,7 +102,10 @@ spec:
       - image: registry.redhat.io/my-product/lightspeed-skills:latest
     requiredSecrets:
       - name: my-api-token
-        mountAs: MY_API_TOKEN
+        mountAs:
+          type: EnvVar
+          envVar:
+            name: MY_API_TOKEN
 ```
 
 That's it. The operator picks it up and runs the workflow.
@@ -221,16 +224,22 @@ tools:
   requiredSecrets:
     - name: acs-api-token
       description: "ACS Central API token for querying violations"
-      mountAs: ACS_API_TOKEN    # exposed as env var
+      mountAs:
+        type: EnvVar
+        envVar:
+          name: ACS_API_TOKEN
 
     - name: tls-cert
       description: "Client TLS certificate for mTLS endpoints"
-      mountAs: /etc/secrets/tls  # mounted as file
+      mountAs:
+        type: FilePath
+        filePath:
+          path: /etc/secrets/tls
 ```
 
-`mountAs` determines how the secret is exposed:
-- An env-var style name (e.g., `ACS_API_TOKEN`) injects it as an environment variable.
-- A file path (e.g., `/etc/secrets/tls`) mounts it as a file.
+`mountAs.type` determines how the secret is exposed:
+- `EnvVar` — injects the secret value as an environment variable (`envVar.name`).
+- `FilePath` — mounts the secret as a file at the given path (`filePath.path`).
 
 ### Output schema
 
@@ -414,8 +423,11 @@ func handleViolation(w http.ResponseWriter, r *http.Request) {
                     Image: "registry.redhat.io/acs/lightspeed-skills:latest",
                 }},
                 RequiredSecrets: []v1alpha1.SecretRequirement{{
-                    Name:    "acs-api-token",
-                    MountAs: "ACS_API_TOKEN",
+                    Name: "acs-api-token",
+                    MountAs: v1alpha1.SecretMountSpec{
+                        Type:   v1alpha1.SecretMountEnvVar,
+                        EnvVar: v1alpha1.SecretMountEnvVarConfig{Name: "ACS_API_TOKEN"},
+                    },
                 }},
             },
         },
@@ -560,11 +572,21 @@ type SecretRequirement struct {
     // Name of the Secret (same namespace as the Proposal). Required.
     Name string
 
-    // How the secret is exposed: env var name (e.g., "MY_TOKEN")
-    // or file path (e.g., "/etc/secrets/token"). Required.
-    MountAs string
+    // How the secret is exposed in the sandbox pod. Required.
+    MountAs SecretMountSpec
 
     // Human-readable explanation for the cluster admin.
     Description string
+}
+
+type SecretMountSpec struct {
+    // "EnvVar" or "FilePath". Required.
+    Type SecretMountType
+
+    // Required when Type is "EnvVar".
+    EnvVar SecretMountEnvVarConfig
+
+    // Required when Type is "FilePath".
+    FilePath SecretMountFilePathConfig
 }
 ```
