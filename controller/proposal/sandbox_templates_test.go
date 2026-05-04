@@ -9,26 +9,37 @@ import (
 )
 
 func testLLMProvider(providerType agenticv1alpha1.LLMProviderType) *agenticv1alpha1.LLMProvider {
-	creds := agenticv1alpha1.NamespacedSecretReference{Name: "my-llm-secret", Namespace: "lightspeed"}
+	creds := agenticv1alpha1.SecretReference{Name: "my-llm-secret"}
 	spec := agenticv1alpha1.LLMProviderSpec{Type: providerType}
 	switch providerType {
 	case agenticv1alpha1.LLMProviderAnthropic:
-		spec.Anthropic = &agenticv1alpha1.AnthropicConfig{CredentialsSecret: creds}
+		spec.Anthropic = agenticv1alpha1.AnthropicConfig{CredentialsSecret: creds}
 	case agenticv1alpha1.LLMProviderGoogleCloudVertex:
-		spec.GoogleCloudVertex = &agenticv1alpha1.GoogleCloudVertexConfig{CredentialsSecret: creds, Project: "test", Region: "us-central1"}
+		spec.GoogleCloudVertex = agenticv1alpha1.GoogleCloudVertexConfig{CredentialsSecret: creds, ProjectID: "test-project", Region: "us-central1"}
 	case agenticv1alpha1.LLMProviderOpenAI:
-		spec.OpenAI = &agenticv1alpha1.OpenAIConfig{CredentialsSecret: creds}
+		spec.OpenAI = agenticv1alpha1.OpenAIConfig{CredentialsSecret: creds}
 	case agenticv1alpha1.LLMProviderAzureOpenAI:
-		spec.AzureOpenAI = &agenticv1alpha1.AzureOpenAIConfig{CredentialsSecret: creds, Endpoint: "https://test.openai.azure.com"}
+		spec.AzureOpenAI = agenticv1alpha1.AzureOpenAIConfig{CredentialsSecret: creds, Endpoint: "https://test.openai.azure.com"}
 	case agenticv1alpha1.LLMProviderAWSBedrock:
-		spec.AWSBedrock = &agenticv1alpha1.AWSBedrockConfig{CredentialsSecret: creds, Region: "us-east-1"}
+		spec.AWSBedrock = agenticv1alpha1.AWSBedrockConfig{CredentialsSecret: creds, Region: "us-east-1"}
 	}
 	return &agenticv1alpha1.LLMProvider{Spec: spec}
 }
 
-func testLLMProviderWithURL(providerType agenticv1alpha1.LLMProviderType, url string) *agenticv1alpha1.LLMProvider {
+func testLLMProviderWithURL(providerType agenticv1alpha1.LLMProviderType, u string) *agenticv1alpha1.LLMProvider {
 	p := testLLMProvider(providerType)
-	p.Spec.URL = url
+	switch providerType {
+	case agenticv1alpha1.LLMProviderAnthropic:
+		p.Spec.Anthropic.URL = u
+	case agenticv1alpha1.LLMProviderGoogleCloudVertex:
+		p.Spec.GoogleCloudVertex.URL = u
+	case agenticv1alpha1.LLMProviderOpenAI:
+		p.Spec.OpenAI.URL = u
+	case agenticv1alpha1.LLMProviderAzureOpenAI:
+		p.Spec.AzureOpenAI.URL = u
+	case agenticv1alpha1.LLMProviderAWSBedrock:
+		p.Spec.AWSBedrock.URL = u
+	}
 	return p
 }
 
@@ -212,7 +223,7 @@ func TestComputeTemplateHash_DifferentRequiredSecrets(t *testing.T) {
 
 	h1 := mustHash(t, llm, "claude-opus-4-6", skills, nil, "analysis")
 	h2 := mustHash(t, llm, "claude-opus-4-6", skills, []agenticv1alpha1.SecretRequirement{
-		{Name: "my-token", MountAs: "MY_TOKEN"},
+		{Name: "my-token", MountAs: agenticv1alpha1.SecretMountSpec{Type: agenticv1alpha1.SecretMountEnvVar, EnvVar: agenticv1alpha1.SecretMountEnvVarConfig{Name: "MY_TOKEN"}}},
 	}, "analysis")
 
 	if h1 == h2 {
@@ -306,7 +317,7 @@ func TestPatchLLMCredentials_Bedrock(t *testing.T) {
 func TestPatchRequiredSecrets_EnvVar(t *testing.T) {
 	tmpl := emptyTemplate()
 	err := patchRequiredSecrets(tmpl, []agenticv1alpha1.SecretRequirement{
-		{Name: "github-token", MountAs: "GH_TOKEN"},
+		{Name: "github-token", MountAs: agenticv1alpha1.SecretMountSpec{Type: agenticv1alpha1.SecretMountEnvVar, EnvVar: agenticv1alpha1.SecretMountEnvVarConfig{Name: "GH_TOKEN"}}},
 	})
 	if err != nil {
 		t.Fatalf("patchRequiredSecrets: %v", err)
@@ -327,7 +338,7 @@ func TestPatchRequiredSecrets_EnvVar(t *testing.T) {
 func TestPatchRequiredSecrets_FileMount(t *testing.T) {
 	tmpl := emptyTemplate()
 	err := patchRequiredSecrets(tmpl, []agenticv1alpha1.SecretRequirement{
-		{Name: "tls-cert", MountAs: "/etc/certs/tls.crt"},
+		{Name: "tls-cert", MountAs: agenticv1alpha1.SecretMountSpec{Type: agenticv1alpha1.SecretMountFilePath, FilePath: agenticv1alpha1.SecretMountFilePathConfig{Path: "/etc/certs/tls.crt"}}},
 	})
 	if err != nil {
 		t.Fatalf("patchRequiredSecrets: %v", err)

@@ -18,6 +18,5 @@ spec:
   googleCloudVertex:
     credentialsSecret:
       name: llm-credentials
-      namespace: openshift-lightspeed
-    project: my-gcp-project
+    projectID: my-gcp-project
     region: us-central1

@@ -75,11 +75,8 @@ func TestCreate_WithMaxAttempts(t *testing.T) {
 	if len(list.Items) != 1 {
 		t.Fatalf("expected 1 proposal, got %d", len(list.Items))
 	}
-	if list.Items[0].Spec.MaxAttempts == nil {
-		t.Fatal("expected MaxAttempts to be set")
-	}
-	if *list.Items[0].Spec.MaxAttempts != 3 {
-		t.Errorf("expected MaxAttempts=3, got %d", *list.Items[0].Spec.MaxAttempts)
+	if list.Items[0].Spec.MaxAttempts != 3 {
+		t.Errorf("expected MaxAttempts=3, got %d", list.Items[0].Spec.MaxAttempts)
 	}
 }
 
@@ -103,8 +100,8 @@ func TestCreate_WithoutMaxAttempts(t *testing.T) {
 	if err := fc.List(context.Background(), list); err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if list.Items[0].Spec.MaxAttempts != nil {
-		t.Error("expected MaxAttempts to be nil when not set")
+	if list.Items[0].Spec.MaxAttempts != 0 {
+		t.Errorf("expected MaxAttempts=0 when not set, got %d", list.Items[0].Spec.MaxAttempts)
 	}
 }
 

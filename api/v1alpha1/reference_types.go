@@ -19,35 +19,20 @@ package v1alpha1
 // SecretReference references a Kubernetes Secret by name within the same
 // namespace. Used for credentials and authentication tokens.
 type SecretReference struct {
-	// name of the Secret.
+	// name of the Secret. Must be a valid RFC 1123 DNS subdomain.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="must be a valid DNS subdomain: lowercase alphanumeric characters, hyphens, and dots"
 	Name string `json:"name,omitempty"`
-}
-
-// NamespacedSecretReference references a Kubernetes Secret by name and
-// namespace. Used by cluster-scoped resources (LLMProvider) that cannot
-// assume same-namespace resolution.
-type NamespacedSecretReference struct {
-	// name of the Secret.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name,omitempty"`
-
-	// namespace of the Secret.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=63
-	Namespace string `json:"namespace,omitempty"`
 }
 
 // LLMProviderReference references a cluster-scoped LLMProvider CR by name.
 type LLMProviderReference struct {
-	// name of the LLMProvider.
+	// name of the LLMProvider. Must be a valid RFC 1123 DNS subdomain.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="must be a valid DNS subdomain: lowercase alphanumeric characters, hyphens, and dots"
 	Name string `json:"name,omitempty"`
 }

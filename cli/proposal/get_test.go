@@ -44,7 +44,7 @@ func TestGet_WithAnalysisResults(t *testing.T) {
 			{Type: "Analyzed", Status: metav1.ConditionTrue, Reason: "Success", LastTransitionTime: metav1.Now()},
 		},
 		SelectedOption: &selected,
-		Results:        []agenticv1alpha1.StepResultRef{{Name: "fix-crash-analysis-1", Success: true}},
+		Results:        []agenticv1alpha1.StepResultRef{{Name: "fix-crash-analysis-1", Outcome: agenticv1alpha1.ActionOutcomeSucceeded}},
 	}
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
@@ -76,7 +76,7 @@ func TestGet_WithExecutionResults(t *testing.T) {
 		Conditions: []metav1.Condition{
 			{Type: "Executed", Status: metav1.ConditionUnknown, Reason: "InProgress", LastTransitionTime: metav1.Now()},
 		},
-		Results: []agenticv1alpha1.StepResultRef{{Name: "fix-crash-execution-1", Success: true}},
+		Results: []agenticv1alpha1.StepResultRef{{Name: "fix-crash-execution-1", Outcome: agenticv1alpha1.ActionOutcomeSucceeded}},
 	}
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
@@ -105,7 +105,7 @@ func TestGet_WithVerificationResults(t *testing.T) {
 		Conditions: []metav1.Condition{
 			{Type: "Verified", Status: metav1.ConditionTrue, Reason: "AllPassed", LastTransitionTime: metav1.Now()},
 		},
-		Results: []agenticv1alpha1.StepResultRef{{Name: "fix-crash-verification-1", Success: true}},
+		Results: []agenticv1alpha1.StepResultRef{{Name: "fix-crash-verification-1", Outcome: agenticv1alpha1.ActionOutcomeSucceeded}},
 	}
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).

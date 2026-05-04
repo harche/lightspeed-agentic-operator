@@ -228,6 +228,23 @@ func credentialsSecretName(llm *agenticv1alpha1.LLMProvider) string {
 	}
 }
 
+func providerURL(llm *agenticv1alpha1.LLMProvider) string {
+	switch llm.Spec.Type {
+	case agenticv1alpha1.LLMProviderAnthropic:
+		return llm.Spec.Anthropic.URL
+	case agenticv1alpha1.LLMProviderGoogleCloudVertex:
+		return llm.Spec.GoogleCloudVertex.URL
+	case agenticv1alpha1.LLMProviderOpenAI:
+		return llm.Spec.OpenAI.URL
+	case agenticv1alpha1.LLMProviderAzureOpenAI:
+		return llm.Spec.AzureOpenAI.URL
+	case agenticv1alpha1.LLMProviderAWSBedrock:
+		return llm.Spec.AWSBedrock.URL
+	default:
+		return ""
+	}
+}
+
 func patchLLMCredentials(tmpl *unstructured.Unstructured, llm *agenticv1alpha1.LLMProvider, model string) error {
 	secretName := credentialsSecretName(llm)
 
@@ -238,8 +255,8 @@ func patchLLMCredentials(tmpl *unstructured.Unstructured, llm *agenticv1alpha1.L
 		return fmt.Errorf("set ANTHROPIC_MODEL: %w", err)
 	}
 
-	if llm.Spec.URL != "" {
-		if err := setEnvVar(tmpl, providerURLEnvVar(llm.Spec.Type), llm.Spec.URL); err != nil {
+	if u := providerURL(llm); u != "" {
+		if err := setEnvVar(tmpl, providerURLEnvVar(llm.Spec.Type), u); err != nil {
 			return fmt.Errorf("set provider URL: %w", err)
 		}
 	}
@@ -250,7 +267,7 @@ func patchLLMCredentials(tmpl *unstructured.Unstructured, llm *agenticv1alpha1.L
 		if err := setEnvVar(tmpl, "CLAUDE_CODE_USE_VERTEX", "1"); err != nil {
 			return fmt.Errorf("set CLAUDE_CODE_USE_VERTEX: %w", err)
 		}
-		if err := setEnvVar(tmpl, "GCP_PROJECT", cfg.Project); err != nil {
+		if err := setEnvVar(tmpl, "GCP_PROJECT", cfg.ProjectID); err != nil {
 			return fmt.Errorf("set GCP_PROJECT: %w", err)
 		}
 		if err := setEnvVar(tmpl, "GCP_REGION", cfg.Region); err != nil {
@@ -300,16 +317,17 @@ func providerURLEnvVar(t agenticv1alpha1.LLMProviderType) string {
 
 func patchRequiredSecrets(tmpl *unstructured.Unstructured, secrets []agenticv1alpha1.SecretRequirement) error {
 	for _, s := range secrets {
-		if strings.HasPrefix(s.MountAs, "/") {
+		switch s.MountAs.Type {
+		case agenticv1alpha1.SecretMountFilePath:
 			volName := "req-" + s.Name
 			if err := addSecretVolume(tmpl, volName, s.Name); err != nil {
 				return fmt.Errorf("add secret volume %q: %w", s.Name, err)
 			}
-			if err := addVolumeMount(tmpl, volName, s.MountAs, true); err != nil {
-				return fmt.Errorf("add volume mount %q: %w", s.MountAs, err)
+			if err := addVolumeMount(tmpl, volName, s.MountAs.FilePath.Path, true); err != nil {
+				return fmt.Errorf("add volume mount %q: %w", s.MountAs.FilePath.Path, err)
 			}
-		} else {
-			if err := addEnvVarFromSecret(tmpl, s.MountAs, s.Name, "token"); err != nil {
+		case agenticv1alpha1.SecretMountEnvVar:
+			if err := addEnvVarFromSecret(tmpl, s.MountAs.EnvVar.Name, s.Name, "token"); err != nil {
 				return fmt.Errorf("add env var from secret %q: %w", s.Name, err)
 			}
 		}

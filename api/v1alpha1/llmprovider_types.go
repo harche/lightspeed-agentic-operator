@@ -51,76 +51,145 @@ const (
 
 // AnthropicConfig contains configuration for the Anthropic API provider.
 type AnthropicConfig struct {
-	// credentialsSecret references a Secret containing an ANTHROPIC_API_KEY.
-	// Since LLMProvider is cluster-scoped, both name and namespace are required.
+	// credentialsSecret references a Secret in the operator namespace
+	// (openshift-lightspeed) containing the Anthropic API credentials.
+	// The Secret must contain the key ANTHROPIC_API_KEY.
 	// +required
-	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
+	CredentialsSecret SecretReference `json:"credentialsSecret,omitzero"`
+
+	// url is an optional override for the Anthropic API endpoint.
+	// Only needed for custom deployments or API proxies.
+	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
+	// parameters are allowed. Fragments and userinfo are not permitted.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="url must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	URL string `json:"url,omitempty"`
 }
 
 // GoogleCloudVertexConfig contains configuration for the Google Cloud Vertex AI provider.
 type GoogleCloudVertexConfig struct {
-	// credentialsSecret references a Secret containing a service account JSON
-	// key (stored under the key GOOGLE_APPLICATION_CREDENTIALS). Since
-	// LLMProvider is cluster-scoped, both name and namespace are required.
+	// credentialsSecret references a Secret in the operator namespace
+	// (openshift-lightspeed) containing a GCP service account JSON key.
+	// The Secret must contain the key GOOGLE_APPLICATION_CREDENTIALS.
 	// +required
-	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
+	CredentialsSecret SecretReference `json:"credentialsSecret,omitzero"`
 
-	// project is the GCP project ID where Vertex AI is enabled.
+	// projectID is the Google Cloud Project ID where Vertex AI is enabled.
+	// A Project ID is a globally unique identifier that must be 6 to 30
+	// characters in length, can only contain lowercase letters, digits, and
+	// hyphens, must start with a letter, and cannot end with a hyphen.
 	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=63
-	Project string `json:"project,omitempty"`
+	// +kubebuilder:validation:MinLength=6
+	// +kubebuilder:validation:MaxLength=30
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[a-z][a-z0-9-]*[a-z0-9]$')",message="projectID must start with a lowercase letter, contain only lowercase letters, digits, and hyphens, and cannot end with a hyphen"
+	ProjectID string `json:"projectID,omitempty"`
 
-	// region is the GCP region for the Vertex AI endpoint (e.g., "us-central1").
+	// region is the GCP region for the Vertex AI endpoint.
+	// Must contain only lowercase letters, digits, and hyphens
+	// (e.g., "us-central1", "europe-west4", "asia-southeast1").
 	// +required
-	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MinLength=2
 	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[a-z][a-z0-9-]*[a-z0-9]$')",message="region must contain only lowercase letters, digits, and hyphens, start with a letter, and not end with a hyphen"
 	Region string `json:"region,omitempty"`
+
+	// url is an optional override for the Vertex AI API endpoint.
+	// Only needed for custom deployments or API proxies.
+	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
+	// parameters are allowed. Fragments and userinfo are not permitted.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="url must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	URL string `json:"url,omitempty"`
 }
 
 // OpenAIConfig contains configuration for an OpenAI-compatible API provider.
 type OpenAIConfig struct {
-	// credentialsSecret references a Secret containing an OPENAI_API_KEY.
-	// Since LLMProvider is cluster-scoped, both name and namespace are required.
+	// credentialsSecret references a Secret in the operator namespace
+	// (openshift-lightspeed) containing the OpenAI API credentials.
+	// The Secret must contain the key OPENAI_API_KEY.
 	// +required
-	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
+	CredentialsSecret SecretReference `json:"credentialsSecret,omitzero"`
+
+	// url is an optional override for the OpenAI API endpoint.
+	// Only needed for custom deployments or API proxies.
+	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
+	// parameters are allowed. Fragments and userinfo are not permitted.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="url must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	URL string `json:"url,omitempty"`
 }
 
 // AzureOpenAIConfig contains configuration for the Azure OpenAI Service provider.
 type AzureOpenAIConfig struct {
-	// credentialsSecret references a Secret containing an AZURE_OPENAI_API_KEY.
-	// Since LLMProvider is cluster-scoped, both name and namespace are required.
+	// credentialsSecret references a Secret in the operator namespace
+	// (openshift-lightspeed) containing the Azure OpenAI API credentials.
+	// The Secret must contain the key AZURE_OPENAI_API_KEY.
 	// +required
-	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
+	CredentialsSecret SecretReference `json:"credentialsSecret,omitzero"`
 
 	// endpoint is the Azure OpenAI resource endpoint
 	// (e.g., "https://my-resource.openai.azure.com").
+	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
+	// parameters are allowed. Fragments and userinfo are not permitted.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="endpoint must be a valid HTTP or HTTPS URL"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="endpoint must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
 	Endpoint string `json:"endpoint,omitempty"`
 
-	// apiVersion is the Azure OpenAI API version (e.g., "2024-02-01").
+	// apiVersion is the Azure OpenAI API version. Azure API versions use
+	// a date-based format: YYYY-MM-DD with an optional "-preview" suffix
+	// (e.g., "2024-02-01", "2024-08-01-preview").
 	// When omitted, the SDK default is used.
 	// +optional
 	// +kubebuilder:validation:MaxLength=32
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}(-preview)?$')",message="apiVersion must be a date in YYYY-MM-DD format with an optional -preview suffix"
 	APIVersion string `json:"apiVersion,omitempty"`
+
+	// url is an optional override for the Azure OpenAI API endpoint.
+	// Only needed for custom deployments or API proxies. This is separate
+	// from the required 'endpoint' field which identifies the Azure resource.
+	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
+	// parameters are allowed. Fragments and userinfo are not permitted.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="url must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	URL string `json:"url,omitempty"`
 }
 
 // AWSBedrockConfig contains configuration for the AWS Bedrock provider.
 type AWSBedrockConfig struct {
-	// credentialsSecret references a Secret containing AWS_ACCESS_KEY_ID
-	// and AWS_SECRET_ACCESS_KEY. Since LLMProvider is cluster-scoped,
-	// both name and namespace are required.
+	// credentialsSecret references a Secret in the operator namespace
+	// (openshift-lightspeed) containing AWS credentials. The Secret must
+	// contain the keys AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
 	// +required
-	CredentialsSecret NamespacedSecretReference `json:"credentialsSecret,omitzero"`
+	CredentialsSecret SecretReference `json:"credentialsSecret,omitzero"`
 
-	// region is the AWS region for the Bedrock endpoint (e.g., "us-east-1").
+	// region is the AWS region for the Bedrock endpoint.
+	// Must contain only lowercase letters, digits, and hyphens
+	// (e.g., "us-east-1", "eu-west-2", "ap-southeast-1").
 	// +required
-	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MinLength=2
 	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[a-z][a-z0-9-]*[a-z0-9]$')",message="region must contain only lowercase letters, digits, and hyphens, start with a letter, and not end with a hyphen"
 	Region string `json:"region,omitempty"`
+
+	// url is an optional override for the AWS Bedrock API endpoint.
+	// Only needed for custom deployments or API proxies.
+	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
+	// parameters are allowed. Fragments and userinfo are not permitted.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="url must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	URL string `json:"url,omitempty"`
 }
 
 // LLMProviderSpec defines the desired state of LLMProvider.
@@ -135,50 +204,55 @@ type AWSBedrockConfig struct {
 // +kubebuilder:validation:XValidation:rule="self.type == 'AzureOpenAI' ? has(self.azureOpenAI) : !has(self.azureOpenAI)",message="azureOpenAI is required when type is AzureOpenAI, and forbidden otherwise"
 // +kubebuilder:validation:XValidation:rule="self.type == 'AWSBedrock' ? has(self.awsBedrock) : !has(self.awsBedrock)",message="awsBedrock is required when type is AWSBedrock, and forbidden otherwise"
 type LLMProviderSpec struct {
-	// type is the LLM provider backend. Determines which per-provider
-	// configuration field must be set. Allowed values: "Anthropic",
-	// "GoogleCloudVertex", "OpenAI", "AzureOpenAI", "AWSBedrock".
+	// type is a required field that configures which LLM provider backend
+	// should be used.
+	//
+	// Allowed values are Anthropic, GoogleCloudVertex, OpenAI, AzureOpenAI,
+	// and AWSBedrock.
+	//
+	// When set to Anthropic, agents referencing this provider will use the
+	// Anthropic API directly, and the 'anthropic' field must be configured.
+	//
+	// When set to GoogleCloudVertex, agents referencing this provider will
+	// use Google Cloud Vertex AI, and the 'googleCloudVertex' field must be
+	// configured.
+	//
+	// When set to OpenAI, agents referencing this provider will use an
+	// OpenAI-compatible API, and the 'openAI' field must be configured.
+	//
+	// When set to AzureOpenAI, agents referencing this provider will use
+	// the Azure OpenAI Service, and the 'azureOpenAI' field must be
+	// configured.
+	//
+	// When set to AWSBedrock, agents referencing this provider will use
+	// AWS Bedrock, and the 'awsBedrock' field must be configured.
 	// +required
 	Type LLMProviderType `json:"type,omitempty"`
-
-	// url is an optional override for the provider API endpoint.
-	// Most providers have well-known endpoints that the operator resolves
-	// automatically, so this is only needed for custom deployments or
-	// API proxies. This is not related to the cluster-wide egress proxy
-	// (config.openshift.io/v1 Proxy). The operator honors the cluster
-	// proxy configuration (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) independently
-	// when making requests to the provider endpoint. Must be an HTTP or
-	// HTTPS URL, maximum 2048 characters.
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="url must be a valid HTTP or HTTPS URL"
-	URL string `json:"url,omitempty"`
 
 	// anthropic contains Anthropic-specific configuration.
 	// Required when type is "Anthropic".
 	// +optional
-	Anthropic *AnthropicConfig `json:"anthropic,omitempty"`
+	Anthropic AnthropicConfig `json:"anthropic,omitzero"`
 
 	// googleCloudVertex contains Google Cloud Vertex AI-specific configuration.
 	// Required when type is "GoogleCloudVertex".
 	// +optional
-	GoogleCloudVertex *GoogleCloudVertexConfig `json:"googleCloudVertex,omitempty"`
+	GoogleCloudVertex GoogleCloudVertexConfig `json:"googleCloudVertex,omitzero"`
 
 	// openAI contains OpenAI-specific configuration.
 	// Required when type is "OpenAI".
 	// +optional
-	OpenAI *OpenAIConfig `json:"openAI,omitempty"`
+	OpenAI OpenAIConfig `json:"openAI,omitzero"`
 
 	// azureOpenAI contains Azure OpenAI Service-specific configuration.
 	// Required when type is "AzureOpenAI".
 	// +optional
-	AzureOpenAI *AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
+	AzureOpenAI AzureOpenAIConfig `json:"azureOpenAI,omitzero"`
 
 	// awsBedrock contains AWS Bedrock-specific configuration.
 	// Required when type is "AWSBedrock".
 	// +optional
-	AWSBedrock *AWSBedrockConfig `json:"awsBedrock,omitempty"`
+	AWSBedrock AWSBedrockConfig `json:"awsBedrock,omitzero"`
 }
 
 // +kubebuilder:object:root=true
@@ -209,8 +283,7 @@ type LLMProviderSpec struct {
 //	  googleCloudVertex:
 //	    credentialsSecret:
 //	      name: llm-credentials
-//	      namespace: openshift-lightspeed
-//	    project: my-gcp-project
+//	    projectID: my-gcp-project
 //	    region: us-central1
 type LLMProvider struct {
 	metav1.TypeMeta `json:",inline"`

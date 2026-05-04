@@ -91,10 +91,7 @@ func (o *GetOptions) printDetail(p *agenticv1alpha1.Proposal) {
 	fmt.Fprintf(w, "Namespace:         %s\n", p.Namespace)
 	fmt.Fprintf(w, "Phase:             %s\n", ColoredPhase(agenticv1alpha1.DerivePhase(p.Status.Conditions)))
 	if p.Status.Attempts != nil {
-		maxAttempts := "-"
-		if p.Spec.MaxAttempts != nil {
-			maxAttempts = fmt.Sprintf("%d", *p.Spec.MaxAttempts)
-		}
+		maxAttempts := fmt.Sprintf("%d", p.Spec.MaxAttempts)
 		fmt.Fprintf(w, "Attempts:          %d / %s\n", *p.Status.Attempts, maxAttempts)
 	}
 	fmt.Fprintf(w, "Age:               %s\n", HumanDuration(p.CreationTimestamp.Time))
@@ -112,7 +109,7 @@ func (o *GetOptions) printDetail(p *agenticv1alpha1.Proposal) {
 		fmt.Fprintf(w, "  Selected Option: %d\n", *p.Status.Steps.Analysis.SelectedOption)
 	}
 	for _, ref := range p.Status.Steps.Analysis.Results {
-		fmt.Fprintf(w, "  Result:          %s (success=%v)\n", ref.Name, ref.Success)
+		fmt.Fprintf(w, "  Result:          %s (outcome=%s)\n", ref.Name, ref.Outcome)
 	}
 
 	// Execution step
@@ -120,7 +117,7 @@ func (o *GetOptions) printDetail(p *agenticv1alpha1.Proposal) {
 	fmt.Fprintf(w, "Execution:         %s\n",
 		stepStatusFromConditions(p.Status.Steps.Execution.Conditions, agenticv1alpha1.ProposalConditionExecuted))
 	for _, ref := range p.Status.Steps.Execution.Results {
-		fmt.Fprintf(w, "  Result:          %s (success=%v)\n", ref.Name, ref.Success)
+		fmt.Fprintf(w, "  Result:          %s (outcome=%s)\n", ref.Name, ref.Outcome)
 	}
 
 	// Verification step
@@ -128,7 +125,7 @@ func (o *GetOptions) printDetail(p *agenticv1alpha1.Proposal) {
 	fmt.Fprintf(w, "Verification:      %s\n",
 		stepStatusFromConditions(p.Status.Steps.Verification.Conditions, agenticv1alpha1.ProposalConditionVerified))
 	for _, ref := range p.Status.Steps.Verification.Results {
-		fmt.Fprintf(w, "  Result:          %s (success=%v)\n", ref.Name, ref.Success)
+		fmt.Fprintf(w, "  Result:          %s (outcome=%s)\n", ref.Name, ref.Outcome)
 	}
 
 	// Escalation step
@@ -137,7 +134,7 @@ func (o *GetOptions) printDetail(p *agenticv1alpha1.Proposal) {
 		fmt.Fprintf(w, "Escalation:        %s\n",
 			stepStatusFromConditions(p.Status.Steps.Escalation.Conditions, agenticv1alpha1.ProposalConditionEscalated))
 		for _, ref := range p.Status.Steps.Escalation.Results {
-			fmt.Fprintf(w, "  Result:          %s (success=%v)\n", ref.Name, ref.Success)
+			fmt.Fprintf(w, "  Result:          %s (outcome=%s)\n", ref.Name, ref.Outcome)
 		}
 	}
 

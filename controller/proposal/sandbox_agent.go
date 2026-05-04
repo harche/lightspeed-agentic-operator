@@ -276,7 +276,7 @@ func (s *SandboxAgentCaller) patchSandboxInfo(ctx context.Context, proposal *age
 func collectFailedResults(results []agenticv1alpha1.StepResultRef, stepName string) []agentPreviousAttempt {
 	var attempts []agentPreviousAttempt
 	for i, ref := range results {
-		if !ref.Success {
+		if ref.Outcome != agenticv1alpha1.ActionOutcomeSucceeded {
 			attempts = append(attempts, agentPreviousAttempt{
 				Attempt:       int32(i + 1),
 				FailureReason: fmt.Sprintf("%s attempt %d failed", stepName, i+1),

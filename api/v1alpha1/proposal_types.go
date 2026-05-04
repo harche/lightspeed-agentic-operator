@@ -209,6 +209,11 @@ type ProposalStep struct {
 // Omit execution and/or verification to skip those steps.
 //
 // +kubebuilder:validation:XValidation:rule="has(self.analysis)",message="analysis must be provided"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.targetNamespaces) || (has(self.targetNamespaces) && self.targetNamespaces == oldSelf.targetNamespaces)",message="targetNamespaces is immutable once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.tools) || (has(self.tools) && self.tools == oldSelf.tools)",message="tools is immutable once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.analysis) || (has(self.analysis) && self.analysis == oldSelf.analysis)",message="analysis is immutable once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.execution) || (has(self.execution) && self.execution == oldSelf.execution)",message="execution is immutable once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.verification) || (has(self.verification) && self.verification == oldSelf.verification)",message="verification is immutable once set"
 type ProposalSpec struct {
 	// request is the user's original request, alert description, or a
 	// description of what triggered this proposal. This text is passed to
@@ -226,6 +231,11 @@ type ProposalSpec struct {
 	// targetNamespaces are the Kubernetes namespace(s) this proposal
 	// operates on. Used for RBAC scoping and context to the analysis agent.
 	//
+	// When omitted, the proposal is not namespace-scoped — the analysis
+	// agent determines the relevant namespaces from the request context.
+	// Adapters (AlertManager, ACS) typically set this automatically from
+	// the source event.
+	//
 	// Immutable: RBAC scoping is fixed at creation. Changing target
 	// namespaces mid-flight would invalidate the analysis and any
 	// granted execution RBAC.
@@ -234,7 +244,6 @@ type ProposalSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="self.all(ns, !format.dns1123Label().validate(ns).hasValue())",message="each namespace must be a valid DNS label"
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="targetNamespaces is immutable after creation"
 	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=63
 	TargetNamespaces []string `json:"targetNamespaces,omitempty"`
@@ -248,7 +257,6 @@ type ProposalSpec struct {
 	// fixed at creation. Changing tools mid-flight could violate the
 	// assumptions of an in-progress analysis or execution.
 	// +optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="tools is immutable after creation"
 	Tools ToolsSpec `json:"tools,omitzero"`
 
 	// analysis defines per-step configuration for the analysis step,
@@ -256,7 +264,6 @@ type ProposalSpec struct {
 	//
 	// Immutable: agent and per-step tools are fixed at creation.
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="analysis is immutable after creation"
 	Analysis *ProposalStep `json:"analysis,omitempty"`
 
 	// execution defines per-step configuration for the execution step.
@@ -264,7 +271,6 @@ type ProposalSpec struct {
 	//
 	// Immutable: agent and per-step tools are fixed at creation.
 	// +optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="execution is immutable after creation"
 	Execution *ProposalStep `json:"execution,omitempty"`
 
 	// verification defines per-step configuration for the verification step.
@@ -272,7 +278,6 @@ type ProposalSpec struct {
 	//
 	// Immutable: agent and per-step tools are fixed at creation.
 	// +optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="verification is immutable after creation"
 	Verification *ProposalStep `json:"verification,omitempty"`
 
 	// maxAttempts sets the maximum number of retry attempts for this proposal.
@@ -281,8 +286,8 @@ type ProposalSpec struct {
 	// can set a custom retry limit before execution begins.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=20
-	MaxAttempts *int32 `json:"maxAttempts,omitempty"`
+	// +kubebuilder:validation:Maximum=3
+	MaxAttempts int32 `json:"maxAttempts,omitempty"`
 
 	// revision is incremented by the user (or console UI) each time they
 	// submit revision feedback for the analysis.
@@ -383,7 +388,10 @@ type ProposalStatus struct {
 //	      - image: registry.redhat.io/acs/acs-lightspeed-skills:latest
 //	    requiredSecrets:
 //	      - name: acs-api-token
-//	        mountAs: ACS_API_TOKEN
+//	        mountAs:
+//	          type: EnvVar
+//	          envVar:
+//	            name: ACS_API_TOKEN
 //	  analysis:
 //	    agent: smart
 //	  execution: {}

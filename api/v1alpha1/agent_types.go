@@ -27,25 +27,25 @@ type AgentTimeouts struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=3600
-	AnalysisSeconds int32 `json:"analysisSeconds,omitempty,omitzero"`
+	AnalysisSeconds int32 `json:"analysisSeconds,omitempty"`
 
 	// executionSeconds is the timeout for the execution step in seconds.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=3600
-	ExecutionSeconds int32 `json:"executionSeconds,omitempty,omitzero"`
+	ExecutionSeconds int32 `json:"executionSeconds,omitempty"`
 
 	// verificationSeconds is the timeout for the verification step in seconds.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=3600
-	VerificationSeconds int32 `json:"verificationSeconds,omitempty,omitzero"`
+	VerificationSeconds int32 `json:"verificationSeconds,omitempty"`
 
 	// chatSeconds is the timeout for each chat turn with the LLM in seconds.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=600
-	ChatSeconds int32 `json:"chatSeconds,omitempty,omitzero"`
+	ChatSeconds int32 `json:"chatSeconds,omitempty"`
 }
 
 // AgentSpec defines the desired state of Agent.
@@ -72,7 +72,7 @@ type AgentSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=500
-	MaxTurns int32 `json:"maxTurns,omitempty,omitzero"`
+	MaxTurns int32 `json:"maxTurns,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -100,8 +100,7 @@ func (o *CreateOptions) Run(ctx context.Context) error {
 	}
 
 	if o.maxAttempts >= 0 {
-		v := int32(o.maxAttempts)
-		proposal.Spec.MaxAttempts = &v
+		proposal.Spec.MaxAttempts = int32(o.maxAttempts)
 	}
 
 	if err := o.client.Create(ctx, proposal); err != nil {
