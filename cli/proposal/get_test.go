@@ -35,7 +35,7 @@ func TestGet_BasicDetail(t *testing.T) {
 	}
 }
 
-func TestGet_WithAnalysisOptions(t *testing.T) {
+func TestGet_WithAnalysisResults(t *testing.T) {
 	streams, out, _ := fakeStreams()
 	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseExecuting)
 	selected := int32(0)
@@ -43,24 +43,8 @@ func TestGet_WithAnalysisOptions(t *testing.T) {
 		Conditions: []metav1.Condition{
 			{Type: "Analyzed", Status: metav1.ConditionTrue, Reason: "Success", LastTransitionTime: metav1.Now()},
 		},
-		Options: []agenticv1alpha1.RemediationOption{
-			{
-				Title: "Increase memory",
-				Diagnosis: agenticv1alpha1.DiagnosisResult{
-					Summary:    "OOMKilled due to low memory",
-					Confidence: agenticv1alpha1.ConfidenceLevelHigh,
-					RootCause:  "Memory limit 256Mi",
-				},
-				Proposal: agenticv1alpha1.ProposalResult{
-					Description: "Increase memory to 512Mi",
-					Risk:        agenticv1alpha1.RiskLevelLow,
-					Actions: []agenticv1alpha1.ProposedAction{
-						{Type: "patch", Description: "Patch deployment"},
-					},
-				},
-			},
-		},
 		SelectedOption: &selected,
+		Results:        []agenticv1alpha1.StepResultRef{{Name: "fix-crash-analysis-1", Success: true}},
 	}
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
@@ -77,35 +61,22 @@ func TestGet_WithAnalysisOptions(t *testing.T) {
 	}
 
 	output := out.String()
-	if !strings.Contains(output, "Increase memory") {
-		t.Error("expected option title in output")
+	if !strings.Contains(output, "fix-crash-analysis-1") {
+		t.Error("expected result ref name in output")
 	}
-	if !strings.Contains(output, "[SELECTED]") {
-		t.Error("expected [SELECTED] marker")
-	}
-	if !strings.Contains(output, "OOMKilled") {
-		t.Error("expected diagnosis summary")
-	}
-	if !strings.Contains(output, "risk=Low") {
-		t.Error("expected risk level")
+	if !strings.Contains(output, "Selected Option: 0") {
+		t.Error("expected selected option in output")
 	}
 }
 
-func TestGet_WithExecutionActions(t *testing.T) {
+func TestGet_WithExecutionResults(t *testing.T) {
 	streams, out, _ := fakeStreams()
 	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseExecuting)
 	p.Status.Steps.Execution = agenticv1alpha1.ExecutionStepStatus{
 		Conditions: []metav1.Condition{
 			{Type: "Executed", Status: metav1.ConditionUnknown, Reason: "InProgress", LastTransitionTime: metav1.Now()},
 		},
-		ActionsTaken: []agenticv1alpha1.ExecutionAction{
-			{Type: "patch", Description: "Increased memory to 512Mi", Outcome: agenticv1alpha1.ActionOutcomeSucceeded},
-			{Type: "restart", Description: "Rolled out deployment", Outcome: agenticv1alpha1.ActionOutcomeFailed},
-		},
-		Verification: agenticv1alpha1.ExecutionVerification{
-			ConditionOutcome: agenticv1alpha1.ConditionOutcomeImproved,
-			Summary:          "Pod is running",
-		},
+		Results: []agenticv1alpha1.StepResultRef{{Name: "fix-crash-execution-1", Success: true}},
 	}
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
@@ -122,32 +93,19 @@ func TestGet_WithExecutionActions(t *testing.T) {
 	}
 
 	output := out.String()
-	if !strings.Contains(output, "outcome=Succeeded") {
-		t.Error("expected Succeeded outcome")
-	}
-	if !strings.Contains(output, "outcome=Failed") {
-		t.Error("expected Failed outcome")
-	}
-	if !strings.Contains(output, "Inline Verify") {
-		t.Error("expected inline verification section")
-	}
-	if !strings.Contains(output, "condition=Improved") {
-		t.Error("expected condition outcome")
+	if !strings.Contains(output, "fix-crash-execution-1") {
+		t.Error("expected execution result ref in output")
 	}
 }
 
-func TestGet_WithVerificationChecks(t *testing.T) {
+func TestGet_WithVerificationResults(t *testing.T) {
 	streams, out, _ := fakeStreams()
 	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseVerifying)
 	p.Status.Steps.Verification = agenticv1alpha1.VerificationStepStatus{
 		Conditions: []metav1.Condition{
 			{Type: "Verified", Status: metav1.ConditionTrue, Reason: "AllPassed", LastTransitionTime: metav1.Now()},
 		},
-		Checks: []agenticv1alpha1.VerifyCheck{
-			{Name: "pod-running", Source: "oc", Value: "Running", Result: agenticv1alpha1.CheckResultPassed},
-			{Name: "memory-ok", Source: "oc", Value: "512Mi", Result: agenticv1alpha1.CheckResultPassed},
-		},
-		Summary: "All checks passed",
+		Results: []agenticv1alpha1.StepResultRef{{Name: "fix-crash-verification-1", Success: true}},
 	}
 
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).
@@ -164,71 +122,8 @@ func TestGet_WithVerificationChecks(t *testing.T) {
 	}
 
 	output := out.String()
-	if !strings.Contains(output, "pod-running") {
-		t.Error("expected check name in output")
-	}
-	if !strings.Contains(output, "Passed") {
-		t.Error("expected Passed result")
-	}
-	if !strings.Contains(output, "All checks passed") {
-		t.Error("expected summary")
-	}
-}
-
-func TestGet_WithPreviousAttempts(t *testing.T) {
-	streams, out, _ := fakeStreams()
-	p := testProposalWithStatus("fix-crash", "default", agenticv1alpha1.ProposalPhaseAnalyzing)
-	attempt := int32(2)
-	p.Status.Attempts = &attempt
-	p.Status.PreviousAttempts = []agenticv1alpha1.PreviousAttempt{
-		{Attempt: 1, FailedStep: agenticv1alpha1.SandboxStepExecution, FailureReason: "Timeout after 5m"},
-	}
-
-	fc := fake.NewClientBuilder().WithScheme(testScheme()).
-		WithObjects(p).Build()
-
-	o := &GetOptions{
-		client:    fc,
-		name:      "fix-crash",
-		namespace: "default",
-		IOStreams:  streams,
-	}
-	if err := o.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	output := out.String()
-	if !strings.Contains(output, "Previous Attempts:") {
-		t.Error("expected previous attempts section")
-	}
-	if !strings.Contains(output, "Execution") {
-		t.Error("expected failed step")
-	}
-	if !strings.Contains(output, "Timeout after 5m") {
-		t.Error("expected failure reason")
-	}
-}
-
-func TestGet_WithParentRef(t *testing.T) {
-	streams, out, _ := fakeStreams()
-	p := testProposalWithStatus("child-fix", "default", agenticv1alpha1.ProposalPhasePending)
-	p.Spec.Parent = agenticv1alpha1.ProposalReference{Name: "parent-fix"}
-
-	fc := fake.NewClientBuilder().WithScheme(testScheme()).
-		WithObjects(p).Build()
-
-	o := &GetOptions{
-		client:    fc,
-		name:      "child-fix",
-		namespace: "default",
-		IOStreams:  streams,
-	}
-	if err := o.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	if !strings.Contains(out.String(), "Parent:") || !strings.Contains(out.String(), "parent-fix") {
-		t.Error("expected parent ref in output")
+	if !strings.Contains(output, "fix-crash-verification-1") {
+		t.Error("expected verification result ref in output")
 	}
 }
 

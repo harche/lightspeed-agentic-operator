@@ -35,6 +35,7 @@ type ProposalReconciler struct {
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=analysisresults,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=executionresults,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=agentic.openshift.io,resources=verificationresults,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=agentic.openshift.io,resources=escalationresults,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;create;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;create;delete
 
@@ -94,7 +95,8 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// --- Terminal phases ---
 	switch phase {
 	case agenticv1alpha1.ProposalPhaseCompleted,
-		agenticv1alpha1.ProposalPhaseDenied:
+		agenticv1alpha1.ProposalPhaseDenied,
+		agenticv1alpha1.ProposalPhaseEscalated:
 		if hasSandboxClaims(&proposal) {
 			if err := r.Agent.ReleaseSandboxes(ctx, &proposal); err != nil {
 				log.Error(err, "sandbox cleanup failed at terminal phase")
@@ -104,9 +106,6 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	case agenticv1alpha1.ProposalPhaseFailed:
 		return r.handleFailed(ctx, log, &proposal)
-
-	case agenticv1alpha1.ProposalPhaseEscalated:
-		return r.handleEscalated(ctx, log, &proposal)
 	}
 
 	// --- Ensure ProposalApproval exists ---
@@ -157,6 +156,12 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case agenticv1alpha1.ProposalPhaseVerifying:
 		return r.handleVerification(ctx, log, &proposal, resolved, approval, policy)
 
+	case agenticv1alpha1.ProposalPhaseEscalating:
+		if needsRevision(&proposal) {
+			return r.handleRevision(ctx, log, &proposal, resolved)
+		}
+		return r.handleEscalation(ctx, log, &proposal, resolved, approval, policy)
+
 	default:
 		log.Info("unhandled phase, no-op", "phase", phase)
 		return ctrl.Result{}, nil
@@ -171,6 +176,7 @@ func (r *ProposalReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&agenticv1alpha1.AnalysisResult{}).
 		Owns(&agenticv1alpha1.ExecutionResult{}).
 		Owns(&agenticv1alpha1.VerificationResult{}).
+		Owns(&agenticv1alpha1.EscalationResult{}).
 		Watches(&agenticv1alpha1.ApprovalPolicy{}, handler.EnqueueRequestsFromMapFunc(
 			func(ctx context.Context, obj client.Object) []ctrl.Request {
 				var proposals agenticv1alpha1.ProposalList

@@ -65,6 +65,8 @@ func (r *ProposalReconciler) failStep(ctx context.Context, log logr.Logger, prop
 		proposal.Status.Steps.Execution.CompletionTime = &completedAt
 	case agenticv1alpha1.ProposalConditionVerified:
 		proposal.Status.Steps.Verification.CompletionTime = &completedAt
+	case agenticv1alpha1.ProposalConditionEscalated:
+		proposal.Status.Steps.Escalation.CompletionTime = &completedAt
 	}
 
 	var crName string
@@ -84,6 +86,11 @@ func (r *ProposalReconciler) failStep(ctx context.Context, log logr.Logger, prop
 		crName, createErr = r.createVerificationResult(ctx, proposal, nil, proposal.Status.Steps.Verification.Sandbox, proposal.Status.Steps.Verification.StartTime, &completedAt, err.Error())
 		if createErr == nil {
 			proposal.Status.Steps.Verification.Results = append(proposal.Status.Steps.Verification.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: false})
+		}
+	case agenticv1alpha1.ProposalConditionEscalated:
+		crName, createErr = r.createEscalationResult(ctx, proposal, nil, proposal.Status.Steps.Escalation.Sandbox, proposal.Status.Steps.Escalation.StartTime, &completedAt, err.Error())
+		if createErr == nil {
+			proposal.Status.Steps.Escalation.Results = append(proposal.Status.Steps.Escalation.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: false})
 		}
 	}
 	if createErr != nil {
@@ -109,7 +116,8 @@ func (r *ProposalReconciler) statusPatch(ctx context.Context, proposal *agenticv
 func hasSandboxClaims(proposal *agenticv1alpha1.Proposal) bool {
 	return proposal.Status.Steps.Analysis.Sandbox.ClaimName != "" ||
 		proposal.Status.Steps.Execution.Sandbox.ClaimName != "" ||
-		proposal.Status.Steps.Verification.Sandbox.ClaimName != ""
+		proposal.Status.Steps.Verification.Sandbox.ClaimName != "" ||
+		proposal.Status.Steps.Escalation.Sandbox.ClaimName != ""
 }
 
 func isTerminal(phase agenticv1alpha1.ProposalPhase) bool {
@@ -164,44 +172,24 @@ func maxAttempts(proposal *agenticv1alpha1.Proposal) int {
 }
 
 type escalationData struct {
-	Name             string
-	Request          string
-	AttemptCount     int32
-	PreviousAttempts []escalationAttempt
-}
-
-type escalationAttempt struct {
-	Attempt       int32
-	FailedStep    string
-	FailureReason string
-}
-
-func collectFailedAttempts(steps *agenticv1alpha1.StepsStatus) []escalationAttempt {
-	var attempts []escalationAttempt
-	for i, ref := range steps.Analysis.Results {
-		if !ref.Success {
-			attempts = append(attempts, escalationAttempt{FailedStep: "analysis", FailureReason: fmt.Sprintf("analysis attempt %d failed", i+1)})
-		}
-	}
-	for i, ref := range steps.Execution.Results {
-		if !ref.Success {
-			attempts = append(attempts, escalationAttempt{FailedStep: "execution", FailureReason: fmt.Sprintf("execution attempt %d failed", i+1)})
-		}
-	}
-	for i, ref := range steps.Verification.Results {
-		if !ref.Success {
-			attempts = append(attempts, escalationAttempt{FailedStep: "verification", FailureReason: fmt.Sprintf("verification attempt %d failed", i+1)})
-		}
-	}
-	return attempts
+	Name                string
+	Namespace           string
+	Request             string
+	AttemptCount        int32
+	AnalysisResults     []agenticv1alpha1.StepResultRef
+	ExecutionResults    []agenticv1alpha1.StepResultRef
+	VerificationResults []agenticv1alpha1.StepResultRef
 }
 
 func buildEscalationRequest(proposal *agenticv1alpha1.Proposal) string {
 	data := escalationData{
-		Name:             proposal.Name,
-		Request:          proposal.Spec.Request,
-		AttemptCount:     *proposal.Status.Attempts,
-		PreviousAttempts: collectFailedAttempts(&proposal.Status.Steps),
+		Name:                proposal.Name,
+		Namespace:           proposal.Namespace,
+		Request:             proposal.Spec.Request,
+		AttemptCount:        *proposal.Status.Attempts,
+		AnalysisResults:     proposal.Status.Steps.Analysis.Results,
+		ExecutionResults:    proposal.Status.Steps.Execution.Results,
+		VerificationResults: proposal.Status.Steps.Verification.Results,
 	}
 	return renderTemplate("escalation_request.tmpl", data)
 }

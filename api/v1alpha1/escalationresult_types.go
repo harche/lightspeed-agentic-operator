@@ -1,0 +1,97 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1alpha1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:printcolumn:name="Proposal",type=string,JSONPath=`.proposalName`
+// +kubebuilder:printcolumn:name="Attempt",type=integer,JSONPath=`.attempt`
+// +kubebuilder:printcolumn:name="Success",type=boolean,JSONPath=`.success`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+
+// EscalationResult records the output of the escalation step. Created by
+// the operator after the escalation agent completes. Immutable after
+// creation -- never updated. Owned by the parent Proposal for garbage
+// collection.
+type EscalationResult struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// proposalName is the name of the parent Proposal in the same namespace.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	ProposalName string `json:"proposalName"`
+
+	// attempt is the 1-based overall attempt number.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	Attempt int32 `json:"attempt"`
+
+	// success indicates whether the escalation agent reported success.
+	// +required
+	Success bool `json:"success"`
+
+	// summary is a Markdown-formatted escalation summary.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32768
+	Summary string `json:"summary,omitempty"`
+
+	// content is freeform escalation content produced by the agent.
+	// TODO: When RH support or GitHub backend is wired up, this field
+	// will contain the structured ticket payload. For now the agent
+	// returns freeform escalation content.
+	// +optional
+	// +kubebuilder:validation:MaxLength=65536
+	Content string `json:"content,omitempty"`
+
+	// sandbox tracks the sandbox pod used for this escalation.
+	// +optional
+	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+
+	// startTime is when escalation started.
+	// +optional
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// completionTime is when escalation completed.
+	// +optional
+	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+
+	// failureReason is populated when success is false due to a system error.
+	// +optional
+	// +kubebuilder:validation:MaxLength=8192
+	FailureReason string `json:"failureReason,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// EscalationResultList contains a list of EscalationResult.
+type EscalationResultList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []EscalationResult `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&EscalationResult{}, &EscalationResultList{})
+}

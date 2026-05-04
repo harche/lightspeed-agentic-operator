@@ -141,6 +141,29 @@ func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alph
 	}, nil
 }
 
+func (s *SandboxAgentCaller) Escalate(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*EscalationOutput, error) {
+	agentCtx := buildAgentContext(proposal)
+	raw, err := s.callWithSandbox(ctx, proposal, stepString(agenticv1alpha1.SandboxStepEscalation), step, requestText, agentCtx)
+	if err != nil {
+		return nil, fmt.Errorf("escalation agent call: %w", err)
+	}
+
+	var resp struct {
+		Success bool   `json:"success"`
+		Summary string `json:"summary"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("parse escalation response: %w", err)
+	}
+
+	return &EscalationOutput{
+		Success: resp.Success,
+		Summary: resp.Summary,
+		Content: resp.Content,
+	}, nil
+}
+
 func (s *SandboxAgentCaller) callWithSandbox(
 	ctx context.Context,
 	proposal *agenticv1alpha1.Proposal,
@@ -202,6 +225,7 @@ func (s *SandboxAgentCaller) ReleaseSandboxes(ctx context.Context, proposal *age
 		proposal.Status.Steps.Analysis.Sandbox,
 		proposal.Status.Steps.Execution.Sandbox,
 		proposal.Status.Steps.Verification.Sandbox,
+		proposal.Status.Steps.Escalation.Sandbox,
 	} {
 		if info.ClaimName == "" {
 			continue
@@ -240,11 +264,26 @@ func (s *SandboxAgentCaller) patchSandboxInfo(ctx context.Context, proposal *age
 		current.Status.Steps.Execution.Sandbox = info
 	case "verification":
 		current.Status.Steps.Verification.Sandbox = info
+	case "escalation":
+		current.Status.Steps.Escalation.Sandbox = info
 	}
 
 	if err := s.K8sClient.Status().Patch(ctx, &current, client.MergeFrom(base)); err != nil {
 		log.Error(err, "failed to patch sandbox info", "step", step, "claimName", claimName)
 	}
+}
+
+func collectFailedResults(results []agenticv1alpha1.StepResultRef, stepName string) []agentPreviousAttempt {
+	var attempts []agentPreviousAttempt
+	for i, ref := range results {
+		if !ref.Success {
+			attempts = append(attempts, agentPreviousAttempt{
+				Attempt:       int32(i + 1),
+				FailureReason: fmt.Sprintf("%s attempt %d failed", stepName, i+1),
+			})
+		}
+	}
+	return attempts
 }
 
 func buildAgentContext(proposal *agenticv1alpha1.Proposal) *agentContext {
@@ -256,11 +295,9 @@ func buildAgentContext(proposal *agenticv1alpha1.Proposal) *agentContext {
 		ctx.Attempt = *proposal.Status.Attempts
 	}
 
-	for _, ea := range collectFailedAttempts(&proposal.Status.Steps) {
-		ctx.PreviousAttempts = append(ctx.PreviousAttempts, agentPreviousAttempt{
-			FailureReason: ea.FailureReason,
-		})
-	}
+	ctx.PreviousAttempts = append(ctx.PreviousAttempts, collectFailedResults(proposal.Status.Steps.Analysis.Results, "analysis")...)
+	ctx.PreviousAttempts = append(ctx.PreviousAttempts, collectFailedResults(proposal.Status.Steps.Execution.Results, "execution")...)
+	ctx.PreviousAttempts = append(ctx.PreviousAttempts, collectFailedResults(proposal.Status.Steps.Verification.Results, "verification")...)
 
 	return ctx
 }

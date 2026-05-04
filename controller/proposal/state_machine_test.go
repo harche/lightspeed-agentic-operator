@@ -115,6 +115,8 @@ func approveStage(t *testing.T, fc client.WithWatch, name string, stageType agen
 		stage.Execution = &agenticv1alpha1.ExecutionApproval{Option: o.option, Agent: o.agent}
 	case agenticv1alpha1.ApprovalStageVerification:
 		stage.Verification = &agenticv1alpha1.VerificationApproval{Agent: o.agent}
+	case agenticv1alpha1.ApprovalStageEscalation:
+		stage.Escalation = &agenticv1alpha1.EscalationApproval{Agent: o.agent}
 	}
 	base := approval.DeepCopy()
 	approval.Spec.Stages = append(approval.Spec.Stages, stage)
@@ -157,6 +159,8 @@ func denyStage(t *testing.T, fc client.WithWatch, name string, stageType agentic
 		stage.Execution = &agenticv1alpha1.ExecutionApproval{}
 	case agenticv1alpha1.ApprovalStageVerification:
 		stage.Verification = &agenticv1alpha1.VerificationApproval{}
+	case agenticv1alpha1.ApprovalStageEscalation:
+		stage.Escalation = &agenticv1alpha1.EscalationApproval{}
 	}
 	approval.Spec.Stages = append(approval.Spec.Stages, stage)
 	if err := fc.Patch(context.Background(), &approval, client.MergeFrom(base)); err != nil {
@@ -454,9 +458,9 @@ func TestManualApproval_FullRetryExhaustion(t *testing.T) {
 	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseVerifying)
 
 	// Verify fails → retries exhausted (retryCount=3 == maxAttempts)
-	// → Analyzing (escalation path)
+	// → Escalating (escalation step injected)
 	reconcileOnce(r, "fix-crash")
-	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseAnalyzing)
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalating)
 }
 
 func TestManualApproval_RetryThenSucceed(t *testing.T) {
@@ -627,7 +631,7 @@ func TestManualApproval_ExecutionReportsFailure(t *testing.T) {
 
 func TestManualApproval_VerificationFailNoRetry(t *testing.T) {
 	proposal := testProposal()
-	// Default maxAttempts=0 → no retries, verification failure escalates to re-analysis
+	// Default maxAttempts=0 → no retries, verification failure escalates immediately
 	agent := newTestAgentCaller()
 	agent.verifyResult = &VerificationOutput{
 		Success: false,
@@ -642,8 +646,8 @@ func TestManualApproval_VerificationFailNoRetry(t *testing.T) {
 	approveVerification(t, fc, "fix-crash")
 	reconcileOnce(r, "fix-crash")
 
-	// With 0 retries, verification failure exhausts immediately → Analyzing (escalation)
-	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseAnalyzing)
+	// With 0 retries, verification failure exhausts immediately → Escalating
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalating)
 }
 
 // ---------------------------------------------------------------------------
@@ -831,6 +835,141 @@ func TestPolicyCombinations_FullLifecycle(t *testing.T) {
 			assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseCompleted)
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Policy change after ProposalApproval creation (the fallback path)
+// ---------------------------------------------------------------------------
+
+func approveEscalation(t *testing.T, fc client.WithWatch, name string) {
+	t.Helper()
+	approveStage(t, fc, name, agenticv1alpha1.ApprovalStageEscalation)
+}
+
+// ---------------------------------------------------------------------------
+// Escalation: approve and complete
+// ---------------------------------------------------------------------------
+
+func TestEscalation_ApproveAndComplete(t *testing.T) {
+	proposal := testProposal()
+	maxAttempts := int32(1)
+	proposal.Spec.MaxAttempts = &maxAttempts
+	agent := newTestAgentCaller()
+	agent.verifyResult = &VerificationOutput{
+		Success: false,
+		Summary: "Pod still crashing",
+		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Result: agenticv1alpha1.CheckResultFailed}},
+	}
+	r, fc := newManualReconciler(t, proposal, agent)
+
+	// Run through to verification failure → retry → exhaustion → Escalating
+	approveAnalysis(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+	approveExecution(t, fc, "fix-crash", 0)
+	reconcileOnce(r, "fix-crash")
+	approveVerification(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash") // verify fails, retry (retryCount=1)
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseExecuting)
+
+	reconcileOnce(r, "fix-crash") // re-execute → Verifying
+	reconcileOnce(r, "fix-crash") // verify fails again, retries exhausted → Escalating
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalating)
+
+	// Approve escalation
+	approveEscalation(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+
+	// Should be terminal Escalated
+	p := assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalated)
+	if len(p.Status.Steps.Escalation.Results) == 0 {
+		t.Fatal("expected EscalationResult ref in status")
+	}
+	if !p.Status.Steps.Escalation.Results[0].Success {
+		t.Fatal("expected escalation result to be successful")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Escalation: denied
+// ---------------------------------------------------------------------------
+
+func TestEscalation_Denied(t *testing.T) {
+	proposal := testProposal()
+	agent := newTestAgentCaller()
+	agent.verifyResult = &VerificationOutput{Success: false, Summary: "fail"}
+	r, fc := newManualReconciler(t, proposal, agent)
+
+	approveAnalysis(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+	approveExecution(t, fc, "fix-crash", 0)
+	reconcileOnce(r, "fix-crash")
+	approveVerification(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalating)
+
+	denyStage(t, fc, "fix-crash", agenticv1alpha1.ApprovalStageEscalation)
+	reconcileOnce(r, "fix-crash")
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseDenied)
+}
+
+// ---------------------------------------------------------------------------
+// Escalation: agent failure
+// ---------------------------------------------------------------------------
+
+func TestEscalation_AgentFailure(t *testing.T) {
+	proposal := testProposal()
+	agent := newTestAgentCaller()
+	agent.verifyResult = &VerificationOutput{Success: false, Summary: "fail"}
+	agent.escalateErr = fmt.Errorf("escalation agent crashed")
+	r, fc := newManualReconciler(t, proposal, agent)
+
+	approveAnalysis(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+	approveExecution(t, fc, "fix-crash", 0)
+	reconcileOnce(r, "fix-crash")
+	approveVerification(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalating)
+
+	approveEscalation(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash")
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseFailed)
+}
+
+// ---------------------------------------------------------------------------
+// Escalation: auto-approve via policy
+// ---------------------------------------------------------------------------
+
+func TestEscalation_AutoApprove(t *testing.T) {
+	proposal := testProposal()
+	agent := newTestAgentCaller()
+	agent.verifyResult = &VerificationOutput{Success: false, Summary: "fail"}
+
+	policy := &agenticv1alpha1.ApprovalPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: agenticv1alpha1.ApprovalPolicySpec{
+			Stages: []agenticv1alpha1.ApprovalPolicyStage{
+				{Name: agenticv1alpha1.SandboxStepAnalysis, Approval: agenticv1alpha1.ApprovalModeAutomatic},
+				{Name: agenticv1alpha1.SandboxStepExecution, Approval: agenticv1alpha1.ApprovalModeManual},
+				{Name: agenticv1alpha1.SandboxStepVerification, Approval: agenticv1alpha1.ApprovalModeAutomatic},
+				{Name: agenticv1alpha1.SandboxStepEscalation, Approval: agenticv1alpha1.ApprovalModeAutomatic},
+			},
+		},
+	}
+	r, fc := newReconcilerWithPolicy(t, proposal, agent, policy)
+
+	// Analysis auto-approved → Proposed
+	reconcileOnce(r, "fix-crash")
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseProposed)
+
+	approveExecution(t, fc, "fix-crash", 0)
+	reconcileOnce(r, "fix-crash") // execute → Verifying
+	reconcileOnce(r, "fix-crash") // verify fails → Escalating
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalating)
+
+	// Escalation is auto-approved, should run and complete
+	reconcileOnce(r, "fix-crash")
+	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalated)
 }
 
 // ---------------------------------------------------------------------------

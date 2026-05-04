@@ -166,6 +166,42 @@ func (r *ProposalReconciler) createVerificationResult(
 	return crName, createIdempotent(ctx, r.Client, cr, "VerificationResult")
 }
 
+func (r *ProposalReconciler) createEscalationResult(
+	ctx context.Context,
+	proposal *agenticv1alpha1.Proposal,
+	result *EscalationOutput,
+	sandbox agenticv1alpha1.SandboxInfo,
+	startTime *metav1.Time,
+	completionTime *metav1.Time,
+	failureReason string,
+) (string, error) {
+	crName := resultCRName(proposal.Name, "escalation", len(proposal.Status.Steps.Escalation.Results)+1)
+	attempt := proposalAttempt(proposal)
+
+	cr := &agenticv1alpha1.EscalationResult{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            crName,
+			Namespace:       proposal.Namespace,
+			Labels:          resultLabels(proposal.Name, "escalation", attempt),
+			OwnerReferences: []metav1.OwnerReference{proposalOwnerRef(proposal)},
+		},
+		ProposalName:   proposal.Name,
+		Attempt:        attempt,
+		Sandbox:        sandbox,
+		StartTime:      startTime,
+		CompletionTime: completionTime,
+		FailureReason:  failureReason,
+	}
+
+	if result != nil {
+		cr.Success = result.Success
+		cr.Summary = result.Summary
+		cr.Content = result.Content
+	}
+
+	return crName, createIdempotent(ctx, r.Client, cr, "EscalationResult")
+}
+
 func createIdempotent(ctx context.Context, c client.Client, obj client.Object, kind string) error {
 	if err := c.Create(ctx, obj); err != nil {
 		if apierrors.IsAlreadyExists(err) {

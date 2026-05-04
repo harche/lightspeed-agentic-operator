@@ -21,13 +21,14 @@ import (
 )
 
 // ApprovalStageType identifies which workflow step an approval entry applies to.
-// +kubebuilder:validation:Enum=Analysis;Execution;Verification
+// +kubebuilder:validation:Enum=Analysis;Execution;Verification;Escalation
 type ApprovalStageType string
 
 const (
 	ApprovalStageAnalysis     ApprovalStageType = "Analysis"
 	ApprovalStageExecution    ApprovalStageType = "Execution"
 	ApprovalStageVerification ApprovalStageType = "Verification"
+	ApprovalStageEscalation   ApprovalStageType = "Escalation"
 )
 
 // AnalysisApproval contains approval parameters for the analysis step.
@@ -63,6 +64,15 @@ type VerificationApproval struct {
 	Agent string `json:"agent,omitempty"`
 }
 
+// EscalationApproval contains approval parameters for the escalation step.
+type EscalationApproval struct {
+	// agent overrides the Agent CR for this step, enabling cost control.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Agent string `json:"agent,omitempty"`
+}
+
 // ApprovalStage is a discriminated union representing approval for one
 // workflow step. Presence in spec.stages indicates approval; absence means
 // not yet approved (controller checks ApprovalPolicy for auto-approve).
@@ -70,6 +80,7 @@ type VerificationApproval struct {
 // +kubebuilder:validation:XValidation:rule="self.type == 'Analysis' ? has(self.analysis) : !has(self.analysis)",message="analysis is required when type is Analysis, and forbidden otherwise"
 // +kubebuilder:validation:XValidation:rule="self.type == 'Execution' ? has(self.execution) : !has(self.execution)",message="execution is required when type is Execution, and forbidden otherwise"
 // +kubebuilder:validation:XValidation:rule="self.type == 'Verification' ? has(self.verification) : !has(self.verification)",message="verification is required when type is Verification, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.type == 'Escalation' ? has(self.escalation) : !has(self.escalation)",message="escalation is required when type is Escalation, and forbidden otherwise"
 type ApprovalStage struct {
 	// type identifies which workflow step this approval is for.
 	// +required
@@ -94,6 +105,11 @@ type ApprovalStage struct {
 	// Required when type is Verification.
 	// +optional
 	Verification *VerificationApproval `json:"verification,omitempty"`
+
+	// escalation contains approval parameters for the escalation step.
+	// Required when type is Escalation.
+	// +optional
+	Escalation *EscalationApproval `json:"escalation,omitempty"`
 }
 
 // ProposalApprovalSpec defines the desired state of ProposalApproval.
@@ -109,7 +125,7 @@ type ProposalApprovalSpec struct {
 	// a discriminated union keyed by type.
 	// +optional
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=3
+	// +kubebuilder:validation:MaxItems=4
 	Stages []ApprovalStage `json:"stages,omitempty"`
 }
 
@@ -134,7 +150,7 @@ type ProposalApprovalStatus struct {
 	// stages contains the per-stage approval status set by the controller.
 	// +optional
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=3
+	// +kubebuilder:validation:MaxItems=4
 	Stages []ApprovalStageStatus `json:"stages,omitempty"`
 }
 

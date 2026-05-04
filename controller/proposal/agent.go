@@ -31,6 +31,13 @@ type VerificationOutput struct {
 	Components []apiextensionsv1.JSON
 }
 
+// EscalationOutput holds the escalation agent's output.
+type EscalationOutput struct {
+	Success bool
+	Summary string
+	Content string
+}
+
 // AgentCaller abstracts the agent invocation path. The reconciler
 // passes structured data; the implementation decides how to format
 // it for the LLM (text-only prompt vs multimodal with binary
@@ -43,6 +50,7 @@ type AgentCaller interface {
 	Analyze(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*AnalysisOutput, error)
 	Execute(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption) (*ExecutionOutput, error)
 	Verify(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption, exec *ExecutionOutput) (*VerificationOutput, error)
+	Escalate(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string) (*EscalationOutput, error)
 	ReleaseSandboxes(ctx context.Context, proposal *agenticv1alpha1.Proposal) error
 }
 
@@ -82,6 +90,14 @@ func (s *StubAgentCaller) Execute(_ context.Context, _ *agenticv1alpha1.Proposal
 			ConditionOutcome: agenticv1alpha1.ConditionOutcomeImproved,
 			Summary:          "Stub inline verification passed",
 		},
+	}, nil
+}
+
+func (s *StubAgentCaller) Escalate(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ string) (*EscalationOutput, error) {
+	return &EscalationOutput{
+		Success: true,
+		Summary: "Stub escalation summary",
+		Content: "Stub escalation content",
 	}, nil
 }
 

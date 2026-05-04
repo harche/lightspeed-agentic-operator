@@ -303,14 +303,11 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 
 	// Re-execute again → Verifying
 	reconcileOnce(r, "fix-crash")
-	// Re-verify → retryCount=2 >= maxAttempts=2 → Analyzing (exhausted)
+	// Re-verify → retryCount=2 >= maxAttempts=2 → Escalating (exhausted)
 	reconcileOnce(r, "fix-crash")
 	p, _ = getProposal(r, "fix-crash")
-	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseAnalyzing {
-		t.Fatalf("expected Analyzing (retries exhausted), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
-	}
-	if p.Status.Steps.Analysis.SelectedOption != nil {
-		t.Fatal("selectedOption should be cleared after retries exhausted")
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseEscalating {
+		t.Fatalf("expected Escalating (retries exhausted), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 }
 
@@ -416,12 +413,12 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 	// Re-execute → Verifying
 	reconcileOnce(r, "fix-crash")
-	// Re-verify → retryCount=1 >= maxAttempts=1 → Analyzing (exhausted)
+	// Re-verify → retryCount=1 >= maxAttempts=1 → Escalating (exhausted)
 	reconcileOnce(r, "fix-crash")
 
 	p, _ := getProposal(r, "fix-crash")
-	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseAnalyzing {
-		t.Fatalf("expected Analyzing (retries exhausted), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
+	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseEscalating {
+		t.Fatalf("expected Escalating (retries exhausted), got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
 
 	// Admin submits revision

@@ -64,6 +64,8 @@ func ensureProposalApproval(
 				stage.Execution = &agenticv1alpha1.ExecutionApproval{}
 			case agenticv1alpha1.SandboxStepVerification:
 				stage.Verification = &agenticv1alpha1.VerificationApproval{}
+			case agenticv1alpha1.SandboxStepEscalation:
+				stage.Escalation = &agenticv1alpha1.EscalationApproval{}
 			}
 			autoStages = append(autoStages, stage)
 		}
@@ -146,6 +148,10 @@ func getStageOverrideAgent(approval *agenticv1alpha1.ProposalApproval, stage age
 		case agenticv1alpha1.SandboxStepVerification:
 			if s.Verification != nil {
 				return s.Verification.Agent
+			}
+		case agenticv1alpha1.SandboxStepEscalation:
+			if s.Escalation != nil {
+				return s.Escalation.Agent
 			}
 		}
 	}

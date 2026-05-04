@@ -104,54 +104,40 @@ func (o *GetOptions) printDetail(p *agenticv1alpha1.Proposal) {
 		fmt.Fprintf(w, "\nTarget Namespaces: %s\n", strings.Join(p.Spec.TargetNamespaces, ", "))
 	}
 
-	if p.Spec.Parent.Name != "" {
-		fmt.Fprintf(w, "Parent:            %s\n", p.Spec.Parent.Name)
-	}
-
 	// Analysis step
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Analysis:          %s\n",
 		stepStatusFromConditions(p.Status.Steps.Analysis.Conditions, agenticv1alpha1.ProposalConditionAnalyzed))
-	for i, opt := range p.Status.Steps.Analysis.Options {
-		selectedMark := ""
-		if p.Status.Steps.Analysis.SelectedOption != nil && *p.Status.Steps.Analysis.SelectedOption == int32(i) {
-			selectedMark = " [SELECTED]"
-		}
-		fmt.Fprintf(w, "  Option %d: %s%s\n", i+1, opt.Title, selectedMark)
-		fmt.Fprintf(w, "    Diagnosis:     %s\n", opt.Diagnosis.Summary)
-		fmt.Fprintf(w, "    Proposal:      %s (risk=%s)\n", opt.Proposal.Description, opt.Proposal.Risk)
+	if p.Status.Steps.Analysis.SelectedOption != nil {
+		fmt.Fprintf(w, "  Selected Option: %d\n", *p.Status.Steps.Analysis.SelectedOption)
+	}
+	for _, ref := range p.Status.Steps.Analysis.Results {
+		fmt.Fprintf(w, "  Result:          %s (success=%v)\n", ref.Name, ref.Success)
 	}
 
 	// Execution step
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Execution:         %s\n",
 		stepStatusFromConditions(p.Status.Steps.Execution.Conditions, agenticv1alpha1.ProposalConditionExecuted))
-	for _, a := range p.Status.Steps.Execution.ActionsTaken {
-		fmt.Fprintf(w, "  Action:          %s - %s (outcome=%s)\n", a.Type, a.Description, a.Outcome)
-	}
-	if p.Status.Steps.Execution.Verification.Summary != "" {
-		fmt.Fprintf(w, "  Inline Verify:   %s (condition=%s)\n",
-			p.Status.Steps.Execution.Verification.Summary,
-			p.Status.Steps.Execution.Verification.ConditionOutcome)
+	for _, ref := range p.Status.Steps.Execution.Results {
+		fmt.Fprintf(w, "  Result:          %s (success=%v)\n", ref.Name, ref.Success)
 	}
 
 	// Verification step
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Verification:      %s\n",
 		stepStatusFromConditions(p.Status.Steps.Verification.Conditions, agenticv1alpha1.ProposalConditionVerified))
-	for _, c := range p.Status.Steps.Verification.Checks {
-		fmt.Fprintf(w, "  Check:           %s = %s (%s)\n", c.Name, c.Value, c.Result)
-	}
-	if p.Status.Steps.Verification.Summary != "" {
-		fmt.Fprintf(w, "  Summary:         %s\n", p.Status.Steps.Verification.Summary)
+	for _, ref := range p.Status.Steps.Verification.Results {
+		fmt.Fprintf(w, "  Result:          %s (success=%v)\n", ref.Name, ref.Success)
 	}
 
-	// Previous attempts
-	if len(p.Status.PreviousAttempts) > 0 {
+	// Escalation step
+	if len(p.Status.Steps.Escalation.Results) > 0 || len(p.Status.Steps.Escalation.Conditions) > 0 {
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Previous Attempts:")
-		for _, a := range p.Status.PreviousAttempts {
-			fmt.Fprintf(w, "  Attempt %d (failed at %s): %s\n", a.Attempt, a.FailedStep, a.FailureReason)
+		fmt.Fprintf(w, "Escalation:        %s\n",
+			stepStatusFromConditions(p.Status.Steps.Escalation.Conditions, agenticv1alpha1.ProposalConditionEscalated))
+		for _, ref := range p.Status.Steps.Escalation.Results {
+			fmt.Fprintf(w, "  Result:          %s (success=%v)\n", ref.Name, ref.Success)
 		}
 	}
 

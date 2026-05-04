@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -106,6 +105,7 @@ func (r *ProposalReconciler) handleRevision(
 	base := proposal.DeepCopy()
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
+	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionEscalated)
 	now := metav1.Now()
 	proposal.Status.Steps.Analysis.StartTime = &now
 	proposal.Status.Steps.Analysis.CompletionTime = nil
@@ -401,13 +401,18 @@ func (r *ProposalReconciler) handleVerification(
 			return ctrl.Result{}, nil
 		}
 
-		log.Info("verification retries exhausted, returning to analysis", "retryCount", retryCount, "summary", verifyResult.Summary)
-		proposal.Status.Steps.Analysis.SelectedOption = nil
+		log.Info("verification retries exhausted, escalating", "retryCount", retryCount, "summary", verifyResult.Summary)
 		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 			Type:    agenticv1alpha1.ProposalConditionVerified,
 			Status:  metav1.ConditionFalse,
 			Reason:  reasonRetriesExhausted,
 			Message: fmt.Sprintf("Verification failed after %d attempt(s): %s", retryCount, verifyResult.Summary),
+		})
+		meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+			Type:    agenticv1alpha1.ProposalConditionEscalated,
+			Status:  metav1.ConditionUnknown,
+			Reason:  reasonRetriesExhausted,
+			Message: fmt.Sprintf("Verification failed after %d attempt(s), escalating", retryCount),
 		})
 		if err := r.statusPatch(ctx, proposal, base); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update (retries exhausted): %w", err)
@@ -445,49 +450,92 @@ func (r *ProposalReconciler) handleFailed(
 	return ctrl.Result{}, nil
 }
 
-// handleEscalated creates a child escalation proposal.
-func (r *ProposalReconciler) handleEscalated(
+// handleEscalation runs the escalation step: checks approval, calls the
+// agent with an escalation prompt, and stores the result. Uses the analysis
+// step's agent by default (or an approval-time override).
+func (r *ProposalReconciler) handleEscalation(
 	ctx context.Context,
 	log logr.Logger,
 	proposal *agenticv1alpha1.Proposal,
+	resolved *resolvedWorkflow,
+	approval *agenticv1alpha1.ProposalApproval,
+	policy *agenticv1alpha1.ApprovalPolicy,
 ) (ctrl.Result, error) {
-	childName := truncateK8sName(proposal.Name + "-escalation")
+	log.Info("handling escalation")
+
+	if isStageDenied(approval, agenticv1alpha1.SandboxStepEscalation) {
+		return r.denyProposal(ctx, log, proposal, "Escalation denied by user")
+	}
+
+	if !isStageApproved(approval, policy, agenticv1alpha1.SandboxStepEscalation) {
+		log.Info("escalation pending approval")
+		return ctrl.Result{}, nil
+	}
+
+	escalated := meta.FindStatusCondition(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionEscalated)
+	if escalated != nil && escalated.Status == metav1.ConditionTrue {
+		log.Info("escalation already completed")
+		return ctrl.Result{}, nil
+	}
+
+	step := resolved.Analysis
+	if override := getStageOverrideAgent(approval, agenticv1alpha1.SandboxStepEscalation); override != "" {
+		var agent agenticv1alpha1.Agent
+		if err := r.Get(ctx, types.NamespacedName{Name: override}, &agent); err != nil {
+			return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionEscalated, fmt.Errorf("get override Agent %q: %w", override, err))
+		}
+		var llm agenticv1alpha1.LLMProvider
+		if err := r.Get(ctx, types.NamespacedName{Name: agent.Spec.LLMProvider.Name}, &llm); err != nil {
+			return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionEscalated, fmt.Errorf("get LLMProvider %q: %w", agent.Spec.LLMProvider.Name, err))
+		}
+		step = resolvedStep{Agent: &agent, LLM: &llm, Tools: step.Tools}
+	}
+
+	base := proposal.DeepCopy()
+	now := metav1.Now()
+	proposal.Status.Steps.Escalation.StartTime = &now
+	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+		Type:    agenticv1alpha1.ProposalConditionEscalated,
+		Status:  metav1.ConditionUnknown,
+		Reason:  reasonInProgress,
+		Message: "Escalation agent is running",
+	})
+	if err := r.statusPatch(ctx, proposal, base); err != nil {
+		return ctrl.Result{}, fmt.Errorf("update to Escalating: %w", err)
+	}
 
 	escalationText := buildEscalationRequest(proposal)
-
-	child := &agenticv1alpha1.Proposal{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      childName,
-			Namespace: proposal.Namespace,
-			Labels: map[string]string{
-				LabelParent: proposal.Name,
-			},
-			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: "agentic.openshift.io/v1alpha1",
-				Kind:       "Proposal",
-				Name:       proposal.Name,
-				UID:        proposal.UID,
-			}},
-		},
-		Spec: agenticv1alpha1.ProposalSpec{
-			Tools:            proposal.Spec.Tools,
-			Analysis:         proposal.Spec.Analysis,
-			Execution:        proposal.Spec.Execution,
-			Verification:     proposal.Spec.Verification,
-			Request:          escalationText,
-			Parent:           agenticv1alpha1.ProposalReference{Name: proposal.Name},
-			TargetNamespaces: proposal.Spec.TargetNamespaces,
-		},
+	escalationResult, err := r.Agent.Escalate(ctx, proposal, step, escalationText)
+	if err != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionEscalated, err)
 	}
 
-	if err := r.Create(ctx, child); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			return ctrl.Result{}, nil
+	base = proposal.DeepCopy()
+	completedAt := metav1.Now()
+	proposal.Status.Steps.Escalation.CompletionTime = &completedAt
+	crName, crErr := r.createEscalationResult(ctx, proposal, escalationResult, proposal.Status.Steps.Escalation.Sandbox, proposal.Status.Steps.Escalation.StartTime, &completedAt, "")
+	if crErr != nil {
+		return r.failStep(ctx, log, proposal, agenticv1alpha1.ProposalConditionEscalated, fmt.Errorf("create escalation result: %w", crErr))
+	}
+	proposal.Status.Steps.Escalation.Results = append(proposal.Status.Steps.Escalation.Results, agenticv1alpha1.StepResultRef{Name: crName, Success: escalationResult.Success})
+
+	if proposal.Annotations[rbacNamespacesAnnotation] != "" {
+		if cleanErr := cleanupExecutionRBAC(ctx, r.Client, proposal); cleanErr != nil {
+			log.Error(cleanErr, "RBAC cleanup on escalation")
 		}
-		return ctrl.Result{}, fmt.Errorf("create escalation proposal: %w", err)
 	}
 
-	log.Info("created escalation child", "child", childName)
+	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+		Type:    agenticv1alpha1.ProposalConditionEscalated,
+		Status:  metav1.ConditionTrue,
+		Reason:  reasonComplete,
+		Message: escalationResult.Summary,
+	})
+	if err := r.statusPatch(ctx, proposal, base); err != nil {
+		return ctrl.Result{}, fmt.Errorf("update to Escalated: %w", err)
+	}
+
+	log.Info("escalation complete", "summary", escalationResult.Summary)
 	return ctrl.Result{}, nil
 }
 

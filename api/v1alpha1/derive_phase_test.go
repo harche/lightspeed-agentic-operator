@@ -114,12 +114,12 @@ func TestDerivePhase(t *testing.T) {
 			want: ProposalPhaseExecuting,
 		},
 		{
-			name: "verification failed - retries exhausted",
+			name: "verification failed - retries exhausted (without escalated condition)",
 			conditions: []metav1.Condition{
 				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
 				cond(ProposalConditionVerified, metav1.ConditionFalse, "RetriesExhausted"),
 			},
-			want: ProposalPhaseAnalyzing,
+			want: ProposalPhaseFailed,
 		},
 		{
 			name: "advisory completed - exec and verify skipped",
@@ -146,6 +146,29 @@ func TestDerivePhase(t *testing.T) {
 				cond(ProposalConditionEscalated, metav1.ConditionTrue, "MaxAttemptsExhausted"),
 			},
 			want: ProposalPhaseEscalated,
+		},
+		{
+			name: "escalating - in progress",
+			conditions: []metav1.Condition{
+				cond(ProposalConditionEscalated, metav1.ConditionUnknown, "InProgress"),
+			},
+			want: ProposalPhaseEscalating,
+		},
+		{
+			name: "escalating takes priority over verified retries exhausted",
+			conditions: []metav1.Condition{
+				cond(ProposalConditionAnalyzed, metav1.ConditionTrue, "Complete"),
+				cond(ProposalConditionVerified, metav1.ConditionFalse, "RetriesExhausted"),
+				cond(ProposalConditionEscalated, metav1.ConditionUnknown, "RetriesExhausted"),
+			},
+			want: ProposalPhaseEscalating,
+		},
+		{
+			name: "escalation failed",
+			conditions: []metav1.Condition{
+				cond(ProposalConditionEscalated, metav1.ConditionFalse, "Failed"),
+			},
+			want: ProposalPhaseFailed,
 		},
 		{
 			name: "denied takes priority over analyzed",

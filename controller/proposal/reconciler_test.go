@@ -23,13 +23,15 @@ import (
 // --- Configurable agent stub for tests ---
 
 type testAgentCaller struct {
-	analyzeErr error
-	executeErr error
-	verifyErr  error
+	analyzeErr  error
+	executeErr  error
+	verifyErr   error
+	escalateErr error
 
-	analyzeResult *AnalysisOutput
-	executeResult *ExecutionOutput
-	verifyResult  *VerificationOutput
+	analyzeResult  *AnalysisOutput
+	executeResult  *ExecutionOutput
+	verifyResult   *VerificationOutput
+	escalateResult *EscalationOutput
 }
 
 func newTestAgentCaller() *testAgentCaller {
@@ -37,7 +39,8 @@ func newTestAgentCaller() *testAgentCaller {
 	a, _ := stub.Analyze(context.Background(), nil, resolvedStep{}, "")
 	e, _ := stub.Execute(context.Background(), nil, resolvedStep{}, nil)
 	v, _ := stub.Verify(context.Background(), nil, resolvedStep{}, nil, nil)
-	return &testAgentCaller{analyzeResult: a, executeResult: e, verifyResult: v}
+	esc, _ := stub.Escalate(context.Background(), nil, resolvedStep{}, "")
+	return &testAgentCaller{analyzeResult: a, executeResult: e, verifyResult: v, escalateResult: esc}
 }
 
 func (ta *testAgentCaller) Analyze(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ string) (*AnalysisOutput, error) {
@@ -57,6 +60,12 @@ func (ta *testAgentCaller) Verify(_ context.Context, _ *agenticv1alpha1.Proposal
 		return nil, ta.verifyErr
 	}
 	return ta.verifyResult, nil
+}
+func (ta *testAgentCaller) Escalate(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ string) (*EscalationOutput, error) {
+	if ta.escalateErr != nil {
+		return nil, ta.escalateErr
+	}
+	return ta.escalateResult, nil
 }
 func (ta *testAgentCaller) ReleaseSandboxes(_ context.Context, _ *agenticv1alpha1.Proposal) error {
 	return nil

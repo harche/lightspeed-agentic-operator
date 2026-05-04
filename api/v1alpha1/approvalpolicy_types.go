@@ -49,7 +49,7 @@ type ApprovalPolicySpec struct {
 	// Omitted steps default to Manual.
 	// +optional
 	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=3
+	// +kubebuilder:validation:MaxItems=4
 	Stages []ApprovalPolicyStage `json:"stages,omitempty"`
 }
 

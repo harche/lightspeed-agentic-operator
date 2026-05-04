@@ -51,13 +51,3 @@ type LLMProviderReference struct {
 	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name,omitempty"`
 }
-
-// ProposalReference references a Proposal CR by name within the same
-// namespace. Used for escalation parent linkage.
-type ProposalReference struct {
-	// name of the parent Proposal.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name,omitempty"`
-}

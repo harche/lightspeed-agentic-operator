@@ -272,7 +272,36 @@ type VerificationStepStatus struct {
 	Results []StepResultRef `json:"results,omitempty"`
 }
 
-// StepsStatus contains the per-step observed state for all three workflow
+// EscalationStepStatus is the observed state of the escalation step.
+// The operator injects this step when retries are exhausted; it is not
+// declared in the Proposal spec.
+type EscalationStepStatus struct {
+	// conditions for this step.
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=8
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	// startTime is when the step started.
+	// +optional
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+	// completionTime is when the step completed.
+	// +optional
+	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+	// sandbox tracks the sandbox used.
+	// +optional
+	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+	// results references EscalationResult CRs, newest last.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=20
+	Results []StepResultRef `json:"results,omitempty"`
+}
+
+// StepsStatus contains the per-step observed state for all workflow
 // steps. Each step status is populated independently as the proposal
 // progresses through its lifecycle. All fields are set by the operator.
 type StepsStatus struct {
@@ -285,4 +314,7 @@ type StepsStatus struct {
 	// verification is the observed state of the verification step.
 	// +optional
 	Verification VerificationStepStatus `json:"verification,omitzero"`
+	// escalation is the observed state of the escalation step.
+	// +optional
+	Escalation EscalationStepStatus `json:"escalation,omitzero"`
 }

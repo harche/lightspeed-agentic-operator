@@ -34,8 +34,9 @@ const (
 	ProposalPhaseVerifying ProposalPhase = "Verifying"
 	ProposalPhaseCompleted ProposalPhase = "Completed"
 	ProposalPhaseFailed    ProposalPhase = "Failed"
-	ProposalPhaseDenied    ProposalPhase = "Denied"
-	ProposalPhaseEscalated ProposalPhase = "Escalated"
+	ProposalPhaseDenied     ProposalPhase = "Denied"
+	ProposalPhaseEscalating ProposalPhase = "Escalating"
+	ProposalPhaseEscalated  ProposalPhase = "Escalated"
 )
 
 // Condition reasons used by DerivePhase for state transitions.
@@ -59,12 +60,22 @@ func DerivePhase(conditions []metav1.Condition) ProposalPhase {
 		return nil
 	}
 
-	if c := get(ProposalConditionEscalated); c != nil && c.Status == metav1.ConditionTrue {
+	escalated := get(ProposalConditionEscalated)
+	if escalated != nil && escalated.Status == metav1.ConditionTrue {
 		return ProposalPhaseEscalated
 	}
 
 	if c := get(ProposalConditionDenied); c != nil && c.Status == metav1.ConditionTrue {
 		return ProposalPhaseDenied
+	}
+
+	if escalated != nil {
+		switch escalated.Status {
+		case metav1.ConditionUnknown:
+			return ProposalPhaseEscalating
+		default:
+			return ProposalPhaseFailed
+		}
 	}
 
 	if c := get(ProposalConditionVerified); c != nil {
@@ -74,14 +85,10 @@ func DerivePhase(conditions []metav1.Condition) ProposalPhase {
 		case metav1.ConditionUnknown:
 			return ProposalPhaseVerifying
 		default:
-			switch c.Reason {
-			case ReasonRetryingExecution:
+			if c.Reason == ReasonRetryingExecution {
 				return ProposalPhaseExecuting
-			case ReasonRetriesExhausted:
-				return ProposalPhaseAnalyzing
-			default:
-				return ProposalPhaseFailed
 			}
+			return ProposalPhaseFailed
 		}
 	}
 
@@ -125,7 +132,7 @@ const (
 // SandboxStep identifies which workflow step a sandbox pod is running for.
 // Used in PreviousAttempt to record which step failed, and internally by the
 // operator for sandbox lifecycle management.
-// +kubebuilder:validation:Enum=Analysis;Execution;Verification
+// +kubebuilder:validation:Enum=Analysis;Execution;Verification;Escalation
 type SandboxStep string
 
 const (
@@ -135,6 +142,8 @@ const (
 	SandboxStepExecution SandboxStep = "Execution"
 	// SandboxStepVerification is the verification step sandbox.
 	SandboxStepVerification SandboxStep = "Verification"
+	// SandboxStepEscalation is the escalation step sandbox.
+	SandboxStepEscalation SandboxStep = "Escalation"
 )
 
 // Condition types for Proposal. Conditions are the primary mechanism for
@@ -170,8 +179,9 @@ const (
 	// ProposalConditionDenied indicates the user denied a step on the
 	// ProposalApproval resource. Status=True when denied (terminal).
 	ProposalConditionDenied string = "Denied"
-	// ProposalConditionEscalated indicates the proposal exhausted all retry
-	// attempts and a child proposal was created.
+	// ProposalConditionEscalated indicates escalation state. Status=Unknown
+	// while escalation is pending approval or in progress, Status=True when
+	// escalation completes (terminal), Status=False on escalation failure.
 	ProposalConditionEscalated string = "Escalated"
 )
 
@@ -264,15 +274,6 @@ type ProposalSpec struct {
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="verification is immutable after creation"
 	Verification *ProposalStep `json:"verification,omitempty"`
-
-	// parent references the parent proposal in an escalation chain.
-	// Set at creation by the operator (auto-escalation) or console
-	// (manual escalation). Component teams should not set this field.
-	//
-	// Immutable: the escalation lineage cannot change after creation.
-	// +optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="parent is immutable after creation"
-	Parent ProposalReference `json:"parent,omitzero"`
 
 	// maxAttempts sets the maximum number of retry attempts for this proposal.
 	//
