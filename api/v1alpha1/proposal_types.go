@@ -294,6 +294,7 @@ type ProposalSpec struct {
 	// Mutable: this is the only mutable spec field. All other spec fields
 	// are immutable via CEL rules, so generation changes signal revision.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
 	RevisionFeedback string `json:"revisionFeedback,omitempty"`
 }
@@ -304,6 +305,8 @@ type ProposalSpec struct {
 // including per-step results, retry history, and standard Kubernetes conditions.
 // An empty status (`status: {}`) is the initial state before the operator's
 // first reconcile.
+//
+// +kubebuilder:validation:MinProperties=1
 type ProposalStatus struct {
 	// conditions represent the latest available observations using the
 	// standard Kubernetes condition pattern. Condition types include:
@@ -313,6 +316,7 @@ type ProposalStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 

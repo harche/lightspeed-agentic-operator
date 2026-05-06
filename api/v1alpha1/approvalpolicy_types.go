@@ -45,6 +45,8 @@ type ApprovalPolicyStage struct {
 }
 
 // ApprovalPolicySpec defines the desired state of ApprovalPolicy.
+//
+// +kubebuilder:validation:MinProperties=1
 type ApprovalPolicySpec struct {
 	// stages configures the approval mode for each workflow step.
 	// Omitted steps default to Manual.
@@ -93,9 +95,11 @@ type ApprovalPolicySpec struct {
 type ApprovalPolicy struct {
 	metav1.TypeMeta `json:",inline"`
 
+	// metadata is the standard object metadata.
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// spec defines the desired approval policy.
 	// +required
 	Spec ApprovalPolicySpec `json:"spec,omitzero"`
 }

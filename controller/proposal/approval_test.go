@@ -60,14 +60,8 @@ func TestEnsureProposalApproval_AutoApproveStages(t *testing.T) {
 		switch s.Type {
 		case agenticv1alpha1.ApprovalStageAnalysis:
 			hasAnalysis = true
-			if s.Analysis == nil {
-				t.Error("Analysis stage missing analysis field")
-			}
 		case agenticv1alpha1.ApprovalStageVerification:
 			hasVerification = true
-			if s.Verification == nil {
-				t.Error("Verification stage missing verification field")
-			}
 		case agenticv1alpha1.ApprovalStageExecution:
 			t.Error("Execution should not be auto-approved by testAutoApprovePolicy")
 		}
@@ -100,7 +94,7 @@ func TestGetStageOption_FromApproval(t *testing.T) {
 			Stages: []agenticv1alpha1.ApprovalStage{
 				{
 					Type:      agenticv1alpha1.ApprovalStageExecution,
-					Execution: &agenticv1alpha1.ExecutionApproval{Option: &option},
+					Execution: agenticv1alpha1.ExecutionApproval{Option: &option},
 				},
 			},
 		},
@@ -118,7 +112,7 @@ func TestGetStageOption_ApprovalTakesPrecedence(t *testing.T) {
 			Stages: []agenticv1alpha1.ApprovalStage{
 				{
 					Type:      agenticv1alpha1.ApprovalStageExecution,
-					Execution: &agenticv1alpha1.ExecutionApproval{Option: &approvalOpt},
+					Execution: agenticv1alpha1.ExecutionApproval{Option: &approvalOpt},
 				},
 			},
 		},

@@ -22,6 +22,8 @@ import (
 )
 
 // AnalysisResultStatus is the status of an AnalysisResult.
+//
+// +kubebuilder:validation:MinProperties=1
 type AnalysisResultStatus struct {
 	// conditions track the lifecycle of this result.
 	// +listType=map
@@ -29,18 +31,21 @@ type AnalysisResultStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 
 	// options contains the remediation options returned by the analysis agent.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=10
 	Options []RemediationOption `json:"options,omitempty"`
 
 	// components contains optional adapter-specific UI components.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 
@@ -50,6 +55,7 @@ type AnalysisResultStatus struct {
 
 	// failureReason is populated when the step failed due to a system error.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=8192
 	FailureReason string `json:"failureReason,omitempty"`
 }
@@ -68,6 +74,7 @@ type AnalysisResultStatus struct {
 type AnalysisResult struct {
 	metav1.TypeMeta `json:",inline"`
 
+	// metadata is the standard object metadata.
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
@@ -75,16 +82,16 @@ type AnalysisResult struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
-	ProposalName string `json:"proposalName"`
+	ProposalName string `json:"proposalName,omitempty"`
 
 	// attempt is the 1-based attempt number.
 	// +required
 	// +kubebuilder:validation:Minimum=1
-	Attempt int32 `json:"attempt"`
+	Attempt int32 `json:"attempt,omitempty"`
 
 	// status contains result data and conditions.
 	// +optional
-	Status AnalysisResultStatus `json:"status,omitempty"`
+	Status AnalysisResultStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true

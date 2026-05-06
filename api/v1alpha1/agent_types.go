@@ -154,6 +154,8 @@ const (
 // validates that all referenced resources exist and reports readiness
 // via standard Kubernetes conditions. An empty status (`status: {}`)
 // is the initial state before the operator's first reconcile.
+//
+// +kubebuilder:validation:MinProperties=1
 type AgentStatus struct {
 	// conditions represent the latest available observations of the
 	// Agent's state. The Ready condition summarizes whether all
@@ -163,6 +165,7 @@ type AgentStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }

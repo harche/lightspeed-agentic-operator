@@ -59,13 +59,13 @@ func ensureProposalApproval(
 			}
 			switch ps.Name {
 			case agenticv1alpha1.SandboxStepAnalysis:
-				stage.Analysis = &agenticv1alpha1.AnalysisApproval{}
+				stage.Analysis = agenticv1alpha1.AnalysisApproval{}
 			case agenticv1alpha1.SandboxStepExecution:
-				stage.Execution = &agenticv1alpha1.ExecutionApproval{}
+				stage.Execution = agenticv1alpha1.ExecutionApproval{}
 			case agenticv1alpha1.SandboxStepVerification:
-				stage.Verification = &agenticv1alpha1.VerificationApproval{}
+				stage.Verification = agenticv1alpha1.VerificationApproval{}
 			case agenticv1alpha1.SandboxStepEscalation:
-				stage.Escalation = &agenticv1alpha1.EscalationApproval{}
+				stage.Escalation = agenticv1alpha1.EscalationApproval{}
 			}
 			autoStages = append(autoStages, stage)
 		}
@@ -138,21 +138,13 @@ func getStageOverrideAgent(approval *agenticv1alpha1.ProposalApproval, stage age
 		}
 		switch stage {
 		case agenticv1alpha1.SandboxStepAnalysis:
-			if s.Analysis != nil {
-				return s.Analysis.Agent
-			}
+			return s.Analysis.Agent
 		case agenticv1alpha1.SandboxStepExecution:
-			if s.Execution != nil {
-				return s.Execution.Agent
-			}
+			return s.Execution.Agent
 		case agenticv1alpha1.SandboxStepVerification:
-			if s.Verification != nil {
-				return s.Verification.Agent
-			}
+			return s.Verification.Agent
 		case agenticv1alpha1.SandboxStepEscalation:
-			if s.Escalation != nil {
-				return s.Escalation.Agent
-			}
+			return s.Escalation.Agent
 		}
 	}
 	return ""
@@ -161,7 +153,7 @@ func getStageOverrideAgent(approval *agenticv1alpha1.ProposalApproval, stage age
 func getStageOption(approval *agenticv1alpha1.ProposalApproval, policy *agenticv1alpha1.ApprovalPolicy) *int32 {
 	if approval != nil {
 		for _, s := range approval.Spec.Stages {
-			if s.Type == agenticv1alpha1.ApprovalStageExecution && s.Execution != nil && s.Execution.Option != nil {
+			if s.Type == agenticv1alpha1.ApprovalStageExecution && s.Execution.Option != nil {
 				return s.Execution.Option
 			}
 		}

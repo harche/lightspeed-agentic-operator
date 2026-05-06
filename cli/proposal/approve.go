@@ -137,11 +137,11 @@ func (o *ApproveOptions) Run(ctx context.Context) error {
 		entry := agenticv1alpha1.ApprovalStage{Type: stageType}
 		switch stageType {
 		case agenticv1alpha1.ApprovalStageAnalysis:
-			entry.Analysis = &agenticv1alpha1.AnalysisApproval{Agent: o.agent}
+			entry.Analysis = agenticv1alpha1.AnalysisApproval{Agent: o.agent}
 		case agenticv1alpha1.ApprovalStageExecution:
-			entry.Execution = &agenticv1alpha1.ExecutionApproval{Agent: o.agent, Option: &o.option}
+			entry.Execution = agenticv1alpha1.ExecutionApproval{Agent: o.agent, Option: &o.option}
 		case agenticv1alpha1.ApprovalStageVerification:
-			entry.Verification = &agenticv1alpha1.VerificationApproval{Agent: o.agent}
+			entry.Verification = agenticv1alpha1.VerificationApproval{Agent: o.agent}
 		}
 		entries = append(entries, entry)
 	}

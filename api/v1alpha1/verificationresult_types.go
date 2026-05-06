@@ -21,6 +21,8 @@ import (
 )
 
 // VerificationResultStatus is the status of a VerificationResult.
+//
+// +kubebuilder:validation:MinProperties=1
 type VerificationResultStatus struct {
 	// conditions track the lifecycle of this result.
 	// +listType=map
@@ -28,17 +30,20 @@ type VerificationResultStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 
 	// checks contains individual verification check results.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50
 	Checks []VerifyCheck `json:"checks,omitempty"`
 
 	// summary is a Markdown-formatted verification summary.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
 	Summary string `json:"summary,omitempty"`
 
@@ -48,6 +53,7 @@ type VerificationResultStatus struct {
 
 	// failureReason is populated when the step failed due to a system error.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=8192
 	FailureReason string `json:"failureReason,omitempty"`
 }
@@ -67,6 +73,7 @@ type VerificationResultStatus struct {
 type VerificationResult struct {
 	metav1.TypeMeta `json:",inline"`
 
+	// metadata is the standard object metadata.
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
@@ -74,21 +81,22 @@ type VerificationResult struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
-	ProposalName string `json:"proposalName"`
+	ProposalName string `json:"proposalName,omitempty"`
 
 	// attempt is the 1-based overall attempt number.
 	// +required
 	// +kubebuilder:validation:Minimum=1
-	Attempt int32 `json:"attempt"`
+	Attempt int32 `json:"attempt,omitempty"`
 
 	// retryIndex is the 0-based retry index within the current analysis.
 	// +required
 	// +kubebuilder:validation:Minimum=0
-	RetryIndex int32 `json:"retryIndex"`
+	// +kubebuilder:validation:Maximum=10
+	RetryIndex int32 `json:"retryIndex,omitempty"`
 
 	// status contains result data and conditions.
 	// +optional
-	Status VerificationResultStatus `json:"status,omitempty"`
+	Status VerificationResultStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true

@@ -21,6 +21,8 @@ import (
 )
 
 // EscalationResultStatus is the status of an EscalationResult.
+//
+// +kubebuilder:validation:MinProperties=1
 type EscalationResultStatus struct {
 	// conditions track the lifecycle of this result.
 	// +listType=map
@@ -28,16 +30,19 @@ type EscalationResultStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 
 	// summary is a Markdown-formatted escalation summary.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
 	Summary string `json:"summary,omitempty"`
 
 	// content is freeform escalation content produced by the agent.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=65536
 	Content string `json:"content,omitempty"`
 
@@ -47,6 +52,7 @@ type EscalationResultStatus struct {
 
 	// failureReason is populated when the step failed due to a system error.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=8192
 	FailureReason string `json:"failureReason,omitempty"`
 }
@@ -65,6 +71,7 @@ type EscalationResultStatus struct {
 type EscalationResult struct {
 	metav1.TypeMeta `json:",inline"`
 
+	// metadata is the standard object metadata.
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
@@ -72,16 +79,16 @@ type EscalationResult struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
-	ProposalName string `json:"proposalName"`
+	ProposalName string `json:"proposalName,omitempty"`
 
 	// attempt is the 1-based overall attempt number.
 	// +required
 	// +kubebuilder:validation:Minimum=1
-	Attempt int32 `json:"attempt"`
+	Attempt int32 `json:"attempt,omitempty"`
 
 	// status contains result data and conditions.
 	// +optional
-	Status EscalationResultStatus `json:"status,omitempty"`
+	Status EscalationResultStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true

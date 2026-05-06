@@ -75,7 +75,7 @@ func TestMaxAttempts(t *testing.T) {
 				Stages: []agenticv1alpha1.ApprovalStage{
 					{
 						Type:      agenticv1alpha1.ApprovalStageExecution,
-						Execution: &agenticv1alpha1.ExecutionApproval{MaxAttempts: maxAttempts},
+						Execution: agenticv1alpha1.ExecutionApproval{MaxAttempts: maxAttempts},
 					},
 				},
 			},

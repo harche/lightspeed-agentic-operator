@@ -34,6 +34,17 @@ go test ./api/... -v                                      # API/DerivePhase test
 go test ./cli/... -v                                      # CLI tests
 ```
 
+## API Linting
+
+Kube API Linter checks API types against Kubernetes conventions. Build the custom linter binary once, then run against the API module:
+
+```bash
+golangci-lint custom                                       # builds bin/golangci-lint-kube-api-linter
+cd api && GOWORK=off ../bin/golangci-lint-kube-api-linter run --config ../.golangci-kal.yml ./...
+```
+
+Config: `.golangci-kal.yml`. Custom binary spec: `.custom-gcl.yml`. Must run from the `api/` directory with `GOWORK=off` due to the separate module layout.
+
 ## Key Directories
 
 - `api/v1alpha1/` — CRD type definitions, DerivePhase, constants

@@ -159,7 +159,7 @@ func maxAttempts(approval *agenticv1alpha1.ProposalApproval, policy *agenticv1al
 	}
 	if approval != nil {
 		for _, s := range approval.Spec.Stages {
-			if s.Type == agenticv1alpha1.ApprovalStageExecution && s.Execution != nil && s.Execution.MaxAttempts > 0 {
+			if s.Type == agenticv1alpha1.ApprovalStageExecution && s.Execution.MaxAttempts > 0 {
 				v := int(s.Execution.MaxAttempts)
 				if v > ceiling {
 					return ceiling

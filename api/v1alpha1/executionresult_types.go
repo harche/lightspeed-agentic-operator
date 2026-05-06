@@ -21,6 +21,8 @@ import (
 )
 
 // ExecutionResultStatus is the status of an ExecutionResult.
+//
+// +kubebuilder:validation:MinProperties=1
 type ExecutionResultStatus struct {
 	// conditions track the lifecycle of this result.
 	// +listType=map
@@ -28,12 +30,14 @@ type ExecutionResultStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 
 	// actionsTaken lists what the agent did.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=100
 	ActionsTaken []ExecutionAction `json:"actionsTaken,omitempty"`
 
@@ -48,6 +52,7 @@ type ExecutionResultStatus struct {
 
 	// failureReason is populated when the step failed due to a system error.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=8192
 	FailureReason string `json:"failureReason,omitempty"`
 }
@@ -67,6 +72,7 @@ type ExecutionResultStatus struct {
 type ExecutionResult struct {
 	metav1.TypeMeta `json:",inline"`
 
+	// metadata is the standard object metadata.
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
@@ -74,22 +80,23 @@ type ExecutionResult struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
-	ProposalName string `json:"proposalName"`
+	ProposalName string `json:"proposalName,omitempty"`
 
 	// attempt is the 1-based overall attempt number.
 	// +required
 	// +kubebuilder:validation:Minimum=1
-	Attempt int32 `json:"attempt"`
+	Attempt int32 `json:"attempt,omitempty"`
 
 	// retryIndex is the 0-based retry index within the current analysis.
 	// First execution has retryIndex 0, first retry has retryIndex 1, etc.
 	// +required
 	// +kubebuilder:validation:Minimum=0
-	RetryIndex int32 `json:"retryIndex"`
+	// +kubebuilder:validation:Maximum=10
+	RetryIndex int32 `json:"retryIndex,omitempty"`
 
 	// status contains result data and conditions.
 	// +optional
-	Status ExecutionResultStatus `json:"status,omitempty"`
+	Status ExecutionResultStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true

@@ -245,7 +245,7 @@ type RBACRule struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:items:MaxLength=253
-	APIGroups []string `json:"apiGroups,omitempty"`
+	APIGroups []string `json:"apiGroups,omitempty"` //nolint:kubeapilinter // empty string "" is a valid core API group
 	// resources are the resource types (e.g., "pods", "deployments").
 	// Maximum 20 items.
 	// +required

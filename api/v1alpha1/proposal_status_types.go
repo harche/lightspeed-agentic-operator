@@ -164,11 +164,11 @@ type StepResultRef struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
 	// outcome indicates the result of this step attempt.
 	// Must be one of: Succeeded, Failed.
 	// +required
-	Outcome ActionOutcome `json:"outcome"`
+	Outcome ActionOutcome `json:"outcome,omitempty"`
 }
 
 // AnalysisStepStatus is the observed state of the analysis step.
@@ -197,11 +197,13 @@ type AnalysisStepStatus struct {
 	// observedGeneration, the operator re-runs analysis with revision
 	// feedback appended.
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// results references AnalysisResult CRs, newest last.
 	// Each entry corresponds to one analysis attempt.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	Results []StepResultRef `json:"results,omitempty"`
 }
@@ -233,6 +235,7 @@ type ExecutionStepStatus struct {
 	// Each entry corresponds to one execution attempt (including retries).
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	Results []StepResultRef `json:"results,omitempty"`
 }
@@ -257,6 +260,7 @@ type VerificationStepStatus struct {
 	// Each entry corresponds to one verification attempt (including retries).
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	Results []StepResultRef `json:"results,omitempty"`
 }
@@ -282,6 +286,7 @@ type EscalationStepStatus struct {
 	// results references EscalationResult CRs, newest last.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
 	Results []StepResultRef `json:"results,omitempty"`
 }
@@ -289,6 +294,8 @@ type EscalationStepStatus struct {
 // StepsStatus contains the per-step observed state for all workflow
 // steps. Each step status is populated independently as the proposal
 // progresses through its lifecycle. All fields are set by the operator.
+//
+// +kubebuilder:validation:MinProperties=1
 type StepsStatus struct {
 	// analysis is the observed state of the analysis step.
 	// +optional

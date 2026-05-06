@@ -41,6 +41,8 @@ const (
 )
 
 // AnalysisApproval contains approval parameters for the analysis step.
+//
+// +kubebuilder:validation:MinProperties=1
 type AnalysisApproval struct {
 	// agent overrides the Agent CR for this step, enabling cost control.
 	// +optional
@@ -51,6 +53,8 @@ type AnalysisApproval struct {
 }
 
 // ExecutionApproval contains approval parameters for the execution step.
+//
+// +kubebuilder:validation:MinProperties=1
 type ExecutionApproval struct {
 	// agent overrides the Agent CR for this step, enabling cost control.
 	// +optional
@@ -75,6 +79,8 @@ type ExecutionApproval struct {
 }
 
 // VerificationApproval contains approval parameters for the verification step.
+//
+// +kubebuilder:validation:MinProperties=1
 type VerificationApproval struct {
 	// agent overrides the Agent CR for this step, enabling cost control.
 	// +optional
@@ -85,6 +91,8 @@ type VerificationApproval struct {
 }
 
 // EscalationApproval contains approval parameters for the escalation step.
+//
+// +kubebuilder:validation:MinProperties=1
 type EscalationApproval struct {
 	// agent overrides the Agent CR for this step, enabling cost control.
 	// +optional
@@ -105,7 +113,7 @@ type EscalationApproval struct {
 type ApprovalStage struct {
 	// type identifies which workflow step this approval is for.
 	// +required
-	Type ApprovalStageType `json:"type"`
+	Type ApprovalStageType `json:"type,omitempty"`
 
 	// decision indicates whether this stage is approved or denied.
 	// Denied is terminal — the entire proposal is denied.
@@ -116,22 +124,22 @@ type ApprovalStage struct {
 	// analysis contains approval parameters for the analysis step.
 	// Required when type is Analysis.
 	// +optional
-	Analysis *AnalysisApproval `json:"analysis,omitempty"`
+	Analysis AnalysisApproval `json:"analysis,omitzero"`
 
 	// execution contains approval parameters for the execution step.
 	// Required when type is Execution.
 	// +optional
-	Execution *ExecutionApproval `json:"execution,omitempty"`
+	Execution ExecutionApproval `json:"execution,omitzero"`
 
 	// verification contains approval parameters for the verification step.
 	// Required when type is Verification.
 	// +optional
-	Verification *VerificationApproval `json:"verification,omitempty"`
+	Verification VerificationApproval `json:"verification,omitzero"`
 
 	// escalation contains approval parameters for the escalation step.
 	// Required when type is Escalation.
 	// +optional
-	Escalation *EscalationApproval `json:"escalation,omitempty"`
+	Escalation EscalationApproval `json:"escalation,omitzero"`
 }
 
 // ProposalApprovalSpec defines the desired state of ProposalApproval.
@@ -142,37 +150,45 @@ type ApprovalStage struct {
 // +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, self.stages.exists(s, s.type == old.type))",message="stages are append-only: existing stages cannot be removed"
 // +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, !(has(old.decision) && old.decision == 'Denied') || self.stages.exists(s, s.type == old.type && has(s.decision) && s.decision == 'Denied'))",message="decision cannot be changed once set to Denied"
 // +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, old.type != 'Execution' || !has(old.execution) || !has(old.execution.maxAttempts) || old.execution.maxAttempts == 0 || self.stages.exists(s, s.type == 'Execution' && has(s.execution) && has(s.execution.maxAttempts) && s.execution.maxAttempts >= old.execution.maxAttempts))",message="execution maxAttempts cannot be reduced once set"
+// +kubebuilder:validation:MinProperties=1
 type ProposalApprovalSpec struct {
 	// stages lists the approved (or denied) workflow steps. Each entry is
 	// a discriminated union keyed by type.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=4
 	Stages []ApprovalStage `json:"stages,omitempty"`
 }
 
 // ApprovalStageStatus is the observed state of a single approval stage.
 type ApprovalStageStatus struct {
-	// name identifies the workflow step.
-	// +required
-	Name string `json:"name"`
-
 	// conditions for this approval stage.
 	// +listType=map
 	// +listMapKey=type
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	// +optional
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+
+	// name identifies the workflow step.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name,omitempty"`
 }
 
 // ProposalApprovalStatus defines the observed state of ProposalApproval.
+//
+// +kubebuilder:validation:MinProperties=1
 type ProposalApprovalStatus struct {
 	// stages contains the per-stage approval status set by the controller.
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=4
 	Stages []ApprovalStageStatus `json:"stages,omitempty"`
 }
@@ -212,12 +228,15 @@ type ProposalApprovalStatus struct {
 type ProposalApproval struct {
 	metav1.TypeMeta `json:",inline"`
 
+	// metadata is the standard object metadata.
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// spec defines the desired approval state.
 	// +required
 	Spec ProposalApprovalSpec `json:"spec,omitzero"`
 
+	// status defines the observed approval state.
 	// +optional
 	Status ProposalApprovalStatus `json:"status,omitzero"`
 }

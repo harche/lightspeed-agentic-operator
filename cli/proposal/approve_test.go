@@ -91,9 +91,6 @@ func TestApprove_ExecutionWithOption(t *testing.T) {
 	if updated.Spec.Stages[0].Type != agenticv1alpha1.ApprovalStageExecution {
 		t.Errorf("expected Execution stage, got %s", updated.Spec.Stages[0].Type)
 	}
-	if updated.Spec.Stages[0].Execution == nil {
-		t.Fatal("expected execution approval to be set")
-	}
 	if updated.Spec.Stages[0].Execution.Option == nil || *updated.Spec.Stages[0].Execution.Option != 1 {
 		t.Errorf("expected option=1, got %v", updated.Spec.Stages[0].Execution.Option)
 	}
@@ -180,7 +177,7 @@ func TestApprove_AlreadyApproved(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalApprovalSpec{
 			Stages: []agenticv1alpha1.ApprovalStage{
-				{Type: agenticv1alpha1.ApprovalStageAnalysis, Analysis: &agenticv1alpha1.AnalysisApproval{}},
+				{Type: agenticv1alpha1.ApprovalStageAnalysis, Analysis: agenticv1alpha1.AnalysisApproval{}},
 			},
 		},
 	}
@@ -211,7 +208,7 @@ func TestApprove_AlreadyDenied(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalApprovalSpec{
 			Stages: []agenticv1alpha1.ApprovalStage{
-				{Type: agenticv1alpha1.ApprovalStageAnalysis, Decision: agenticv1alpha1.ApprovalDecisionDenied, Analysis: &agenticv1alpha1.AnalysisApproval{}},
+				{Type: agenticv1alpha1.ApprovalStageAnalysis, Decision: agenticv1alpha1.ApprovalDecisionDenied, Analysis: agenticv1alpha1.AnalysisApproval{}},
 			},
 		},
 	}
@@ -353,7 +350,7 @@ func TestApprove_AllNoPending(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalApprovalSpec{
 			Stages: []agenticv1alpha1.ApprovalStage{
-				{Type: agenticv1alpha1.ApprovalStageAnalysis, Analysis: &agenticv1alpha1.AnalysisApproval{}},
+				{Type: agenticv1alpha1.ApprovalStageAnalysis, Analysis: agenticv1alpha1.AnalysisApproval{}},
 			},
 		},
 	}
