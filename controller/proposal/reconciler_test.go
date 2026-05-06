@@ -129,9 +129,14 @@ func testProposal() *agenticv1alpha1.Proposal {
 // and verification stages, so tests only need to explicitly approve execution
 // (which carries the selected option).
 func testAutoApprovePolicy() *agenticv1alpha1.ApprovalPolicy {
+	return testAutoApprovePolicyWithMaxAttempts(0)
+}
+
+func testAutoApprovePolicyWithMaxAttempts(maxAttempts int32) *agenticv1alpha1.ApprovalPolicy {
 	return &agenticv1alpha1.ApprovalPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 		Spec: agenticv1alpha1.ApprovalPolicySpec{
+			MaxAttempts: maxAttempts,
 			Stages: []agenticv1alpha1.ApprovalPolicyStage{
 				{Name: agenticv1alpha1.SandboxStepAnalysis, Approval: agenticv1alpha1.ApprovalModeAutomatic},
 				{Name: agenticv1alpha1.SandboxStepVerification, Approval: agenticv1alpha1.ApprovalModeAutomatic},
@@ -145,6 +150,12 @@ func testAutoApprovePolicy() *agenticv1alpha1.ApprovalPolicy {
 func defaultObjects() []client.Object {
 	return []client.Object{
 		testDefaultAgent(), testLLM("smart"), testAutoApprovePolicy(),
+	}
+}
+
+func defaultObjectsWithMaxAttempts(maxAttempts int32) []client.Object {
+	return []client.Object{
+		testDefaultAgent(), testLLM("smart"), testAutoApprovePolicyWithMaxAttempts(maxAttempts),
 	}
 }
 
@@ -280,7 +291,7 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 	if phase != agenticv1alpha1.ProposalPhaseProposed {
 		t.Fatalf("expected Proposed (analysis complete), got %s", phase)
 	}
-	if p.Status.Attempts == nil || *p.Status.Attempts != 1 {
+	if p.Status.Attempts != 1 {
 		t.Fatal("attempt not initialized to 1")
 	}
 }
@@ -288,10 +299,9 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 func TestReconcile_Denied_Terminal(t *testing.T) {
 	scheme := testScheme()
 
-	one := int32(1)
 	proposal := testProposal()
 	proposal.Status = agenticv1alpha1.ProposalStatus{
-		Attempts: &one,
+		Attempts: 1,
 		Conditions: []metav1.Condition{
 			{Type: agenticv1alpha1.ProposalConditionAnalyzed, Status: metav1.ConditionTrue, Reason: "AnalysisComplete"},
 			{Type: agenticv1alpha1.ProposalConditionDenied, Status: metav1.ConditionTrue, Reason: "UserDenied"},

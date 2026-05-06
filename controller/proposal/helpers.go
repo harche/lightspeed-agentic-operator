@@ -152,8 +152,23 @@ func resetExecutionAndVerification(steps *agenticv1alpha1.StepsStatus) {
 	steps.Verification.Sandbox = agenticv1alpha1.SandboxInfo{}
 }
 
-func maxAttempts(proposal *agenticv1alpha1.Proposal) int {
-	return int(proposal.Spec.MaxAttempts)
+func maxAttempts(approval *agenticv1alpha1.ProposalApproval, policy *agenticv1alpha1.ApprovalPolicy) int {
+	ceiling := 1
+	if policy != nil && policy.Spec.MaxAttempts > 0 {
+		ceiling = int(policy.Spec.MaxAttempts)
+	}
+	if approval != nil {
+		for _, s := range approval.Spec.Stages {
+			if s.Type == agenticv1alpha1.ApprovalStageExecution && s.Execution != nil && s.Execution.MaxAttempts > 0 {
+				v := int(s.Execution.MaxAttempts)
+				if v > ceiling {
+					return ceiling
+				}
+				return v
+			}
+		}
+	}
+	return ceiling
 }
 
 type escalationData struct {
@@ -171,7 +186,7 @@ func buildEscalationRequest(proposal *agenticv1alpha1.Proposal) string {
 		Name:                proposal.Name,
 		Namespace:           proposal.Namespace,
 		Request:             proposal.Spec.Request,
-		AttemptCount:        *proposal.Status.Attempts,
+		AttemptCount:        proposal.Status.Attempts,
 		AnalysisResults:     proposal.Status.Steps.Analysis.Results,
 		ExecutionResults:    proposal.Status.Steps.Execution.Results,
 		VerificationResults: proposal.Status.Steps.Verification.Results,
@@ -180,18 +195,14 @@ func buildEscalationRequest(proposal *agenticv1alpha1.Proposal) string {
 }
 
 func needsRevision(proposal *agenticv1alpha1.Proposal) bool {
-	if proposal.Spec.Revision == nil || *proposal.Spec.Revision <= 0 {
+	if proposal.Spec.RevisionFeedback == "" {
 		return false
 	}
-	analysis := proposal.Status.Steps.Analysis
-	if analysis.ObservedRevision == nil {
-		return true
-	}
-	return *proposal.Spec.Revision > *analysis.ObservedRevision
+	return proposal.Generation > proposal.Status.Steps.Analysis.ObservedGeneration
 }
 
 type revisionData struct {
-	Revision     int32
+	Generation   int64
 	ProposalName string
 	Namespace    string
 	Feedback     string
@@ -199,7 +210,7 @@ type revisionData struct {
 
 func buildRevisionContext(proposal *agenticv1alpha1.Proposal) string {
 	data := revisionData{
-		Revision:     *proposal.Spec.Revision,
+		Generation:   proposal.Generation,
 		ProposalName: proposal.Name,
 		Namespace:    proposal.Namespace,
 		Feedback:     proposal.Spec.RevisionFeedback,

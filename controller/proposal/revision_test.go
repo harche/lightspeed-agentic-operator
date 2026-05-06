@@ -10,34 +10,32 @@ import (
 )
 
 func TestNeedsRevision(t *testing.T) {
-	one := int32(1)
-	two := int32(2)
-	zero := int32(0)
-
 	tests := []struct {
-		name             string
-		specRevision     *int32
-		observedRevision *int32
-		want             bool
+		name               string
+		generation         int64
+		observedGeneration int64
+		feedback           string
+		want               bool
 	}{
-		{"nil_revision", nil, nil, false},
-		{"zero_revision", &zero, nil, false},
-		{"revision_1_no_observed", &one, nil, true},
-		{"revision_1_observed_0", &one, &zero, true},
-		{"revision_2_observed_1", &two, &one, true},
-		{"revision_1_observed_1", &one, &one, false},
+		{"no_feedback", 1, 0, "", false},
+		{"feedback_with_new_generation", 2, 1, "fix the memory issue", true},
+		{"feedback_already_observed", 2, 2, "fix the memory issue", false},
+		{"feedback_generation_3_observed_1", 3, 1, "try again", true},
+		{"empty_feedback_new_generation", 2, 1, "", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			attempt := int32(1)
 			proposal := &agenticv1alpha1.Proposal{
-				Spec: agenticv1alpha1.ProposalSpec{Revision: tt.specRevision},
+				ObjectMeta: metav1.ObjectMeta{Generation: tt.generation},
+				Spec: agenticv1alpha1.ProposalSpec{
+					RevisionFeedback: tt.feedback,
+				},
 				Status: agenticv1alpha1.ProposalStatus{
-					Attempts: &attempt,
+					Attempts: 1,
 					Steps: agenticv1alpha1.StepsStatus{
 						Analysis: agenticv1alpha1.AnalysisStepStatus{
-							ObservedRevision: tt.observedRevision,
+							ObservedGeneration: tt.observedGeneration,
 						},
 					},
 				},
@@ -50,11 +48,9 @@ func TestNeedsRevision(t *testing.T) {
 }
 
 func TestBuildRevisionContext_WithFeedback(t *testing.T) {
-	rev := int32(1)
 	proposal := &agenticv1alpha1.Proposal{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-proposal", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-proposal", Namespace: "default", Generation: 2},
 		Spec: agenticv1alpha1.ProposalSpec{
-			Revision:         &rev,
 			RevisionFeedback: "Please focus on the memory issue, not CPU",
 		},
 	}
@@ -68,18 +64,15 @@ func TestBuildRevisionContext_WithFeedback(t *testing.T) {
 }
 
 func TestBuildRevisionContext_WithoutFeedback(t *testing.T) {
-	rev := int32(1)
 	proposal := &agenticv1alpha1.Proposal{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-proposal", Namespace: "default"},
-		Spec: agenticv1alpha1.ProposalSpec{
-			Revision: &rev,
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-proposal", Namespace: "default", Generation: 2},
+		Spec:       agenticv1alpha1.ProposalSpec{},
 	}
 	result := buildRevisionContext(proposal)
 	if strings.Contains(result, "## User Feedback") {
 		t.Errorf("expected no User Feedback header when feedback is empty, got: %s", result)
 	}
-	if !strings.Contains(result, "revision 1") {
-		t.Errorf("expected revision number in context, got: %s", result)
+	if !strings.Contains(result, "generation 2") {
+		t.Errorf("expected generation number in context, got: %s", result)
 	}
 }

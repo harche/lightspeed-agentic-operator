@@ -12,6 +12,7 @@ kind: ApprovalPolicy
 metadata:
   name: cluster
 spec:
+  maxAttempts: 3
   stages:
     - name: Analysis
       approval: Manual

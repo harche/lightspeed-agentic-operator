@@ -199,7 +199,7 @@ type ProposalStep struct {
 	// tools provides per-step tools that replace the shared spec.tools
 	// for this step. Use this when different steps need different skills.
 	// +optional
-	Tools *ToolsSpec `json:"tools,omitempty"`
+	Tools ToolsSpec `json:"tools,omitzero"`
 }
 
 // ProposalSpec defines the desired state of Proposal.
@@ -220,8 +220,8 @@ type ProposalSpec struct {
 	// the analysis agent as the primary input.
 	//
 	// Immutable: Proposals are run-to-completion (like Jobs). To change
-	// the request, create a new Proposal. Use spec.revision for iterative
-	// feedback on an existing analysis.
+	// the request, create a new Proposal. Use spec.revisionFeedback for
+	// iterative feedback on an existing analysis.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32768
@@ -280,32 +280,13 @@ type ProposalSpec struct {
 	// +optional
 	Verification *ProposalStep `json:"verification,omitempty"`
 
-	// maxAttempts sets the maximum number of retry attempts for this proposal.
+	// revisionFeedback is the user's free-text feedback requesting changes
+	// to the analysis. Patching this field bumps metadata.generation, which
+	// the operator detects (generation > observedGeneration) and triggers
+	// re-analysis with the feedback appended to the original request.
 	//
-	// Mutable: the console UI patches this at approval time so the user
-	// can set a custom retry limit before execution begins.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=3
-	MaxAttempts int32 `json:"maxAttempts,omitempty"`
-
-	// revision is incremented by the user (or console UI) each time they
-	// submit revision feedback for the analysis.
-	//
-	// Mutable: this is the designated mutation point for iterative
-	// feedback. Incrementing revision triggers re-analysis with the
-	// user's revision context appended to the original request.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	Revision *int32 `json:"revision,omitempty"`
-
-	// revisionFeedback is the user's free-text feedback that accompanies a
-	// revision request. When the user increments spec.revision, they set
-	// this field to describe what they want changed about the analysis.
-	// The operator includes this text in the revision context sent to the
-	// analysis agent.
-	//
-	// Mutable: updated alongside spec.revision to provide revision context.
+	// Mutable: this is the only mutable spec field. All other spec fields
+	// are immutable via CEL rules, so generation changes signal revision.
 	// +optional
 	// +kubebuilder:validation:MaxLength=32768
 	RevisionFeedback string `json:"revisionFeedback,omitempty"`
@@ -333,7 +314,9 @@ type ProposalStatus struct {
 	// (1-based). Incremented each time the proposal is retried after a
 	// failure. Starts at 1 for the first attempt.
 	// +optional
-	Attempts *int32 `json:"attempts,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=2147483647
+	Attempts int32 `json:"attempts,omitempty"`
 
 	// steps contains the per-step observed state (analysis, execution,
 	// verification). Each step independently tracks its timing, sandbox
@@ -382,7 +365,6 @@ type ProposalStatus struct {
 //	  request: "Fix CVE-2024-1234 in nginx:1.21"
 //	  targetNamespaces:
 //	    - lightspeed-demo
-//	  maxAttempts: 3
 //	  tools:
 //	    skills:
 //	      - image: registry.redhat.io/acs/acs-lightspeed-skills:latest

@@ -120,6 +120,8 @@ type SecretRequirement struct {
 // (spec.tools) or per-step (spec.analysis.tools, spec.execution.tools,
 // spec.verification.tools). Per-step tools replace the shared default
 // for that step.
+//
+// +kubebuilder:validation:MinProperties=1
 type ToolsSpec struct {
 	// skills defines one or more OCI images containing skills to mount
 	// in the agent's sandbox pod. The operator creates Kubernetes image
@@ -159,4 +161,8 @@ type ToolsSpec struct {
 	// +kubebuilder:validation:Type=object
 	// +kubebuilder:pruning:PreserveUnknownFields
 	OutputSchema *apiextensionsv1.JSONSchemaProps `json:"outputSchema,omitempty"`
+}
+
+func (t ToolsSpec) IsZero() bool {
+	return len(t.Skills) == 0 && len(t.MCPServers) == 0 && len(t.RequiredSecrets) == 0 && t.OutputSchema == nil
 }

@@ -20,15 +20,13 @@ type ExecutionOutput struct {
 	Success      bool
 	ActionsTaken []agenticv1alpha1.ExecutionAction
 	Verification agenticv1alpha1.ExecutionVerification
-	Components   []apiextensionsv1.JSON
 }
 
 // VerificationOutput holds the verification agent's output.
 type VerificationOutput struct {
-	Success    bool
-	Checks     []agenticv1alpha1.VerifyCheck
-	Summary    string
-	Components []apiextensionsv1.JSON
+	Success bool
+	Checks  []agenticv1alpha1.VerifyCheck
+	Summary string
 }
 
 // EscalationOutput holds the escalation agent's output.

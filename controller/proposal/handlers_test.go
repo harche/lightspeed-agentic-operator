@@ -17,17 +17,16 @@ import (
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
-func reviseProposal(t *testing.T, fc client.WithWatch, name string, revision int32, feedback ...string) {
+func reviseProposal(t *testing.T, fc client.WithWatch, name string, feedback string) {
 	t.Helper()
 	var p agenticv1alpha1.Proposal
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: name, Namespace: "default"}, &p); err != nil {
 		t.Fatalf("get proposal for revision: %v", err)
 	}
 	original := p.DeepCopy()
-	p.Spec.Revision = &revision
-	if len(feedback) > 0 {
-		p.Spec.RevisionFeedback = feedback[0]
-	}
+	p.Spec.RevisionFeedback = feedback
+	// Fake client doesn't auto-increment generation; simulate API server behavior.
+	p.Generation++
 	if err := fc.Patch(context.Background(), &p, client.MergeFrom(original)); err != nil {
 		t.Fatalf("patch revision: %v", err)
 	}
@@ -249,11 +248,9 @@ func TestReconcile_VerificationObjectiveFailure_RetriesExecution(t *testing.T) {
 	agent := newTestAgentCaller()
 	scheme := testScheme()
 
-	maxAttempts := int32(2)
 	proposal := testProposal()
-	proposal.Spec.MaxAttempts = maxAttempts
 
-	objs := append([]client.Object{proposal}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjectsWithMaxAttempts(3)...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
@@ -393,11 +390,9 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 	agent := newTestAgentCaller()
 	scheme := testScheme()
 
-	maxAttempts := int32(1)
 	proposal := testProposal()
-	proposal.Spec.MaxAttempts = maxAttempts
 
-	objs := append([]client.Object{proposal}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjectsWithMaxAttempts(1)...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
@@ -430,7 +425,7 @@ func TestReconcile_ObjectiveFailure_ThenRevise(t *testing.T) {
 		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Source: "oc", Value: "Running", Result: agenticv1alpha1.CheckResultPassed}},
 		Summary: "Pod running",
 	}
-	reviseProposal(t, fc, "fix-crash", 1)
+	reviseProposal(t, fc, "fix-crash", "revise analysis")
 	reconcileOnce(r, "fix-crash") // revision re-analysis
 
 	p, _ = getProposal(r, "fix-crash")
@@ -473,7 +468,7 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 	initialResultCount := len(p.Status.Steps.Analysis.Results)
 
 	// Submit revision
-	reviseProposal(t, fc, "fix-crash", 1)
+	reviseProposal(t, fc, "fix-crash", "revise analysis")
 
 	// Reconcile 2: Executing → Analyzing → Executing (revised)
 	if _, err := reconcileOnce(r, "fix-crash"); err != nil {
@@ -483,8 +478,8 @@ func TestReconcile_RevisionHappyPath(t *testing.T) {
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
 		t.Fatalf("expected Proposed after revision, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	if p.Status.Steps.Analysis.ObservedRevision == nil || *p.Status.Steps.Analysis.ObservedRevision != 1 {
-		t.Fatal("observedRevision not set to 1")
+	if p.Status.Steps.Analysis.ObservedGeneration == 0 {
+		t.Fatal("observedGeneration not set after revision")
 	}
 	if len(p.Status.Steps.Analysis.Results) <= initialResultCount {
 		t.Fatal("results should have a new entry after revision")
@@ -515,19 +510,19 @@ func TestReconcile_RevisionMultipleRounds(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 
 	// Revision 1
-	reviseProposal(t, fc, "fix-crash", 1)
+	reviseProposal(t, fc, "fix-crash", "revise analysis")
 	reconcileOnce(r, "fix-crash")
 
-	// Revision 2
-	reviseProposal(t, fc, "fix-crash", 2)
+	// Second revision
+	reviseProposal(t, fc, "fix-crash", "revise again")
 	reconcileOnce(r, "fix-crash")
 
 	p, _ := getProposal(r, "fix-crash")
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
 		t.Fatalf("expected Proposed, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	if *p.Status.Steps.Analysis.ObservedRevision != 2 {
-		t.Fatalf("expected observedRevision 2, got %d", *p.Status.Steps.Analysis.ObservedRevision)
+	if p.Status.Steps.Analysis.ObservedGeneration == 0 {
+		t.Fatal("observedGeneration not set after second revision")
 	}
 
 	// Approve and proceed
@@ -552,19 +547,19 @@ func TestReconcile_RevisionNoOp_WhenObserved(t *testing.T) {
 	// Initial analysis
 	reconcileOnce(r, "fix-crash")
 
-	// Simulate already-observed revision
+	// Simulate already-observed generation (feedback set but already processed)
 	p, _ := getProposal(r, "fix-crash")
 	base := p.DeepCopy()
-	rev := int32(1)
-	p.Spec.Revision = &rev
+	p.Spec.RevisionFeedback = "some feedback"
+	p.Generation = 2
 	if err := fc.Patch(context.Background(), p, client.MergeFrom(base)); err != nil {
-		t.Fatalf("patch spec revision: %v", err)
+		t.Fatalf("patch spec revisionFeedback: %v", err)
 	}
 	p, _ = getProposal(r, "fix-crash")
 	base = p.DeepCopy()
-	p.Status.Steps.Analysis.ObservedRevision = &rev
+	p.Status.Steps.Analysis.ObservedGeneration = 2
 	if err := fc.Status().Patch(context.Background(), p, client.MergeFrom(base)); err != nil {
-		t.Fatalf("patch status observedRevision: %v", err)
+		t.Fatalf("patch status observedGeneration: %v", err)
 	}
 
 	// Reconcile should be a no-op
@@ -605,7 +600,7 @@ func TestReconcile_RevisionResetsSelectedOption(t *testing.T) {
 	}
 
 	// Submit revision
-	reviseProposal(t, fc, "fix-crash", 1)
+	reviseProposal(t, fc, "fix-crash", "revise analysis")
 
 	// Reconcile revision
 	reconcileOnce(r, "fix-crash")
@@ -635,7 +630,7 @@ func TestReconcile_RevisionAnalysisFailure(t *testing.T) {
 	}
 
 	// Submit revision, but agent will fail
-	reviseProposal(t, fc, "fix-crash", 1)
+	reviseProposal(t, fc, "fix-crash", "revise analysis")
 	agent.analyzeErr = fmt.Errorf("LLM timeout during revision")
 
 	// Reconcile → revision analysis fails → Failed
@@ -676,7 +671,7 @@ func TestReconcile_RevisionWithFeedback(t *testing.T) {
 	}
 
 	// Submit revision with feedback
-	reviseProposal(t, fc, "fix-crash", 1, "Focus on the memory limit, not CPU throttling")
+	reviseProposal(t, fc, "fix-crash", "Focus on the memory limit, not CPU throttling")
 
 	// Reconcile revision
 	if _, err := reconcileOnce(r, "fix-crash"); err != nil {
@@ -687,8 +682,8 @@ func TestReconcile_RevisionWithFeedback(t *testing.T) {
 	if agenticv1alpha1.DerivePhase(p.Status.Conditions) != agenticv1alpha1.ProposalPhaseProposed {
 		t.Fatalf("expected Proposed after revision, got %s", agenticv1alpha1.DerivePhase(p.Status.Conditions))
 	}
-	if p.Status.Steps.Analysis.ObservedRevision == nil || *p.Status.Steps.Analysis.ObservedRevision != 1 {
-		t.Fatal("observedRevision not set to 1")
+	if p.Status.Steps.Analysis.ObservedGeneration == 0 {
+		t.Fatal("observedGeneration not set after revision")
 	}
 	if p.Spec.RevisionFeedback != "Focus on the memory limit, not CPU throttling" {
 		t.Fatalf("expected revisionFeedback to be preserved, got %q", p.Spec.RevisionFeedback)
@@ -1089,10 +1084,8 @@ func TestReconcile_ExecutionOutcomeFailed_FailsStep(t *testing.T) {
 func TestReconcile_VerificationOutcomeFailed_RetriesExecution(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal()
-	maxAttempts := int32(3)
-	proposal.Spec.MaxAttempts = maxAttempts
 
-	objs := append([]client.Object{proposal}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjectsWithMaxAttempts(3)...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 
@@ -1196,10 +1189,8 @@ func TestReconcile_ExecutionSingleOption(t *testing.T) {
 func TestReconcile_RetryPreservesSelectedOption(t *testing.T) {
 	scheme := testScheme()
 	proposal := testProposal()
-	maxAttempts := int32(3)
-	proposal.Spec.MaxAttempts = maxAttempts
 
-	objs := append([]client.Object{proposal}, defaultObjects()...)
+	objs := append([]client.Object{proposal}, defaultObjectsWithMaxAttempts(3)...)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
 		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
 

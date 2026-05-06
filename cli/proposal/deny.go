@@ -85,14 +85,14 @@ func (o *DenyOptions) Run(ctx context.Context) error {
 
 	for _, s := range approval.Spec.Stages {
 		if s.Type == stageType {
-			if s.Denied {
+			if s.Decision == agenticv1alpha1.ApprovalDecisionDenied {
 				return fmt.Errorf("stage %s is already denied", stageName)
 			}
 			return fmt.Errorf("stage %s is already approved, cannot deny", stageName)
 		}
 	}
 
-	entry := agenticv1alpha1.ApprovalStage{Type: stageType, Denied: true}
+	entry := agenticv1alpha1.ApprovalStage{Type: stageType, Decision: agenticv1alpha1.ApprovalDecisionDenied}
 	switch stageType {
 	case agenticv1alpha1.ApprovalStageAnalysis:
 		entry.Analysis = &agenticv1alpha1.AnalysisApproval{}

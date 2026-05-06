@@ -24,7 +24,6 @@ spec:
     Labels: severity=critical, destination_service=payment-service.istio-system.svc.cluster.local
   targetNamespaces:
     - istio-system
-  maxAttempts: 3
   tools:
     skills:
       - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest

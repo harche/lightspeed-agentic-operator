@@ -139,10 +139,9 @@ type ProposalResult struct {
 	Reversible Reversibility `json:"reversible,omitempty"`
 	// estimatedImpact is a Markdown-formatted description of the expected
 	// impact of the remediation on the system
-	// (e.g., "Brief pod restart, ~30s downtime"). Omit when impact is
-	// unknown; an empty string is treated the same as omitted.
+	// (e.g., "Brief pod restart, ~30s downtime").
 	// Maximum 1024 characters.
-	// +optional
+	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=1024
 	EstimatedImpact string `json:"estimatedImpact,omitempty"`

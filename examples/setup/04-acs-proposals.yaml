@@ -27,7 +27,6 @@ spec:
       - CVE-2024-24790 (CVSS 9.8) in nginx:1.21 — path traversal
   targetNamespaces:
     - staging
-  maxAttempts: 3
   tools:
     skills:
       - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
@@ -107,7 +106,6 @@ spec:
   request: "Complex ACS violation requiring specialized analysis and verification skills"
   targetNamespaces:
     - staging
-  maxAttempts: 3
   tools:
     requiredSecrets:
       - name: acs-api-token

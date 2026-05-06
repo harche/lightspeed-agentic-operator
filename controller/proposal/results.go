@@ -41,10 +41,10 @@ func resultLabels(proposalName, step string, attempt int32) map[string]string {
 }
 
 func proposalAttempt(proposal *agenticv1alpha1.Proposal) int32 {
-	if proposal.Status.Attempts != nil {
-		return *proposal.Status.Attempts
+	if proposal.Status.Attempts == 0 {
+		return 1
 	}
-	return 1
+	return proposal.Status.Attempts
 }
 
 func executionRetryIndex(proposal *agenticv1alpha1.Proposal) int32 {
@@ -165,7 +165,6 @@ func (r *ProposalReconciler) createExecutionResult(
 	if result != nil {
 		cr.ActionsTaken = result.ActionsTaken
 		cr.Verification = result.Verification
-		cr.Components = result.Components
 	}
 
 	return crName, createIdempotent(ctx, r.Client, cr, "ExecutionResult")
@@ -213,7 +212,6 @@ func (r *ProposalReconciler) createVerificationResult(
 	if result != nil {
 		cr.Checks = result.Checks
 		cr.Summary = result.Summary
-		cr.Components = result.Components
 	}
 
 	return crName, createIdempotent(ctx, r.Client, cr, "VerificationResult")

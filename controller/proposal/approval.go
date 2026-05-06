@@ -101,7 +101,7 @@ func ensureProposalApproval(
 func isStageApproved(approval *agenticv1alpha1.ProposalApproval, policy *agenticv1alpha1.ApprovalPolicy, stage agenticv1alpha1.SandboxStep) bool {
 	if approval != nil {
 		for _, s := range approval.Spec.Stages {
-			if string(s.Type) == string(stage) && !s.Denied {
+			if string(s.Type) == string(stage) && s.Decision != agenticv1alpha1.ApprovalDecisionDenied {
 				return true
 			}
 		}
@@ -121,7 +121,7 @@ func isStageDenied(approval *agenticv1alpha1.ProposalApproval, stage agenticv1al
 		return false
 	}
 	for _, s := range approval.Spec.Stages {
-		if string(s.Type) == string(stage) && s.Denied {
+		if string(s.Type) == string(stage) && s.Decision == agenticv1alpha1.ApprovalDecisionDenied {
 			return true
 		}
 	}
@@ -163,13 +163,6 @@ func getStageOption(approval *agenticv1alpha1.ProposalApproval, policy *agenticv
 		for _, s := range approval.Spec.Stages {
 			if s.Type == agenticv1alpha1.ApprovalStageExecution && s.Execution != nil && s.Execution.Option != nil {
 				return s.Execution.Option
-			}
-		}
-	}
-	if policy != nil {
-		for _, ps := range policy.Spec.Stages {
-			if ps.Name == agenticv1alpha1.SandboxStepExecution && ps.DefaultOption != nil {
-				return ps.DefaultOption
 			}
 		}
 	}

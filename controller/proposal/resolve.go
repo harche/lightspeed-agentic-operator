@@ -53,8 +53,8 @@ func resolveProposal(ctx context.Context, c client.Client, proposal *agenticv1al
 	}
 
 	toolsForStep := func(step *agenticv1alpha1.ProposalStep) *agenticv1alpha1.ToolsSpec {
-		if step != nil && step.Tools != nil {
-			return step.Tools
+		if step != nil && !step.Tools.IsZero() {
+			return &step.Tools
 		}
 		return &proposal.Spec.Tools
 	}

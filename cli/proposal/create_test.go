@@ -52,59 +52,6 @@ func TestCreate_GenerateNamePrefix(t *testing.T) {
 	}
 }
 
-func TestCreate_WithMaxAttempts(t *testing.T) {
-	streams, _, _ := fakeStreams()
-	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()
-
-	o := &CreateOptions{
-		client:      fc,
-		namespace:   "default",
-		agent:       "default",
-		request:     "Pod crashing",
-		maxAttempts: 3,
-		IOStreams:    streams,
-	}
-	if err := o.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	list := &agenticv1alpha1.ProposalList{}
-	if err := fc.List(context.Background(), list); err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if len(list.Items) != 1 {
-		t.Fatalf("expected 1 proposal, got %d", len(list.Items))
-	}
-	if list.Items[0].Spec.MaxAttempts != 3 {
-		t.Errorf("expected MaxAttempts=3, got %d", list.Items[0].Spec.MaxAttempts)
-	}
-}
-
-func TestCreate_WithoutMaxAttempts(t *testing.T) {
-	streams, _, _ := fakeStreams()
-	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()
-
-	o := &CreateOptions{
-		client:      fc,
-		namespace:   "default",
-		agent:       "default",
-		request:     "Pod crashing",
-		maxAttempts: -1,
-		IOStreams:    streams,
-	}
-	if err := o.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	list := &agenticv1alpha1.ProposalList{}
-	if err := fc.List(context.Background(), list); err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if list.Items[0].Spec.MaxAttempts != 0 {
-		t.Errorf("expected MaxAttempts=0 when not set, got %d", list.Items[0].Spec.MaxAttempts)
-	}
-}
-
 func TestCreate_WithTargetNamespaces(t *testing.T) {
 	streams, _, _ := fakeStreams()
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).Build()
@@ -115,7 +62,6 @@ func TestCreate_WithTargetNamespaces(t *testing.T) {
 		agent:            "smart",
 		request:          "Pod crashing",
 		targetNamespaces: []string{"prod", "staging"},
-		maxAttempts:      -1,
 		IOStreams:         streams,
 	}
 	if err := o.Run(context.Background()); err != nil {
@@ -142,8 +88,7 @@ func TestCreate_JSONOutput(t *testing.T) {
 		agent:       "smart",
 		request:     "Pod crashing",
 		output:      "json",
-		maxAttempts: -1,
-		IOStreams:    streams,
+		IOStreams: streams,
 	}
 	if err := o.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -163,35 +108,18 @@ func TestCreate_Validate(t *testing.T) {
 	}{
 		{
 			name:    "empty request",
-			opts:    CreateOptions{request: "  ", maxAttempts: -1},
+			opts:    CreateOptions{request: "  "},
 			wantErr: true,
 			errMsg:  "--request",
 		},
 		{
-			name:    "max-attempts too high",
-			opts:    CreateOptions{request: "fix", maxAttempts: 25},
-			wantErr: true,
-			errMsg:  "--max-attempts",
-		},
-		{
-			name:    "max-attempts negative (not sentinel)",
-			opts:    CreateOptions{request: "fix", maxAttempts: -2},
-			wantErr: true,
-			errMsg:  "--max-attempts",
-		},
-		{
 			name:    "valid",
-			opts:    CreateOptions{request: "fix", maxAttempts: -1},
-			wantErr: false,
-		},
-		{
-			name:    "max-attempts zero",
-			opts:    CreateOptions{request: "fix", maxAttempts: 0},
+			opts:    CreateOptions{request: "fix"},
 			wantErr: false,
 		},
 		{
 			name:    "invalid output",
-			opts:    CreateOptions{request: "fix", maxAttempts: -1, output: "xml"},
+			opts:    CreateOptions{request: "fix", output: "xml"},
 			wantErr: true,
 		},
 	}
@@ -217,8 +145,7 @@ func TestCreate_InlineAnalysisAgent(t *testing.T) {
 		namespace:   "default",
 		agent:       "smart",
 		request:     "test",
-		maxAttempts: -1,
-		IOStreams:    streams,
+		IOStreams: streams,
 	}
 	if err := o.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)

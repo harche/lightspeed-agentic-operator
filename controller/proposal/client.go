@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"time"
 
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 )
 
@@ -41,7 +39,6 @@ type agentExecutionResult struct {
 	Success      bool                                  `json:"success"`
 	ActionsTaken []agenticv1alpha1.ExecutionAction      `json:"actionsTaken"`
 	Verification *agenticv1alpha1.ExecutionVerification `json:"verification,omitempty"`
-	Components   []apiextensionsv1.JSON                 `json:"components,omitempty"`
 }
 
 func executionOutputToAgentResult(exec *ExecutionOutput) *agentExecutionResult {
@@ -51,7 +48,6 @@ func executionOutputToAgentResult(exec *ExecutionOutput) *agentExecutionResult {
 	r := &agentExecutionResult{
 		Success:      exec.Success,
 		ActionsTaken: exec.ActionsTaken,
-		Components:   exec.Components,
 	}
 	if exec.Verification.Summary != "" || exec.Verification.ConditionOutcome != "" {
 		r.Verification = &exec.Verification

@@ -26,14 +26,12 @@ type executionResponse struct {
 	Success      bool                                  `json:"success"`
 	ActionsTaken []agenticv1alpha1.ExecutionAction      `json:"actionsTaken"`
 	Verification *agenticv1alpha1.ExecutionVerification `json:"verification,omitempty"`
-	Components   []apiextensionsv1.JSON                 `json:"components,omitempty"`
 }
 
 type verificationResponse struct {
-	Success    bool                         `json:"success"`
-	Checks     []agenticv1alpha1.VerifyCheck `json:"checks"`
-	Summary    string                        `json:"summary"`
-	Components []apiextensionsv1.JSON        `json:"components,omitempty"`
+	Success bool                         `json:"success"`
+	Checks  []agenticv1alpha1.VerifyCheck `json:"checks"`
+	Summary string                        `json:"summary"`
 }
 
 // SandboxAgentCaller implements AgentCaller by claiming a sandbox pod,
@@ -106,7 +104,6 @@ func (s *SandboxAgentCaller) Execute(ctx context.Context, proposal *agenticv1alp
 	out := &ExecutionOutput{
 		Success:      resp.Success,
 		ActionsTaken: resp.ActionsTaken,
-		Components:   resp.Components,
 	}
 	if resp.Verification != nil {
 		out.Verification = *resp.Verification
@@ -133,10 +130,9 @@ func (s *SandboxAgentCaller) Verify(ctx context.Context, proposal *agenticv1alph
 	}
 
 	return &VerificationOutput{
-		Success:    resp.Success,
-		Checks:     resp.Checks,
-		Summary:    resp.Summary,
-		Components: resp.Components,
+		Success: resp.Success,
+		Checks:  resp.Checks,
+		Summary: resp.Summary,
 	}, nil
 }
 
@@ -288,9 +284,7 @@ func buildAgentContext(proposal *agenticv1alpha1.Proposal) *agentContext {
 		TargetNamespaces: proposal.Spec.TargetNamespaces,
 	}
 
-	if proposal.Status.Attempts != nil {
-		ctx.Attempt = *proposal.Status.Attempts
-	}
+	ctx.Attempt = proposal.Status.Attempts
 
 	ctx.PreviousAttempts = append(ctx.PreviousAttempts, collectFailedResults(proposal.Status.Steps.Analysis.Results, "analysis")...)
 	ctx.PreviousAttempts = append(ctx.PreviousAttempts, collectFailedResults(proposal.Status.Steps.Execution.Results, "execution")...)

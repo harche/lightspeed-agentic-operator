@@ -49,7 +49,7 @@ func TestDeny_ExplicitStage(t *testing.T) {
 	if updated.Spec.Stages[0].Type != agenticv1alpha1.ApprovalStageExecution {
 		t.Errorf("expected Execution stage, got %s", updated.Spec.Stages[0].Type)
 	}
-	if !updated.Spec.Stages[0].Denied {
+	if updated.Spec.Stages[0].Decision != agenticv1alpha1.ApprovalDecisionDenied {
 		t.Error("expected stage to be denied")
 	}
 }
@@ -94,7 +94,7 @@ func TestDeny_AlreadyDenied(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalApprovalSpec{
 			Stages: []agenticv1alpha1.ApprovalStage{
-				{Type: agenticv1alpha1.ApprovalStageAnalysis, Denied: true, Analysis: &agenticv1alpha1.AnalysisApproval{}},
+				{Type: agenticv1alpha1.ApprovalStageAnalysis, Decision: agenticv1alpha1.ApprovalDecisionDenied, Analysis: &agenticv1alpha1.AnalysisApproval{}},
 			},
 		},
 	}

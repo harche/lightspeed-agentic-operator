@@ -127,7 +127,7 @@ func (o *ApproveOptions) Run(ctx context.Context) error {
 
 		for _, s := range approval.Spec.Stages {
 			if s.Type == stageType {
-				if s.Denied {
+				if s.Decision == agenticv1alpha1.ApprovalDecisionDenied {
 					return fmt.Errorf("stage %s is already denied", stageName)
 				}
 				return fmt.Errorf("stage %s is already approved", stageName)

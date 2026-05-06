@@ -23,9 +23,14 @@ func testManualPolicy() *agenticv1alpha1.ApprovalPolicy {
 }
 
 func testPolicy(analysis, execution, verification agenticv1alpha1.ApprovalMode) *agenticv1alpha1.ApprovalPolicy {
+	return testPolicyWithMaxAttempts(analysis, execution, verification, 0)
+}
+
+func testPolicyWithMaxAttempts(analysis, execution, verification agenticv1alpha1.ApprovalMode, maxAttempts int32) *agenticv1alpha1.ApprovalPolicy {
 	return &agenticv1alpha1.ApprovalPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 		Spec: agenticv1alpha1.ApprovalPolicySpec{
+			MaxAttempts: maxAttempts,
 			Stages: []agenticv1alpha1.ApprovalPolicyStage{
 				{Name: agenticv1alpha1.SandboxStepAnalysis, Approval: analysis},
 				{Name: agenticv1alpha1.SandboxStepExecution, Approval: execution},
@@ -152,7 +157,7 @@ func denyStage(t *testing.T, fc client.WithWatch, name string, stageType agentic
 		t.Fatalf("get ProposalApproval: %v", err)
 	}
 	base := approval.DeepCopy()
-	stage := agenticv1alpha1.ApprovalStage{Type: stageType, Denied: true}
+	stage := agenticv1alpha1.ApprovalStage{Type: stageType, Decision: agenticv1alpha1.ApprovalDecisionDenied}
 	switch stageType {
 	case agenticv1alpha1.ApprovalStageAnalysis:
 		stage.Analysis = &agenticv1alpha1.AnalysisApproval{}
@@ -370,10 +375,9 @@ func TestManualApproval_VerificationFails(t *testing.T) {
 
 func TestManualApproval_VerificationFailRetry(t *testing.T) {
 	proposal := testProposal()
-	maxAttempts := int32(3)
-	proposal.Spec.MaxAttempts = maxAttempts
 	agent := newTestAgentCaller()
-	r, fc := newManualReconciler(t, proposal, agent)
+	policy := testPolicyWithMaxAttempts(agenticv1alpha1.ApprovalModeManual, agenticv1alpha1.ApprovalModeManual, agenticv1alpha1.ApprovalModeManual, 3)
+	r, fc := newReconcilerWithPolicy(t, proposal, agent, policy)
 
 	// Analysis → Proposed → Executing → Verifying
 	approveAnalysis(t, fc, "fix-crash")
@@ -401,10 +405,9 @@ func TestManualApproval_VerificationFailRetry(t *testing.T) {
 
 func TestManualApproval_FullRetryExhaustion(t *testing.T) {
 	proposal := testProposal()
-	maxAttempts := int32(3)
-	proposal.Spec.MaxAttempts = maxAttempts
 	agent := newTestAgentCaller()
-	r, fc := newManualReconciler(t, proposal, agent)
+	policy := testPolicyWithMaxAttempts(agenticv1alpha1.ApprovalModeManual, agenticv1alpha1.ApprovalModeManual, agenticv1alpha1.ApprovalModeManual, 3)
+	r, fc := newReconcilerWithPolicy(t, proposal, agent, policy)
 
 	// Run through to Verifying
 	approveAnalysis(t, fc, "fix-crash")
@@ -423,7 +426,7 @@ func TestManualApproval_FullRetryExhaustion(t *testing.T) {
 	// Approve verification once — approval persists across retries
 	approveVerification(t, fc, "fix-crash")
 
-	// Retry 1: verify fails → Executing (retryCount=1)
+	// Attempt 1 (of 3): verify fails → Executing (retryCount=1)
 	reconcileOnce(r, "fix-crash")
 	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseExecuting)
 	p, _ := getProposal(r, "fix-crash")
@@ -435,7 +438,7 @@ func TestManualApproval_FullRetryExhaustion(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseVerifying)
 
-	// Retry 2: verify fails again → Executing (retryCount=2)
+	// Attempt 2 (of 3): verify fails again → Executing (retryCount=2)
 	reconcileOnce(r, "fix-crash")
 	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseExecuting)
 	p, _ = getProposal(r, "fix-crash")
@@ -447,19 +450,7 @@ func TestManualApproval_FullRetryExhaustion(t *testing.T) {
 	reconcileOnce(r, "fix-crash")
 	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseVerifying)
 
-	// Retry 3: verify fails again → Executing (retryCount=3)
-	reconcileOnce(r, "fix-crash")
-	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseExecuting)
-	p, _ = getProposal(r, "fix-crash")
-	if *p.Status.Steps.Execution.RetryCount != 3 {
-		t.Fatalf("expected retryCount=3, got %d", *p.Status.Steps.Execution.RetryCount)
-	}
-
-	// Re-execute → Verifying
-	reconcileOnce(r, "fix-crash")
-	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseVerifying)
-
-	// Verify fails → retries exhausted (retryCount=3 == maxAttempts)
+	// Attempt 3 (of 3): verify fails → retries exhausted (retryCount=2 == maxAttempts-1)
 	// → Escalating (escalation step injected)
 	reconcileOnce(r, "fix-crash")
 	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalating)
@@ -467,10 +458,9 @@ func TestManualApproval_FullRetryExhaustion(t *testing.T) {
 
 func TestManualApproval_RetryThenSucceed(t *testing.T) {
 	proposal := testProposal()
-	maxAttempts := int32(3)
-	proposal.Spec.MaxAttempts = maxAttempts
 	agent := newTestAgentCaller()
-	r, fc := newManualReconciler(t, proposal, agent)
+	policy := testPolicyWithMaxAttempts(agenticv1alpha1.ApprovalModeManual, agenticv1alpha1.ApprovalModeManual, agenticv1alpha1.ApprovalModeManual, 3)
+	r, fc := newReconcilerWithPolicy(t, proposal, agent, policy)
 
 	// Run through to Verifying
 	approveAnalysis(t, fc, "fix-crash")
@@ -631,9 +621,9 @@ func TestManualApproval_ExecutionReportsFailure(t *testing.T) {
 // Verification objective failure without maxAttempts → terminal Failed
 // ---------------------------------------------------------------------------
 
-func TestManualApproval_VerificationFailNoRetry(t *testing.T) {
+func TestManualApproval_VerificationFailDefaultOneAttempt(t *testing.T) {
 	proposal := testProposal()
-	// Default maxAttempts=0 → no retries, verification failure escalates immediately
+	// No maxAttempts on policy → defaults to 1 (one attempt, no retries)
 	agent := newTestAgentCaller()
 	agent.verifyResult = &VerificationOutput{
 		Success: false,
@@ -648,7 +638,7 @@ func TestManualApproval_VerificationFailNoRetry(t *testing.T) {
 	approveVerification(t, fc, "fix-crash")
 	reconcileOnce(r, "fix-crash")
 
-	// With 0 retries, verification failure exhausts immediately → Escalating
+	// maxAttempts=1 → 1 total attempt, no retries → escalate immediately
 	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalating)
 }
 
@@ -854,15 +844,14 @@ func approveEscalation(t *testing.T, fc client.WithWatch, name string) {
 
 func TestEscalation_ApproveAndComplete(t *testing.T) {
 	proposal := testProposal()
-	maxAttempts := int32(1)
-	proposal.Spec.MaxAttempts = maxAttempts
 	agent := newTestAgentCaller()
 	agent.verifyResult = &VerificationOutput{
 		Success: false,
 		Summary: "Pod still crashing",
 		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Result: agenticv1alpha1.CheckResultFailed}},
 	}
-	r, fc := newManualReconciler(t, proposal, agent)
+	policy := testPolicyWithMaxAttempts(agenticv1alpha1.ApprovalModeManual, agenticv1alpha1.ApprovalModeManual, agenticv1alpha1.ApprovalModeManual, 1)
+	r, fc := newReconcilerWithPolicy(t, proposal, agent, policy)
 
 	// Run through to verification failure → retry → exhaustion → Escalating
 	approveAnalysis(t, fc, "fix-crash")
@@ -870,11 +859,7 @@ func TestEscalation_ApproveAndComplete(t *testing.T) {
 	approveExecution(t, fc, "fix-crash", 0)
 	reconcileOnce(r, "fix-crash")
 	approveVerification(t, fc, "fix-crash")
-	reconcileOnce(r, "fix-crash") // verify fails, retry (retryCount=1)
-	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseExecuting)
-
-	reconcileOnce(r, "fix-crash") // re-execute → Verifying
-	reconcileOnce(r, "fix-crash") // verify fails again, retries exhausted → Escalating
+	reconcileOnce(r, "fix-crash") // verify fails, maxAttempts=1 → escalate immediately
 	assertPhase(t, r, "fix-crash", agenticv1alpha1.ProposalPhaseEscalating)
 
 	// Approve escalation
@@ -980,15 +965,14 @@ func TestEscalation_AutoApprove(t *testing.T) {
 
 func TestEscalation_InProgressIsIdempotent(t *testing.T) {
 	proposal := testProposal()
-	maxAttempts := int32(1)
-	proposal.Spec.MaxAttempts = maxAttempts
 	agent := newTestAgentCaller()
 	agent.verifyResult = &VerificationOutput{
 		Success: false,
 		Summary: "Pod still crashing",
 		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "pod-running", Result: agenticv1alpha1.CheckResultFailed}},
 	}
-	r, fc := newManualReconciler(t, proposal, agent)
+	policy := testPolicyWithMaxAttempts(agenticv1alpha1.ApprovalModeManual, agenticv1alpha1.ApprovalModeManual, agenticv1alpha1.ApprovalModeManual, 1)
+	r, fc := newReconcilerWithPolicy(t, proposal, agent, policy)
 
 	// Drive to Escalating phase
 	approveAnalysis(t, fc, "fix-crash")

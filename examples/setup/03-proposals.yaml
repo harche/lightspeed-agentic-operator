@@ -10,7 +10,6 @@ spec:
   request: "Pod api-server-xyz is crash looping in production namespace"
   targetNamespaces:
     - production
-  maxAttempts: 3
   tools:
     skills:
       - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
@@ -84,7 +83,6 @@ spec:
   request: "Fix OOM kills in the payments service"
   targetNamespaces:
     - production
-  maxAttempts: 2
   tools:
     skills:
       - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest

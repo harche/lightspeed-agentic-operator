@@ -111,14 +111,14 @@ func TestResolveProposal_PerStepTools(t *testing.T) {
 			},
 			Analysis: &agenticv1alpha1.ProposalStep{
 				Agent: "default",
-				Tools: &agenticv1alpha1.ToolsSpec{
+				Tools: agenticv1alpha1.ToolsSpec{
 					Skills: []agenticv1alpha1.SkillsSource{{Image: "analysis-specific:v1", Paths: []string{"/skills/remediation"}}},
 				},
 			},
 			Execution: &agenticv1alpha1.ProposalStep{Agent: "default"},
 			Verification: &agenticv1alpha1.ProposalStep{
 				Agent: "default",
-				Tools: &agenticv1alpha1.ToolsSpec{
+				Tools: agenticv1alpha1.ToolsSpec{
 					Skills: []agenticv1alpha1.SkillsSource{{Image: "verify-specific:v2", Paths: []string{"/skills/compliance"}}},
 				},
 			},

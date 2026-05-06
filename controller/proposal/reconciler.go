@@ -67,10 +67,9 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// --- Initialize status on first reconcile ---
-	if proposal.Status.Attempts == nil {
+	if proposal.Status.Attempts == 0 {
 		base := proposal.DeepCopy()
-		one := int32(1)
-		proposal.Status.Attempts = &one
+		proposal.Status.Attempts = 1
 		if err := r.Status().Patch(ctx, &proposal, client.MergeFrom(base)); err != nil {
 			return ctrl.Result{}, fmt.Errorf("initialize status: %w", err)
 		}
@@ -137,7 +136,7 @@ func (r *ProposalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	log.Info("reconciling", "phase", phase, "attempts", *proposal.Status.Attempts)
+	log.Info("reconciling", "phase", phase, "attempts", proposal.Status.Attempts)
 
 	// --- Phase routing ---
 	switch phase {

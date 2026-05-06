@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -65,12 +64,6 @@ type VerificationResult struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=32768
 	Summary string `json:"summary,omitempty"`
-
-	// components contains optional adapter-defined structured data.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=20
-	Components []apiextensionsv1.JSON `json:"components,omitempty"`
 
 	// sandbox tracks the sandbox pod used for this verification.
 	// +optional

@@ -22,7 +22,6 @@ spec:
     Labels: severity=critical, namespace=production, pod=api-server
   targetNamespaces:
     - production
-  maxAttempts: 3
   tools:
     skills:
       - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest

@@ -20,6 +20,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ApprovalDecision indicates whether a stage is approved or denied.
+// +kubebuilder:validation:Enum=Approved;Denied
+type ApprovalDecision string
+
+const (
+	ApprovalDecisionApproved ApprovalDecision = "Approved"
+	ApprovalDecisionDenied   ApprovalDecision = "Denied"
+)
+
 // ApprovalStageType identifies which workflow step an approval entry applies to.
 // +kubebuilder:validation:Enum=Analysis;Execution;Verification;Escalation
 type ApprovalStageType string
@@ -53,6 +62,14 @@ type ExecutionApproval struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Option *int32 `json:"option,omitempty"`
+
+	// maxAttempts is the number of execution retry attempts approved
+	// for this proposal. Must not exceed ApprovalPolicy.spec.maxAttempts.
+	// Defaults to 1 if unset.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3
+	MaxAttempts int32 `json:"maxAttempts,omitempty"`
 }
 
 // VerificationApproval contains approval parameters for the verification step.
@@ -86,10 +103,11 @@ type ApprovalStage struct {
 	// +required
 	Type ApprovalStageType `json:"type"`
 
-	// denied indicates the user has denied this step, making the entire
-	// proposal terminal. Once set to true, it cannot be unset.
+	// decision indicates whether this stage is approved or denied.
+	// Denied is terminal — the entire proposal is denied.
+	// Once set to Denied, it cannot be changed.
 	// +optional
-	Denied bool `json:"denied,omitempty"`
+	Decision ApprovalDecision `json:"decision,omitempty"`
 
 	// analysis contains approval parameters for the analysis step.
 	// Required when type is Analysis.
@@ -118,13 +136,14 @@ type ApprovalStage struct {
 // Once denied is set to true on a stage, it cannot be unset.
 //
 // +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, self.stages.exists(s, s.type == old.type))",message="stages are append-only: existing stages cannot be removed"
-// +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, !(has(old.denied) && old.denied) || self.stages.exists(s, s.type == old.type && has(s.denied) && s.denied))",message="denied cannot be unset once set to true"
-// +kubebuilder:validation:XValidation:rule="self.stages.all(s1, self.stages.all(s2, s1 == s2 || s1.type != s2.type))",message="stage types must be unique"
+// +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, !(has(old.decision) && old.decision == 'Denied') || self.stages.exists(s, s.type == old.type && has(s.decision) && s.decision == 'Denied'))",message="decision cannot be changed once set to Denied"
+// +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, old.type != 'Execution' || !has(old.execution) || !has(old.execution.maxAttempts) || old.execution.maxAttempts == 0 || self.stages.exists(s, s.type == 'Execution' && has(s.execution) && has(s.execution.maxAttempts) && s.execution.maxAttempts >= old.execution.maxAttempts))",message="execution maxAttempts cannot be reduced once set"
 type ProposalApprovalSpec struct {
 	// stages lists the approved (or denied) workflow steps. Each entry is
 	// a discriminated union keyed by type.
 	// +optional
-	// +listType=atomic
+	// +listType=map
+	// +listMapKey=type
 	// +kubebuilder:validation:MaxItems=4
 	Stages []ApprovalStage `json:"stages,omitempty"`
 }
@@ -192,7 +211,7 @@ type ProposalApproval struct {
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// +optional
+	// +required
 	Spec ProposalApprovalSpec `json:"spec,omitzero"`
 
 	// +optional

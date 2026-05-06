@@ -165,7 +165,7 @@ func (o *ListOptions) printWideTable(items []agenticv1alpha1.Proposal) {
 			row = append(row, p.Namespace)
 		}
 		row = append(row, p.Name, ColoredPhase(agenticv1alpha1.DerivePhase(p.Status.Conditions)),
-			int32PtrStr(p.Status.Attempts), targetNS, HumanDuration(p.CreationTimestamp.Time))
+			int32Str(p.Status.Attempts), targetNS, HumanDuration(p.CreationTimestamp.Time))
 		rows = append(rows, row)
 	}
 	PrintTable(o.Out, headers, rows)
