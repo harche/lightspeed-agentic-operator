@@ -27,7 +27,7 @@ func TestSelectedOption_FromAnalysisResult(t *testing.T) {
 	analysisResult := &agenticv1alpha1.AnalysisResult{}
 	analysisResult.Name = "test-analysis-1"
 	analysisResult.Namespace = "default"
-	analysisResult.Options = []agenticv1alpha1.RemediationOption{
+	analysisResult.Status.Options = []agenticv1alpha1.RemediationOption{
 		{Title: "A"},
 		{Title: "B"},
 		{Title: "C"},
@@ -127,7 +127,7 @@ func TestSelectedOption_OutOfRange(t *testing.T) {
 	analysisResult := &agenticv1alpha1.AnalysisResult{}
 	analysisResult.Name = "test-analysis-1"
 	analysisResult.Namespace = "default"
-	analysisResult.Options = []agenticv1alpha1.RemediationOption{
+	analysisResult.Status.Options = []agenticv1alpha1.RemediationOption{
 		{Title: "A"},
 		{Title: "B"},
 		{Title: "C"},

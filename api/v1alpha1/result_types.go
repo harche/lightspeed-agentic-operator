@@ -29,18 +29,6 @@ const (
 	ResultReasonFailed      = "Failed"
 )
 
-// ResultStatus is the status subresource shared by all result CRs.
-type ResultStatus struct {
-	// conditions track the lifecycle of this result.
-	// +listType=map
-	// +listMapKey=type
-	// +patchStrategy=merge
-	// +patchMergeKey=type
-	// +optional
-	// +kubebuilder:validation:MaxItems=8
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-}
-
 func (r *AnalysisResult) GetConditions() []metav1.Condition      { return r.Status.Conditions }
 func (r *AnalysisResult) SetConditions(c []metav1.Condition)      { r.Status.Conditions = c }
 func (r *ExecutionResult) GetConditions() []metav1.Condition      { return r.Status.Conditions }

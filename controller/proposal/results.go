@@ -106,18 +106,18 @@ func (r *ProposalReconciler) createAnalysisResult(
 			Labels:          resultLabels(proposal.Name, "analysis", attempt),
 			OwnerReferences: []metav1.OwnerReference{proposalOwnerRef(proposal)},
 		},
-		ProposalName:  proposal.Name,
-		Attempt:       attempt,
-		Sandbox:       sandbox,
-		FailureReason: failureReason,
-		Status: agenticv1alpha1.ResultStatus{
-			Conditions: resultConditions(startTime, completedAt, outcome),
+		ProposalName: proposal.Name,
+		Attempt:      attempt,
+		Status: agenticv1alpha1.AnalysisResultStatus{
+			Conditions:    resultConditions(startTime, completedAt, outcome),
+			Sandbox:       sandbox,
+			FailureReason: failureReason,
 		},
 	}
 
 	if result != nil {
-		cr.Options = result.Options
-		cr.Components = result.Components
+		cr.Status.Options = result.Options
+		cr.Status.Components = result.Components
 	}
 
 	return crName, createIdempotent(ctx, r.Client, cr, "AnalysisResult")
@@ -152,19 +152,19 @@ func (r *ProposalReconciler) createExecutionResult(
 			Labels:          resultLabels(proposal.Name, "execution", attempt),
 			OwnerReferences: []metav1.OwnerReference{proposalOwnerRef(proposal)},
 		},
-		ProposalName:  proposal.Name,
-		Attempt:       attempt,
-		RetryIndex:    executionRetryIndex(proposal),
-		Sandbox:       sandbox,
-		FailureReason: failureReason,
-		Status: agenticv1alpha1.ResultStatus{
-			Conditions: resultConditions(startTime, completedAt, outcome),
+		ProposalName: proposal.Name,
+		Attempt:      attempt,
+		RetryIndex:   executionRetryIndex(proposal),
+		Status: agenticv1alpha1.ExecutionResultStatus{
+			Conditions:    resultConditions(startTime, completedAt, outcome),
+			Sandbox:       sandbox,
+			FailureReason: failureReason,
 		},
 	}
 
 	if result != nil {
-		cr.ActionsTaken = result.ActionsTaken
-		cr.Verification = result.Verification
+		cr.Status.ActionsTaken = result.ActionsTaken
+		cr.Status.Verification = result.Verification
 	}
 
 	return crName, createIdempotent(ctx, r.Client, cr, "ExecutionResult")
@@ -199,19 +199,19 @@ func (r *ProposalReconciler) createVerificationResult(
 			Labels:          resultLabels(proposal.Name, "verification", attempt),
 			OwnerReferences: []metav1.OwnerReference{proposalOwnerRef(proposal)},
 		},
-		ProposalName:  proposal.Name,
-		Attempt:       attempt,
-		RetryIndex:    executionRetryIndex(proposal),
-		Sandbox:       sandbox,
-		FailureReason: failureReason,
-		Status: agenticv1alpha1.ResultStatus{
-			Conditions: resultConditions(startTime, completedAt, outcome),
+		ProposalName: proposal.Name,
+		Attempt:      attempt,
+		RetryIndex:   executionRetryIndex(proposal),
+		Status: agenticv1alpha1.VerificationResultStatus{
+			Conditions:    resultConditions(startTime, completedAt, outcome),
+			Sandbox:       sandbox,
+			FailureReason: failureReason,
 		},
 	}
 
 	if result != nil {
-		cr.Checks = result.Checks
-		cr.Summary = result.Summary
+		cr.Status.Checks = result.Checks
+		cr.Status.Summary = result.Summary
 	}
 
 	return crName, createIdempotent(ctx, r.Client, cr, "VerificationResult")
@@ -246,18 +246,18 @@ func (r *ProposalReconciler) createEscalationResult(
 			Labels:          resultLabels(proposal.Name, "escalation", attempt),
 			OwnerReferences: []metav1.OwnerReference{proposalOwnerRef(proposal)},
 		},
-		ProposalName:  proposal.Name,
-		Attempt:       attempt,
-		Sandbox:       sandbox,
-		FailureReason: failureReason,
-		Status: agenticv1alpha1.ResultStatus{
-			Conditions: resultConditions(startTime, completedAt, outcome),
+		ProposalName: proposal.Name,
+		Attempt:      attempt,
+		Status: agenticv1alpha1.EscalationResultStatus{
+			Conditions:    resultConditions(startTime, completedAt, outcome),
+			Sandbox:       sandbox,
+			FailureReason: failureReason,
 		},
 	}
 
 	if result != nil {
-		cr.Summary = result.Summary
-		cr.Content = result.Content
+		cr.Status.Summary = result.Summary
+		cr.Status.Content = result.Content
 	}
 
 	return crName, createIdempotent(ctx, r.Client, cr, "EscalationResult")

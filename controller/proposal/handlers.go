@@ -338,8 +338,8 @@ func (r *ProposalReconciler) handleVerification(
 		if err := r.Get(ctx, types.NamespacedName{Name: latestRef.Name, Namespace: proposal.Namespace}, &execCR); err == nil {
 			execOutput = &ExecutionOutput{
 				Success:      latestRef.Outcome == agenticv1alpha1.ActionOutcomeSucceeded,
-				ActionsTaken: execCR.ActionsTaken,
-				Verification: execCR.Verification,
+				ActionsTaken: execCR.Status.ActionsTaken,
+				Verification: execCR.Status.Verification,
 			}
 		}
 	}

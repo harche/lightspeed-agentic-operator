@@ -149,7 +149,7 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Analysis.Results[0].Name, Namespace: "default"}, &analysisResult); err != nil {
 		t.Fatalf("get AnalysisResult: %v", err)
 	}
-	if len(analysisResult.Options) == 0 {
+	if len(analysisResult.Status.Options) == 0 {
 		t.Fatal("analysis options not set")
 	}
 	assertResultConditions(t, analysisResult.Status.Conditions, "Succeeded")
@@ -177,7 +177,7 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Execution.Results[0].Name, Namespace: "default"}, &execResult); err != nil {
 		t.Fatalf("get ExecutionResult: %v", err)
 	}
-	if len(execResult.ActionsTaken) == 0 {
+	if len(execResult.Status.ActionsTaken) == 0 {
 		t.Fatal("execution actions not set")
 	}
 	assertResultConditions(t, execResult.Status.Conditions, "Succeeded")
@@ -199,7 +199,7 @@ func TestReconcile_HappyPath_FullLifecycle(t *testing.T) {
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Verification.Results[0].Name, Namespace: "default"}, &verifyResult); err != nil {
 		t.Fatalf("get VerificationResult: %v", err)
 	}
-	if verifyResult.Summary == "" {
+	if verifyResult.Status.Summary == "" {
 		t.Fatal("verification summary not set")
 	}
 	assertResultConditions(t, verifyResult.Status.Conditions, "Succeeded")
@@ -934,14 +934,14 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Analysis.Results[0].Name, Namespace: "default"}, &ar); err != nil {
 		t.Fatalf("get AnalysisResult: %v", err)
 	}
-	if len(ar.Options) != 1 {
-		t.Fatalf("expected 1 option, got %d", len(ar.Options))
+	if len(ar.Status.Options) != 1 {
+		t.Fatalf("expected 1 option, got %d", len(ar.Status.Options))
 	}
-	if ar.Options[0].Title != "Increase memory limit" {
-		t.Errorf("option title = %q", ar.Options[0].Title)
+	if ar.Status.Options[0].Title != "Increase memory limit" {
+		t.Errorf("option title = %q", ar.Status.Options[0].Title)
 	}
-	if ar.Options[0].Diagnosis.Confidence != "High" {
-		t.Errorf("confidence = %q", ar.Options[0].Diagnosis.Confidence)
+	if ar.Status.Options[0].Diagnosis.Confidence != "High" {
+		t.Errorf("confidence = %q", ar.Status.Options[0].Diagnosis.Confidence)
 	}
 
 	// Approve
@@ -966,14 +966,14 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Execution.Results[0].Name, Namespace: "default"}, &er); err != nil {
 		t.Fatalf("get ExecutionResult: %v", err)
 	}
-	if len(er.ActionsTaken) != 1 {
-		t.Fatalf("expected 1 action, got %d", len(er.ActionsTaken))
+	if len(er.Status.ActionsTaken) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(er.Status.ActionsTaken))
 	}
-	if er.ActionsTaken[0].Outcome != agenticv1alpha1.ActionOutcomeSucceeded {
-		t.Errorf("action outcome = %q", er.ActionsTaken[0].Outcome)
+	if er.Status.ActionsTaken[0].Outcome != agenticv1alpha1.ActionOutcomeSucceeded {
+		t.Errorf("action outcome = %q", er.Status.ActionsTaken[0].Outcome)
 	}
-	if er.Verification.ConditionOutcome != agenticv1alpha1.ConditionOutcomeImproved {
-		t.Errorf("inline verification = %q", er.Verification.ConditionOutcome)
+	if er.Status.Verification.ConditionOutcome != agenticv1alpha1.ConditionOutcomeImproved {
+		t.Errorf("inline verification = %q", er.Status.Verification.ConditionOutcome)
 	}
 
 	// Reconcile 3: Verifying → Completed (via sandbox verification)
@@ -991,14 +991,14 @@ func TestFullLifecycle_WithSandboxAgent(t *testing.T) {
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Verification.Results[0].Name, Namespace: "default"}, &vr); err != nil {
 		t.Fatalf("get VerificationResult: %v", err)
 	}
-	if vr.Summary != "All verification checks passed" {
-		t.Errorf("summary = %q", vr.Summary)
+	if vr.Status.Summary != "All verification checks passed" {
+		t.Errorf("summary = %q", vr.Status.Summary)
 	}
-	if len(vr.Checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(vr.Checks))
+	if len(vr.Status.Checks) != 1 {
+		t.Fatalf("expected 1 check, got %d", len(vr.Status.Checks))
 	}
-	if vr.Checks[0].Result != agenticv1alpha1.CheckResultPassed {
-		t.Errorf("check result = %q", vr.Checks[0].Result)
+	if vr.Status.Checks[0].Result != agenticv1alpha1.CheckResultPassed {
+		t.Errorf("check result = %q", vr.Status.Checks[0].Result)
 	}
 
 	// Verify sandbox was claimed for each phase (release is deferred to terminal phase)
@@ -1142,8 +1142,8 @@ func TestReconcile_ExecutionSelectsOption(t *testing.T) {
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Analysis.Results[0].Name, Namespace: "default"}, &ar); err != nil {
 		t.Fatalf("get AnalysisResult: %v", err)
 	}
-	if len(ar.Options) != 3 {
-		t.Fatalf("expected 3 options in AnalysisResult, got %d", len(ar.Options))
+	if len(ar.Status.Options) != 3 {
+		t.Fatalf("expected 3 options in AnalysisResult, got %d", len(ar.Status.Options))
 	}
 
 	// Approve option 1 (Option B)
@@ -1237,11 +1237,11 @@ func TestReconcile_RetryPreservesSelectedOption(t *testing.T) {
 	if err := fc.Get(context.Background(), types.NamespacedName{Name: p.Status.Steps.Analysis.Results[0].Name, Namespace: "default"}, &ar); err != nil {
 		t.Fatalf("get AnalysisResult: %v", err)
 	}
-	if len(ar.Options) != 3 {
-		t.Fatalf("expected 3 options in AnalysisResult after retry, got %d", len(ar.Options))
+	if len(ar.Status.Options) != 3 {
+		t.Fatalf("expected 3 options in AnalysisResult after retry, got %d", len(ar.Status.Options))
 	}
-	if ar.Options[2].Title != "Option C" {
-		t.Errorf("expected option[2] title %q, got %q", "Option C", ar.Options[2].Title)
+	if ar.Status.Options[2].Title != "Option C" {
+		t.Errorf("expected option[2] title %q, got %q", "Option C", ar.Status.Options[2].Title)
 	}
 
 	// Re-execute after retry — selectedOption() should still resolve
@@ -1320,7 +1320,7 @@ func TestResultCR_FailureConditions(t *testing.T) {
 	}
 
 	assertResultConditions(t, ar.Status.Conditions, "Failed")
-	if ar.FailureReason == "" {
+	if ar.Status.FailureReason == "" {
 		t.Error("expected failureReason to be set")
 	}
 }

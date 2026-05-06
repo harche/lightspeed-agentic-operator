@@ -20,6 +20,37 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// EscalationResultStatus is the status of an EscalationResult.
+type EscalationResultStatus struct {
+	// conditions track the lifecycle of this result.
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+
+	// summary is a Markdown-formatted escalation summary.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32768
+	Summary string `json:"summary,omitempty"`
+
+	// content is freeform escalation content produced by the agent.
+	// +optional
+	// +kubebuilder:validation:MaxLength=65536
+	Content string `json:"content,omitempty"`
+
+	// sandbox tracks the sandbox pod used for this escalation.
+	// +optional
+	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+
+	// failureReason is populated when the step failed due to a system error.
+	// +optional
+	// +kubebuilder:validation:MaxLength=8192
+	FailureReason string `json:"failureReason,omitempty"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:subresource:status
@@ -48,28 +79,9 @@ type EscalationResult struct {
 	// +kubebuilder:validation:Minimum=1
 	Attempt int32 `json:"attempt"`
 
-	// summary is a Markdown-formatted escalation summary.
+	// status contains result data and conditions.
 	// +optional
-	// +kubebuilder:validation:MaxLength=32768
-	Summary string `json:"summary,omitempty"`
-
-	// content is freeform escalation content produced by the agent.
-	// +optional
-	// +kubebuilder:validation:MaxLength=65536
-	Content string `json:"content,omitempty"`
-
-	// sandbox tracks the sandbox pod used for this escalation.
-	// +optional
-	Sandbox SandboxInfo `json:"sandbox,omitzero"`
-
-	// failureReason is populated when the step failed due to a system error.
-	// +optional
-	// +kubebuilder:validation:MaxLength=8192
-	FailureReason string `json:"failureReason,omitempty"`
-
-	// status contains conditions tracking the result lifecycle.
-	// +optional
-	Status ResultStatus `json:"status,omitempty"`
+	Status EscalationResultStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -20,6 +20,38 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ExecutionResultStatus is the status of an ExecutionResult.
+type ExecutionResultStatus struct {
+	// conditions track the lifecycle of this result.
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+
+	// actionsTaken lists what the agent did.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=100
+	ActionsTaken []ExecutionAction `json:"actionsTaken,omitempty"`
+
+	// verification is the lightweight inline verification the execution
+	// agent performs immediately after completing its actions.
+	// +optional
+	Verification ExecutionVerification `json:"verification,omitzero"`
+
+	// sandbox tracks the sandbox pod used for this execution.
+	// +optional
+	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+
+	// failureReason is populated when the step failed due to a system error.
+	// +optional
+	// +kubebuilder:validation:MaxLength=8192
+	FailureReason string `json:"failureReason,omitempty"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:subresource:status
@@ -55,29 +87,9 @@ type ExecutionResult struct {
 	// +kubebuilder:validation:Minimum=0
 	RetryIndex int32 `json:"retryIndex"`
 
-	// actionsTaken lists what the agent did.
+	// status contains result data and conditions.
 	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=100
-	ActionsTaken []ExecutionAction `json:"actionsTaken,omitempty"`
-
-	// verification is the lightweight inline verification the execution
-	// agent performs immediately after completing its actions.
-	// +optional
-	Verification ExecutionVerification `json:"verification,omitzero"`
-
-	// sandbox tracks the sandbox pod used for this execution.
-	// +optional
-	Sandbox SandboxInfo `json:"sandbox,omitzero"`
-
-	// failureReason is populated when the step failed due to a system error.
-	// +optional
-	// +kubebuilder:validation:MaxLength=8192
-	FailureReason string `json:"failureReason,omitempty"`
-
-	// status contains conditions tracking the result lifecycle.
-	// +optional
-	Status ResultStatus `json:"status,omitempty"`
+	Status ExecutionResultStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

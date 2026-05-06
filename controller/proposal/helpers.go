@@ -140,11 +140,11 @@ func (r *ProposalReconciler) selectedOption(ctx context.Context, proposal *agent
 		return nil, fmt.Errorf("get AnalysisResult %s: %w", latestRef.Name, err)
 	}
 	idx := int(*analysis.SelectedOption)
-	if idx < 0 || idx >= len(result.Options) {
-		r.Log.Info("selectedOption index out of range", "index", idx, "options", len(result.Options), "proposal", proposal.Name)
+	if idx < 0 || idx >= len(result.Status.Options) {
+		r.Log.Info("selectedOption index out of range", "index", idx, "options", len(result.Status.Options), "proposal", proposal.Name)
 		return nil, nil
 	}
-	return &result.Options[idx], nil
+	return &result.Status.Options[idx], nil
 }
 
 func resetExecutionAndVerification(steps *agenticv1alpha1.StepsStatus) {

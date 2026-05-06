@@ -20,6 +20,38 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// VerificationResultStatus is the status of a VerificationResult.
+type VerificationResultStatus struct {
+	// conditions track the lifecycle of this result.
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+
+	// checks contains individual verification check results.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=50
+	Checks []VerifyCheck `json:"checks,omitempty"`
+
+	// summary is a Markdown-formatted verification summary.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32768
+	Summary string `json:"summary,omitempty"`
+
+	// sandbox tracks the sandbox pod used for this verification.
+	// +optional
+	Sandbox SandboxInfo `json:"sandbox,omitzero"`
+
+	// failureReason is populated when the step failed due to a system error.
+	// +optional
+	// +kubebuilder:validation:MaxLength=8192
+	FailureReason string `json:"failureReason,omitempty"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:subresource:status
@@ -54,29 +86,9 @@ type VerificationResult struct {
 	// +kubebuilder:validation:Minimum=0
 	RetryIndex int32 `json:"retryIndex"`
 
-	// checks contains individual verification check results.
+	// status contains result data and conditions.
 	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=50
-	Checks []VerifyCheck `json:"checks,omitempty"`
-
-	// summary is a Markdown-formatted verification summary.
-	// +optional
-	// +kubebuilder:validation:MaxLength=32768
-	Summary string `json:"summary,omitempty"`
-
-	// sandbox tracks the sandbox pod used for this verification.
-	// +optional
-	Sandbox SandboxInfo `json:"sandbox,omitzero"`
-
-	// failureReason is populated when the step failed due to a system error.
-	// +optional
-	// +kubebuilder:validation:MaxLength=8192
-	FailureReason string `json:"failureReason,omitempty"`
-
-	// status contains conditions tracking the result lifecycle.
-	// +optional
-	Status ResultStatus `json:"status,omitempty"`
+	Status VerificationResultStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
