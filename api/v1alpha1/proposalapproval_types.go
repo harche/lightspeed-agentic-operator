@@ -150,7 +150,6 @@ type ApprovalStage struct {
 // +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, self.stages.exists(s, s.type == old.type))",message="stages are append-only: existing stages cannot be removed"
 // +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, !(has(old.decision) && old.decision == 'Denied') || self.stages.exists(s, s.type == old.type && has(s.decision) && s.decision == 'Denied'))",message="decision cannot be changed once set to Denied"
 // +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, old.type != 'Execution' || !has(old.execution) || !has(old.execution.maxAttempts) || old.execution.maxAttempts == 0 || self.stages.exists(s, s.type == 'Execution' && has(s.execution) && has(s.execution.maxAttempts) && s.execution.maxAttempts >= old.execution.maxAttempts))",message="execution maxAttempts cannot be reduced once set"
-// +kubebuilder:validation:MinProperties=1
 type ProposalApprovalSpec struct {
 	// stages lists the approved (or denied) workflow steps. Each entry is
 	// a discriminated union keyed by type.
@@ -233,7 +232,7 @@ type ProposalApproval struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired approval state.
-	// +required
+	// +optional
 	Spec ProposalApprovalSpec `json:"spec,omitzero"`
 
 	// status defines the observed approval state.

@@ -26,7 +26,10 @@ spec:
     requiredSecrets:
       - name: github-token
         description: "GitHub API token for repository access"
-        mountAs: GH_TOKEN
+        mountAs:
+          type: EnvVar
+          envVar:
+            name: GH_TOKEN
   analysis:
     agent: smart
   verification:

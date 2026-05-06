@@ -29,7 +29,8 @@ spec:
       - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
   analysis:
     agent: smart
-  execution: {}
+  execution:
+    agent: default
   verification:
     agent: fast
 ---

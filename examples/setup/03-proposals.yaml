@@ -16,10 +16,14 @@ spec:
     requiredSecrets:
       - name: github-token
         description: "GitHub API token for repository access"
-        mountAs: GH_TOKEN
+        mountAs:
+          type: EnvVar
+          envVar:
+            name: GH_TOKEN
   analysis:
     agent: smart
-  execution: {}
+  execution:
+    agent: default
   verification:
     agent: fast
 ---
@@ -88,7 +92,10 @@ spec:
       - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
     requiredSecrets:
       - name: github-token
-        mountAs: GH_TOKEN
+        mountAs:
+          type: EnvVar
+          envVar:
+            name: GH_TOKEN
   analysis:
     agent: smart
   execution:

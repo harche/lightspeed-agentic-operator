@@ -33,10 +33,14 @@ spec:
     requiredSecrets:
       - name: acs-api-token
         description: "ACS Central API token for querying violations"
-        mountAs: ACS_API_TOKEN
+        mountAs:
+          type: EnvVar
+          envVar:
+            name: ACS_API_TOKEN
   analysis:
     agent: smart
-  execution: {}
+  execution:
+    agent: default
   verification:
     agent: fast
 ---
@@ -63,7 +67,10 @@ spec:
     requiredSecrets:
       - name: acs-api-token
         description: "ACS Central API token for querying violations"
-        mountAs: ACS_API_TOKEN
+        mountAs:
+          type: EnvVar
+          envVar:
+            name: ACS_API_TOKEN
   analysis:
     agent: smart
   verification:
@@ -90,7 +97,10 @@ spec:
       - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
     requiredSecrets:
       - name: acs-api-token
-        mountAs: ACS_API_TOKEN
+        mountAs:
+          type: EnvVar
+          envVar:
+            name: ACS_API_TOKEN
   analysis:
     agent: smart
 ---
@@ -109,14 +119,18 @@ spec:
   tools:
     requiredSecrets:
       - name: acs-api-token
-        mountAs: ACS_API_TOKEN
+        mountAs:
+          type: EnvVar
+          envVar:
+            name: ACS_API_TOKEN
   analysis:
     agent: smart
     tools:
       skills:
         - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/lightspeed-skills:latest
           paths: [/skills/acs-remediation, /skills/acs-compliance]
-  execution: {}
+  execution:
+    agent: default
   verification:
     agent: fast
     tools:
