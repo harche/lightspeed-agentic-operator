@@ -627,6 +627,11 @@ func (in *ExecutionResult) DeepCopyInto(out *ExecutionResult) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	if in.RetryIndex != nil {
+		in, out := &in.RetryIndex, &out.RetryIndex
+		*out = new(int32)
+		**out = **in
+	}
 	in.Status.DeepCopyInto(&out.Status)
 }
 
@@ -1525,6 +1530,11 @@ func (in *VerificationResult) DeepCopyInto(out *VerificationResult) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	if in.RetryIndex != nil {
+		in, out := &in.RetryIndex, &out.RetryIndex
+		*out = new(int32)
+		**out = **in
+	}
 	in.Status.DeepCopyInto(&out.Status)
 }
 

@@ -44,8 +44,9 @@ const (
 //
 // +kubebuilder:validation:MinProperties=1
 type AnalysisApproval struct {
-	// agent overrides the Agent CR for this step, enabling cost control.
+	// agent is the Agent CR for this step. Defaults to "default".
 	// +optional
+	// +default="default"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="must be a valid DNS subdomain: lowercase alphanumeric characters, hyphens, and dots"
@@ -56,8 +57,9 @@ type AnalysisApproval struct {
 //
 // +kubebuilder:validation:MinProperties=1
 type ExecutionApproval struct {
-	// agent overrides the Agent CR for this step, enabling cost control.
+	// agent is the Agent CR for this step. Defaults to "default".
 	// +optional
+	// +default="default"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="must be a valid DNS subdomain: lowercase alphanumeric characters, hyphens, and dots"
@@ -82,8 +84,9 @@ type ExecutionApproval struct {
 //
 // +kubebuilder:validation:MinProperties=1
 type VerificationApproval struct {
-	// agent overrides the Agent CR for this step, enabling cost control.
+	// agent is the Agent CR for this step. Defaults to "default".
 	// +optional
+	// +default="default"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="must be a valid DNS subdomain: lowercase alphanumeric characters, hyphens, and dots"
@@ -94,8 +97,9 @@ type VerificationApproval struct {
 //
 // +kubebuilder:validation:MinProperties=1
 type EscalationApproval struct {
-	// agent overrides the Agent CR for this step, enabling cost control.
+	// agent is the Agent CR for this step. Defaults to "default".
 	// +optional
+	// +default="default"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="must be a valid DNS subdomain: lowercase alphanumeric characters, hyphens, and dots"
@@ -150,9 +154,11 @@ type ApprovalStage struct {
 // +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, self.stages.exists(s, s.type == old.type))",message="stages are append-only: existing stages cannot be removed"
 // +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, !(has(old.decision) && old.decision == 'Denied') || self.stages.exists(s, s.type == old.type && has(s.decision) && s.decision == 'Denied'))",message="decision cannot be changed once set to Denied"
 // +kubebuilder:validation:XValidation:rule="oldSelf.stages.all(old, old.type != 'Execution' || !has(old.execution) || !has(old.execution.maxAttempts) || old.execution.maxAttempts == 0 || self.stages.exists(s, s.type == 'Execution' && has(s.execution) && has(s.execution.maxAttempts) && s.execution.maxAttempts >= old.execution.maxAttempts))",message="execution maxAttempts cannot be reduced once set"
+// +kubebuilder:validation:MinProperties=1
 type ProposalApprovalSpec struct {
 	// stages lists the approved (or denied) workflow steps. Each entry is
-	// a discriminated union keyed by type.
+	// a discriminated union keyed by type. Users add stages one at a time
+	// via patch as they approve each step.
 	// +optional
 	// +listType=map
 	// +listMapKey=type

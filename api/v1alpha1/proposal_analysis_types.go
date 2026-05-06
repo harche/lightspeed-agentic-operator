@@ -173,7 +173,7 @@ type VerificationStep struct {
 	Command string `json:"command,omitempty"`
 	// expected is the expected output or condition
 	// (e.g., "Running", "ready=true"). Maximum 1024 characters.
-	// +required
+	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=1024
 	Expected string `json:"expected,omitempty"`

@@ -163,7 +163,7 @@ var VerificationOutputSchema = json.RawMessage(`{
         "type": "object",
         "properties": {
           "name": { "type": "string", "description": "Check identifier matching the analysis verification plan (e.g., 'pod-running')" },
-          "source": { "type": "string", "description": "What performed the check (e.g., 'oc', 'promql', 'curl')" },
+          "source": { "type": "string", "description": "The full command that was run (e.g., 'oc get pod -n production -o jsonpath={.status.phase}', 'promql: rate(container_cpu_usage_seconds_total[5m])')" },
           "value": { "type": "string", "description": "Actual observed value (e.g., 'Running', '3 replicas')" },
           "result": { "type": "string", "enum": ["Passed", "Failed"], "description": "Whether the observed value matches expectations" }
         },

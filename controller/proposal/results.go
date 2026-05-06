@@ -154,7 +154,7 @@ func (r *ProposalReconciler) createExecutionResult(
 		},
 		ProposalName: proposal.Name,
 		Attempt:      attempt,
-		RetryIndex:   executionRetryIndex(proposal),
+		RetryIndex:   ptr.To(executionRetryIndex(proposal)),
 		Status: agenticv1alpha1.ExecutionResultStatus{
 			Conditions:    resultConditions(startTime, completedAt, outcome),
 			Sandbox:       sandbox,
@@ -201,7 +201,7 @@ func (r *ProposalReconciler) createVerificationResult(
 		},
 		ProposalName: proposal.Name,
 		Attempt:      attempt,
-		RetryIndex:   executionRetryIndex(proposal),
+		RetryIndex:   ptr.To(executionRetryIndex(proposal)),
 		Status: agenticv1alpha1.VerificationResultStatus{
 			Conditions:    resultConditions(startTime, completedAt, outcome),
 			Sandbox:       sandbox,
@@ -269,12 +269,15 @@ type statusHolder interface {
 	SetConditions([]metav1.Condition)
 }
 
-// createIdempotent creates obj then patches its status conditions. On
-// AlreadyExists the CR is assumed to already have its conditions from
-// the original create — conditions are not re-applied.
-func createIdempotent(ctx context.Context, c client.Client, obj statusHolder, kind string) error {
-	conditions := obj.GetConditions()
-	obj.SetConditions(nil)
+// createIdempotent creates obj then patches its full status. The Create
+// call writes identity fields (proposalName, attempt, etc.) but the API
+// server ignores .status on Create (status subresource). A follow-up
+// Status().Patch writes the complete status including result data and
+// conditions. On AlreadyExists the CR is assumed to already have its
+// status from the original create.
+func createIdempotent(ctx context.Context, c client.Client, obj client.Object, kind string) error {
+	// Save full object with status before Create strips it.
+	withStatus := obj.DeepCopyObject().(client.Object)
 
 	if err := c.Create(ctx, obj); err != nil {
 		if apierrors.IsAlreadyExists(err) {
@@ -283,12 +286,11 @@ func createIdempotent(ctx context.Context, c client.Client, obj statusHolder, ki
 		return fmt.Errorf("create %s %s: %w", kind, obj.GetName(), err)
 	}
 
-	if len(conditions) > 0 {
-		base := obj.DeepCopyObject().(client.Object)
-		obj.SetConditions(conditions)
-		if err := c.Status().Patch(ctx, obj, client.MergeFrom(base)); err != nil {
-			return fmt.Errorf("patch %s %s status: %w", kind, obj.GetName(), err)
-		}
+	// After Create, obj has ResourceVersion but status is stripped.
+	// Use the saved copy (with full status) for the status patch.
+	withStatus.SetResourceVersion(obj.GetResourceVersion())
+	if err := c.Status().Patch(ctx, withStatus, client.MergeFrom(obj)); err != nil {
+		return fmt.Errorf("patch %s %s status: %w", kind, obj.GetName(), err)
 	}
 	return nil
 }

@@ -92,7 +92,7 @@ type ExecutionResult struct {
 	// +required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=10
-	RetryIndex int32 `json:"retryIndex,omitempty"`
+	RetryIndex *int32 `json:"retryIndex,omitempty"`
 
 	// status contains result data and conditions.
 	// +optional
