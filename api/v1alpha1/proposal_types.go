@@ -188,18 +188,24 @@ const (
 // ProposalStep defines per-step configuration on a Proposal. The agent
 // field selects which cluster-scoped Agent CR handles this step. The
 // tools field provides per-step tools that replace the shared spec.tools.
+// +kubebuilder:validation:MinProperties=1
 type ProposalStep struct {
 	// agent is the name of the cluster-scoped Agent CR to use for this step.
 	// Defaults to "default" when omitted.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="must be a valid DNS subdomain: lowercase alphanumeric characters, hyphens, and dots"
 	Agent string `json:"agent,omitempty"`
 
 	// tools provides per-step tools that replace the shared spec.tools
 	// for this step. Use this when different steps need different skills.
 	// +optional
 	Tools ToolsSpec `json:"tools,omitzero"`
+}
+
+func (s ProposalStep) IsZero() bool {
+	return s.Agent == "" && s.Tools.IsZero()
 }
 
 // ProposalSpec defines the desired state of Proposal.
@@ -264,21 +270,21 @@ type ProposalSpec struct {
 	//
 	// Immutable: agent and per-step tools are fixed at creation.
 	// +required
-	Analysis *ProposalStep `json:"analysis,omitempty"`
+	Analysis ProposalStep `json:"analysis,omitzero"`
 
 	// execution defines per-step configuration for the execution step.
 	// Omit to skip execution (advisory/assisted patterns).
 	//
 	// Immutable: agent and per-step tools are fixed at creation.
 	// +optional
-	Execution *ProposalStep `json:"execution,omitempty"`
+	Execution ProposalStep `json:"execution,omitzero"`
 
 	// verification defines per-step configuration for the verification step.
 	// Omit to skip verification.
 	//
 	// Immutable: agent and per-step tools are fixed at creation.
 	// +optional
-	Verification *ProposalStep `json:"verification,omitempty"`
+	Verification ProposalStep `json:"verification,omitzero"`
 
 	// revisionFeedback is the user's free-text feedback requesting changes
 	// to the analysis. Patching this field bumps metadata.generation, which

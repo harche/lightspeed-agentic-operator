@@ -200,13 +200,13 @@ func (o *ApproveOptions) pendingStages(p *agenticv1alpha1.Proposal, approval *ag
 	}
 
 	var pending []string
-	if p.Spec.Analysis != nil && !approved[agenticv1alpha1.ApprovalStageAnalysis] {
+	if !p.Spec.Analysis.IsZero() && !approved[agenticv1alpha1.ApprovalStageAnalysis] {
 		pending = append(pending, "analysis")
 	}
-	if p.Spec.Execution != nil && !approved[agenticv1alpha1.ApprovalStageExecution] {
+	if !p.Spec.Execution.IsZero() && !approved[agenticv1alpha1.ApprovalStageExecution] {
 		pending = append(pending, "execution")
 	}
-	if p.Spec.Verification != nil && !approved[agenticv1alpha1.ApprovalStageVerification] {
+	if !p.Spec.Verification.IsZero() && !approved[agenticv1alpha1.ApprovalStageVerification] {
 		pending = append(pending, "verification")
 	}
 	return pending

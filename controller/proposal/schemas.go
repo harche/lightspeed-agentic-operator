@@ -43,7 +43,15 @@ var AnalysisOutputSchema = json.RawMessage(`{
               },
               "risk": { "type": "string", "enum": ["Low", "Medium", "High", "Critical"] },
               "reversible": { "type": "string", "enum": ["Reversible", "Irreversible", "Partial"] },
-              "estimatedImpact": { "type": "string" }
+              "estimatedImpact": { "type": "string" },
+              "rollbackPlan": {
+                "type": "object",
+                "properties": {
+                  "description": { "type": "string" },
+                  "command": { "type": "string" }
+                },
+                "required": ["description", "command"]
+              }
             },
             "required": ["description", "actions", "risk", "reversible"]
           },
@@ -61,13 +69,6 @@ var AnalysisOutputSchema = json.RawMessage(`{
                     "expected": { "type": "string" },
                     "type": { "type": "string" }
                   }
-                }
-              },
-              "rollbackPlan": {
-                "type": "object",
-                "properties": {
-                  "description": { "type": "string" },
-                  "command": { "type": "string" }
                 }
               }
             }

@@ -87,7 +87,7 @@ func (o *CreateOptions) Run(ctx context.Context) error {
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:          o.request,
 			TargetNamespaces: o.targetNamespaces,
-			Analysis: &agenticv1alpha1.ProposalStep{
+			Analysis: agenticv1alpha1.ProposalStep{
 				Agent: o.agent,
 			},
 		},

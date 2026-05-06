@@ -155,7 +155,7 @@ func TestCreate_InlineAnalysisAgent(t *testing.T) {
 	if err := fc.List(context.Background(), list); err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if list.Items[0].Spec.Analysis == nil || list.Items[0].Spec.Analysis.Agent != "smart" {
+	if list.Items[0].Spec.Analysis.IsZero() || list.Items[0].Spec.Analysis.Agent != "smart" {
 		t.Errorf("expected analysis agent 'smart', got %v", list.Items[0].Spec.Analysis)
 	}
 }

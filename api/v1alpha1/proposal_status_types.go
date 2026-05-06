@@ -172,6 +172,8 @@ type StepResultRef struct {
 }
 
 // AnalysisStepStatus is the observed state of the analysis step.
+//
+// +kubebuilder:validation:MinProperties=1
 type AnalysisStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -205,6 +207,8 @@ type AnalysisStepStatus struct {
 }
 
 // ExecutionStepStatus is the observed state of the execution step.
+//
+// +kubebuilder:validation:MinProperties=1
 type ExecutionStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -234,6 +238,8 @@ type ExecutionStepStatus struct {
 }
 
 // VerificationStepStatus is the observed state of the verification step.
+//
+// +kubebuilder:validation:MinProperties=1
 type VerificationStepStatus struct {
 	// conditions for this step.
 	// +listType=map
@@ -258,6 +264,8 @@ type VerificationStepStatus struct {
 // EscalationStepStatus is the observed state of the escalation step.
 // The operator injects this step when retries are exhausted; it is not
 // declared in the Proposal spec.
+//
+// +kubebuilder:validation:MinProperties=1
 type EscalationStepStatus struct {
 	// conditions for this step.
 	// +listType=map

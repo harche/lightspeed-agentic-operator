@@ -133,8 +133,8 @@ func TestApprove_ExecutionWithAgent(t *testing.T) {
 func TestApprove_AllStages(t *testing.T) {
 	streams, out, _ := fakeStreams()
 	p := testProposal("fix-crash", "default")
-	p.Spec.Execution = &agenticv1alpha1.ProposalStep{Agent: "default"}
-	p.Spec.Verification = &agenticv1alpha1.ProposalStep{Agent: "default"}
+	p.Spec.Execution = agenticv1alpha1.ProposalStep{Agent: "default"}
+	p.Spec.Verification = agenticv1alpha1.ProposalStep{Agent: "default"}
 	approval := &agenticv1alpha1.ProposalApproval{
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
 	}

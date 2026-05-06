@@ -28,7 +28,7 @@ func testProposal(name, namespace string) *agenticv1alpha1.Proposal {
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:          "Pod crashing in production",
 			TargetNamespaces: []string{"production"},
-			Analysis:         &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Analysis:         agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 	}
 }

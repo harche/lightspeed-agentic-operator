@@ -22,6 +22,8 @@ import (
 
 // AgentTimeouts configures per-step and per-turn timeout limits.
 // All values are in seconds.
+//
+// +kubebuilder:validation:MinProperties=1
 type AgentTimeouts struct {
 	// analysisSeconds is the timeout for the analysis step in seconds.
 	// +optional
@@ -57,6 +59,9 @@ type AgentSpec struct {
 
 	// model is the LLM model identifier as recognized by the provider
 	// (e.g., "claude-opus-4-6", "claude-haiku-4-5", "gpt-4o").
+	// Must start with an alphanumeric character and may contain
+	// alphanumerics, dots, hyphens, underscores, slashes, colons,
+	// and at-signs. Maximum 256 characters.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=256
@@ -64,11 +69,14 @@ type AgentSpec struct {
 	Model string `json:"model,omitempty"`
 
 	// timeouts configures per-step and per-turn timeout limits.
+	// When omitted, the agent sandbox uses its built-in defaults.
 	// +optional
 	Timeouts AgentTimeouts `json:"timeouts,omitzero"`
 
 	// maxTurns is the maximum number of tool-use turns the agent may take
 	// in a single step invocation. Prevents runaway loops.
+	// When omitted, the agent sandbox uses its built-in default.
+	// Minimum 1, maximum 500.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=500

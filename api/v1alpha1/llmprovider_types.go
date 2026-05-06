@@ -61,10 +61,14 @@ type AnthropicConfig struct {
 	// Only needed for custom deployments or API proxies.
 	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
 	// parameters are allowed. Fragments and userinfo are not permitted.
+	// Maximum 2048 characters.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="url must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="must use http or https scheme"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getHostname() != ''",message="must include a hostname"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('@')",message="userinfo is not allowed in URL"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('#')",message="fragments are not allowed in URL"
 	URL string `json:"url,omitempty"`
 }
 
@@ -87,8 +91,9 @@ type GoogleCloudVertexConfig struct {
 	ProjectID string `json:"projectID,omitempty"`
 
 	// region is the GCP region for the Vertex AI endpoint.
-	// Must contain only lowercase letters, digits, and hyphens
-	// (e.g., "us-central1", "europe-west4", "asia-southeast1").
+	// Must begin with a lowercase letter and end with a lowercase
+	// alphanumeric character. May contain lowercase letters, digits,
+	// and hyphens (e.g., "us-central1", "europe-west4", "asia-southeast1").
 	// +required
 	// +kubebuilder:validation:MinLength=2
 	// +kubebuilder:validation:MaxLength=63
@@ -99,10 +104,14 @@ type GoogleCloudVertexConfig struct {
 	// Only needed for custom deployments or API proxies.
 	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
 	// parameters are allowed. Fragments and userinfo are not permitted.
+	// Maximum 2048 characters.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="url must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="must use http or https scheme"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getHostname() != ''",message="must include a hostname"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('@')",message="userinfo is not allowed in URL"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('#')",message="fragments are not allowed in URL"
 	URL string `json:"url,omitempty"`
 }
 
@@ -118,10 +127,14 @@ type OpenAIConfig struct {
 	// Only needed for custom deployments or API proxies.
 	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
 	// parameters are allowed. Fragments and userinfo are not permitted.
+	// Maximum 2048 characters.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="url must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="must use http or https scheme"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getHostname() != ''",message="must include a hostname"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('@')",message="userinfo is not allowed in URL"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('#')",message="fragments are not allowed in URL"
 	URL string `json:"url,omitempty"`
 }
 
@@ -137,10 +150,14 @@ type AzureOpenAIConfig struct {
 	// (e.g., "https://my-resource.openai.azure.com").
 	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
 	// parameters are allowed. Fragments and userinfo are not permitted.
+	// Maximum 2048 characters.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="endpoint must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="must use http or https scheme"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getHostname() != ''",message="must include a hostname"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('@')",message="userinfo is not allowed in URL"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('#')",message="fragments are not allowed in URL"
 	Endpoint string `json:"endpoint,omitempty"`
 
 	// apiVersion is the Azure OpenAI API version. Azure API versions use
@@ -157,10 +174,14 @@ type AzureOpenAIConfig struct {
 	// from the required 'endpoint' field which identifies the Azure resource.
 	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
 	// parameters are allowed. Fragments and userinfo are not permitted.
+	// Maximum 2048 characters.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="url must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="must use http or https scheme"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getHostname() != ''",message="must include a hostname"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('@')",message="userinfo is not allowed in URL"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('#')",message="fragments are not allowed in URL"
 	URL string `json:"url,omitempty"`
 }
 
@@ -173,8 +194,9 @@ type AWSBedrockConfig struct {
 	CredentialsSecret SecretReference `json:"credentialsSecret,omitzero"`
 
 	// region is the AWS region for the Bedrock endpoint.
-	// Must contain only lowercase letters, digits, and hyphens
-	// (e.g., "us-east-1", "eu-west-2", "ap-southeast-1").
+	// Must begin with a lowercase letter and end with a lowercase
+	// alphanumeric character. May contain lowercase letters, digits,
+	// and hyphens (e.g., "us-east-1", "eu-west-2", "ap-southeast-1").
 	// +required
 	// +kubebuilder:validation:MinLength=2
 	// +kubebuilder:validation:MaxLength=63
@@ -185,10 +207,14 @@ type AWSBedrockConfig struct {
 	// Only needed for custom deployments or API proxies.
 	// Must be a valid HTTP or HTTPS URL with a hostname. Paths and query
 	// parameters are allowed. Fragments and userinfo are not permitted.
+	// Maximum 2048 characters.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https'] && url(self).getHostname() != '' && !self.contains('@') && !self.contains('#')",message="url must be a valid HTTP or HTTPS URL with a hostname; fragments and userinfo are not allowed"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() in ['http', 'https']",message="must use http or https scheme"
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getHostname() != ''",message="must include a hostname"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('@')",message="userinfo is not allowed in URL"
+	// +kubebuilder:validation:XValidation:rule="!self.contains('#')",message="fragments are not allowed in URL"
 	URL string `json:"url,omitempty"`
 }
 

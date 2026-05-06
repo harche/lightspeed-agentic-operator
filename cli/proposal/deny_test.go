@@ -57,7 +57,7 @@ func TestDeny_ExplicitStage(t *testing.T) {
 func TestDeny_NextPendingStage(t *testing.T) {
 	streams, out, _ := fakeStreams()
 	p := testProposal("fix-crash", "default")
-	p.Spec.Execution = &agenticv1alpha1.ProposalStep{Agent: "default"}
+	p.Spec.Execution = agenticv1alpha1.ProposalStep{Agent: "default"}
 	// Analysis already approved, so next pending is execution
 	approval := &agenticv1alpha1.ProposalApproval{
 		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},

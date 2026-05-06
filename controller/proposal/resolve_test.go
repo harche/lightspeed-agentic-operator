@@ -21,7 +21,7 @@ func TestResolveProposal_Inline_AnalysisOnly(t *testing.T) {
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request: "investigate this",
 			Tools:   agenticv1alpha1.ToolsSpec{Skills: []agenticv1alpha1.SkillsSource{{Image: "s:v1"}}},
-			Analysis: &agenticv1alpha1.ProposalStep{
+			Analysis: agenticv1alpha1.ProposalStep{
 				Agent: "smart",
 			},
 		},
@@ -51,9 +51,9 @@ func TestResolveProposal_Inline_WithExecAndVerify(t *testing.T) {
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:      "full inline",
 			Tools:        agenticv1alpha1.ToolsSpec{Skills: []agenticv1alpha1.SkillsSource{{Image: "s:v1"}}},
-			Analysis:     &agenticv1alpha1.ProposalStep{Agent: "smart"},
-			Execution:    &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Verification: &agenticv1alpha1.ProposalStep{Agent: "fast"},
+			Analysis:     agenticv1alpha1.ProposalStep{Agent: "smart"},
+			Execution:    agenticv1alpha1.ProposalStep{Agent: "default"},
+			Verification: agenticv1alpha1.ProposalStep{Agent: "fast"},
 		},
 	}
 	smart := &agenticv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "smart"}, Spec: agenticv1alpha1.AgentSpec{LLMProvider: agenticv1alpha1.LLMProviderReference{Name: "opus"}}}
@@ -86,7 +86,7 @@ func TestResolveProposal_Inline_DefaultAgent(t *testing.T) {
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:  "no agent specified",
 			Tools:    agenticv1alpha1.ToolsSpec{Skills: []agenticv1alpha1.SkillsSource{{Image: "s:v1"}}},
-			Analysis: &agenticv1alpha1.ProposalStep{},
+			Analysis: agenticv1alpha1.ProposalStep{},
 		},
 	}
 
@@ -109,14 +109,14 @@ func TestResolveProposal_PerStepTools(t *testing.T) {
 			Tools: agenticv1alpha1.ToolsSpec{
 				Skills: []agenticv1alpha1.SkillsSource{{Image: "shared:latest"}},
 			},
-			Analysis: &agenticv1alpha1.ProposalStep{
+			Analysis: agenticv1alpha1.ProposalStep{
 				Agent: "default",
 				Tools: agenticv1alpha1.ToolsSpec{
 					Skills: []agenticv1alpha1.SkillsSource{{Image: "analysis-specific:v1", Paths: []string{"/skills/remediation"}}},
 				},
 			},
-			Execution: &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Verification: &agenticv1alpha1.ProposalStep{
+			Execution: agenticv1alpha1.ProposalStep{Agent: "default"},
+			Verification: agenticv1alpha1.ProposalStep{
 				Agent: "default",
 				Tools: agenticv1alpha1.ToolsSpec{
 					Skills: []agenticv1alpha1.SkillsSource{{Image: "verify-specific:v2", Paths: []string{"/skills/compliance"}}},
@@ -150,7 +150,7 @@ func TestResolveProposal_MissingAgent(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "default"},
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:  "fix it",
-			Analysis: &agenticv1alpha1.ProposalStep{Agent: "nonexistent"},
+			Analysis: agenticv1alpha1.ProposalStep{Agent: "nonexistent"},
 		},
 	}
 
@@ -167,9 +167,9 @@ func TestResolveProposal_AgentCaching(t *testing.T) {
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:      "fix it",
 			Tools:        agenticv1alpha1.ToolsSpec{Skills: []agenticv1alpha1.SkillsSource{{Image: "s:v1"}}},
-			Analysis:     &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Execution:    &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Verification: &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Analysis:     agenticv1alpha1.ProposalStep{Agent: "default"},
+			Execution:    agenticv1alpha1.ProposalStep{Agent: "default"},
+			Verification: agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 	}
 

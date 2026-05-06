@@ -270,9 +270,9 @@ func TestSandboxAgentCaller_ContextPropagation(t *testing.T) {
 			Request:          "Pod crashing",
 			Tools:            testTools(),
 			TargetNamespaces: []string{"production", "staging"},
-			Analysis:         &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Execution:        &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Verification:     &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Analysis:         agenticv1alpha1.ProposalStep{Agent: "default"},
+			Execution:        agenticv1alpha1.ProposalStep{Agent: "default"},
+			Verification:     agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 		Status: agenticv1alpha1.ProposalStatus{
 			Attempts: attempt,

@@ -52,14 +52,14 @@ func resolveProposal(ctx context.Context, c client.Client, proposal *agenticv1al
 		return agent, llm, nil
 	}
 
-	toolsForStep := func(step *agenticv1alpha1.ProposalStep) *agenticv1alpha1.ToolsSpec {
-		if step != nil && !step.Tools.IsZero() {
+	toolsForStep := func(step agenticv1alpha1.ProposalStep) *agenticv1alpha1.ToolsSpec {
+		if !step.Tools.IsZero() {
 			return &step.Tools
 		}
 		return &proposal.Spec.Tools
 	}
 
-	effectiveAgent := func(stage agenticv1alpha1.SandboxStep, step *agenticv1alpha1.ProposalStep) string {
+	effectiveAgent := func(stage agenticv1alpha1.SandboxStep, step agenticv1alpha1.ProposalStep) string {
 		if override := getStageOverrideAgent(approval, stage); override != "" {
 			return override
 		}
@@ -74,7 +74,7 @@ func resolveProposal(ctx context.Context, c client.Client, proposal *agenticv1al
 	}
 	resolved.Analysis = resolvedStep{Agent: agent, LLM: llm, Tools: toolsForStep(proposal.Spec.Analysis)}
 
-	if proposal.Spec.Execution != nil {
+	if !proposal.Spec.Execution.IsZero() {
 		agent, llm, err := resolveAgent(effectiveAgent(agenticv1alpha1.SandboxStepExecution, proposal.Spec.Execution))
 		if err != nil {
 			return nil, fmt.Errorf("resolve execution step: %w", err)
@@ -82,7 +82,7 @@ func resolveProposal(ctx context.Context, c client.Client, proposal *agenticv1al
 		resolved.Execution = &resolvedStep{Agent: agent, LLM: llm, Tools: toolsForStep(proposal.Spec.Execution)}
 	}
 
-	if proposal.Spec.Verification != nil {
+	if !proposal.Spec.Verification.IsZero() {
 		agent, llm, err := resolveAgent(effectiveAgent(agenticv1alpha1.SandboxStepVerification, proposal.Spec.Verification))
 		if err != nil {
 			return nil, fmt.Errorf("resolve verification step: %w", err)
@@ -93,8 +93,8 @@ func resolveProposal(ctx context.Context, c client.Client, proposal *agenticv1al
 	return resolved, nil
 }
 
-func stepAgentName(step *agenticv1alpha1.ProposalStep) string {
-	if step != nil && step.Agent != "" {
+func stepAgentName(step agenticv1alpha1.ProposalStep) string {
+	if step.Agent != "" {
 		return step.Agent
 	}
 	return "default"

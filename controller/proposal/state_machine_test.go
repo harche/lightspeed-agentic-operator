@@ -535,7 +535,7 @@ func TestManualApproval_AdvisoryOnly(t *testing.T) {
 			Request:          "Investigate issue",
 			Tools:            testTools(),
 			TargetNamespaces: []string{"production"},
-			Analysis:         &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Analysis:         agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 	}
 	agent := newTestAgentCaller()
@@ -563,8 +563,8 @@ func TestManualApproval_TrustMode(t *testing.T) {
 			Request:          "Fix with trust",
 			Tools:            testTools(),
 			TargetNamespaces: []string{"production"},
-			Analysis:         &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Execution:        &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Analysis:         agenticv1alpha1.ProposalStep{Agent: "default"},
+			Execution:        agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 	}
 	agent := newTestAgentCaller()

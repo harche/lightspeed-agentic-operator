@@ -118,9 +118,9 @@ func testProposal() *agenticv1alpha1.Proposal {
 			Request:          "Pod crashing in production",
 			Tools:            testTools(),
 			TargetNamespaces: []string{"production"},
-			Analysis:         &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Execution:        &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Verification:     &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Analysis:         agenticv1alpha1.ProposalStep{Agent: "default"},
+			Execution:        agenticv1alpha1.ProposalStep{Agent: "default"},
+			Verification:     agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 	}
 }
@@ -269,9 +269,9 @@ func TestReconcile_StatusInitialization(t *testing.T) {
 		Spec: agenticv1alpha1.ProposalSpec{
 			Request:      "Pod crashing",
 			Tools:        testTools(),
-			Analysis:     &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Execution:    &agenticv1alpha1.ProposalStep{Agent: "default"},
-			Verification: &agenticv1alpha1.ProposalStep{Agent: "default"},
+			Analysis:     agenticv1alpha1.ProposalStep{Agent: "default"},
+			Execution:    agenticv1alpha1.ProposalStep{Agent: "default"},
+			Verification: agenticv1alpha1.ProposalStep{Agent: "default"},
 		},
 	}
 

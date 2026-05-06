@@ -51,6 +51,7 @@ type ApprovalPolicySpec struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=4
 	Stages []ApprovalPolicyStage `json:"stages,omitempty"`
 

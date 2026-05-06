@@ -119,17 +119,17 @@ func (o *DenyOptions) nextPendingStage(p *agenticv1alpha1.Proposal, approval *ag
 	}
 
 	stages := []struct {
-		step     *agenticv1alpha1.ProposalStep
-		stageType agenticv1alpha1.ApprovalStageType
-		name     string
+		configured bool
+		stageType  agenticv1alpha1.ApprovalStageType
+		name       string
 	}{
-		{p.Spec.Analysis, agenticv1alpha1.ApprovalStageAnalysis, "analysis"},
-		{p.Spec.Execution, agenticv1alpha1.ApprovalStageExecution, "execution"},
-		{p.Spec.Verification, agenticv1alpha1.ApprovalStageVerification, "verification"},
+		{!p.Spec.Analysis.IsZero(), agenticv1alpha1.ApprovalStageAnalysis, "analysis"},
+		{!p.Spec.Execution.IsZero(), agenticv1alpha1.ApprovalStageExecution, "execution"},
+		{!p.Spec.Verification.IsZero(), agenticv1alpha1.ApprovalStageVerification, "verification"},
 	}
 
 	for _, s := range stages {
-		if s.step != nil && !approved[s.stageType] {
+		if s.configured && !approved[s.stageType] {
 			return s.name
 		}
 	}

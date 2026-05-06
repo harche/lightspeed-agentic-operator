@@ -114,6 +114,8 @@ const (
 // This is part of a RemediationOption and is presented to the user after
 // analysis, before approval. The risk and reversibility assessments help
 // users make informed approval decisions.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.reversible) || self.reversible == 'Irreversible' || has(self.rollbackPlan)",message="rollbackPlan is required when reversible is Reversible or Partial"
 type ProposalResult struct {
 	// description is a Markdown-formatted summary of the overall remediation
 	// approach. Maximum 8192 characters.
@@ -236,12 +238,12 @@ type RBACRule struct {
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Label().validate(self).hasValue()",message="must be a valid DNS label: lowercase alphanumeric characters and hyphens, starting with an alphabetic character and ending with an alphanumeric character"
 	Namespace string `json:"namespace,omitempty"`
 	// apiGroups are the API groups for this rule (e.g., "", "apps", "batch").
-	// Maximum 20 items.
+	// The empty string "" represents the core API group (pods, services, etc.).
+	// Maximum 20 items, each up to 253 characters.
 	// +required
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
-	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=253
 	APIGroups []string `json:"apiGroups,omitempty"`
 	// resources are the resource types (e.g., "pods", "deployments").
@@ -287,6 +289,7 @@ type RBACRule struct {
 // per proposal and binds these permissions via Role (namespace-scoped) or
 // ClusterRole (cluster-scoped) before launching the execution sandbox.
 // All RBAC resources are cleaned up after the proposal reaches a terminal state.
+// +kubebuilder:validation:MinProperties=1
 type RBACResult struct {
 	// namespaceScoped are rules that will be applied via Role + RoleBinding
 	// in the proposal's target namespaces. These are the most common rules.
