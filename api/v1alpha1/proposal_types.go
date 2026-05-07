@@ -271,6 +271,7 @@ func (s ProposalStep) IsZero() bool {
 // Omit execution and/or verification to skip those steps.
 //
 // +kubebuilder:validation:XValidation:rule="has(self.analysis)",message="analysis must be provided"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.targetCluster) || (has(self.targetCluster) && self.targetCluster == oldSelf.targetCluster)",message="targetCluster is immutable once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.targetNamespaces) || (has(self.targetNamespaces) && self.targetNamespaces == oldSelf.targetNamespaces)",message="targetNamespaces is immutable once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.analysisOutput) || (has(self.analysisOutput) && self.analysisOutput == oldSelf.analysisOutput)",message="analysisOutput is immutable once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.analysisOutput) || self.analysisOutput.mode != 'Minimal' || (!has(self.execution) && !has(self.verification))",message="analysisOutput mode Minimal is only allowed for analysis-only proposals (no execution or verification steps)"
@@ -291,6 +292,23 @@ type ProposalSpec struct {
 	// +kubebuilder:validation:MaxLength=32768
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="request is immutable after creation"
 	Request string `json:"request,omitempty"`
+
+	// targetCluster is the name of a remote managed cluster this proposal
+	// targets. When set, the operator delivers execution RBAC to the
+	// remote cluster via ManifestWork instead of creating local
+	// Role/RoleBinding resources. The analysis and execution agents use
+	// the spoke kubeconfig (mounted via requiredSecrets) to access this
+	// cluster.
+	//
+	// When omitted, the proposal targets the local cluster where the
+	// operator is running (single-cluster mode).
+	//
+	// Immutable: the RBAC delivery target is fixed at creation.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:XValidation:rule="!format.dns1123Label().validate(self).hasValue()",message="must be a valid DNS label"
+	TargetCluster string `json:"targetCluster,omitempty"`
 
 	// targetNamespaces are the Kubernetes namespace(s) this proposal
 	// operates on. Used for RBAC scoping and context to the analysis agent.
@@ -451,6 +469,27 @@ type ProposalStatus struct {
 //	  execution: {}
 //	  verification:
 //	    agent: fast
+//
+// Example — ACM multi-cluster remediation (hub targeting spoke):
+//
+//	apiVersion: agentic.openshift.io/v1alpha1
+//	kind: Proposal
+//	metadata:
+//	  name: fix-policy-violation
+//	  namespace: cluster-a
+//	spec:
+//	  request: "ACM policy violation: namespace required-security-config not found"
+//	  targetCluster: cluster-a
+//	  targetNamespaces:
+//	    - production
+//	  tools:
+//	    requiredSecrets:
+//	      - name: lightspeed-spoke-kubeconfig
+//	        description: "Kubeconfig for spoke cluster cluster-a"
+//	        mountAs: /var/run/secrets/spoke/kubeconfig
+//	  analysis: {}
+//	  execution: {}
+//	  verification: {}
 type Proposal struct {
 	metav1.TypeMeta `json:",inline"`
 

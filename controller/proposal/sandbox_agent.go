@@ -164,7 +164,7 @@ func (s *SandboxAgentCaller) callWithSandbox(
 	query string,
 	agentCtx *agentContext,
 ) (json.RawMessage, error) {
-	templateName, err := EnsureAgentTemplate(ctx, s.K8sClient, s.BaseTemplateName, s.Namespace, stepName, step.Agent, step.LLM, step.Tools)
+	templateName, err := EnsureAgentTemplate(ctx, s.K8sClient, s.BaseTemplateName, s.Namespace, stepName, step.Agent, step.LLM, step.Tools, proposal.Spec.TargetCluster)
 	if err != nil {
 		return nil, fmt.Errorf("ensure agent template: %w", err)
 	}

@@ -381,14 +381,14 @@ func TestSetEnvVar_FailsOnNoContainers(t *testing.T) {
 }
 
 func TestEnsureAgentTemplate_NilAgent(t *testing.T) {
-	_, err := EnsureAgentTemplate(nil, nil, "base", "ns", "analysis", nil, testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex), nil)
+	_, err := EnsureAgentTemplate(nil, nil, "base", "ns", "analysis", nil, testLLMProvider(agenticv1alpha1.LLMProviderGoogleCloudVertex), nil, "")
 	if err == nil {
 		t.Error("expected error for nil agent")
 	}
 }
 
 func TestEnsureAgentTemplate_NilLLM(t *testing.T) {
-	_, err := EnsureAgentTemplate(nil, nil, "base", "ns", "analysis", testDefaultAgent(), nil, nil)
+	_, err := EnsureAgentTemplate(nil, nil, "base", "ns", "analysis", testDefaultAgent(), nil, nil, "")
 	if err == nil {
 		t.Error("expected error for nil LLM")
 	}

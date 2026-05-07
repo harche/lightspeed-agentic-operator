@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -14,6 +18,10 @@ import (
 
 	agenticv1alpha1 "github.com/openshift/lightspeed-agentic-operator/api/v1alpha1"
 	"github.com/openshift/lightspeed-agentic-operator/controller/proposal"
+
+	clusterv1 "open-cluster-management.io/api/cluster/v1"
+	workv1 "open-cluster-management.io/api/work/v1"
+	msav1beta1 "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1beta1"
 )
 
 var scheme = runtime.NewScheme()
@@ -21,6 +29,21 @@ var scheme = runtime.NewScheme()
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(agenticv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(clusterv1.Install(scheme))
+	utilruntime.Must(workv1.Install(scheme))
+	utilruntime.Must(msav1beta1.AddToScheme(scheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
+}
+
+func crdExists(mgr ctrl.Manager, crdName string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*1e9)
+	defer cancel()
+	reader := mgr.GetAPIReader()
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := reader.Get(ctx, types.NamespacedName{Name: crdName}, crd); err != nil {
+		return false
+	}
+	return true
 }
 
 func main() {
@@ -78,6 +101,21 @@ func main() {
 	if err := reconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "unable to create controller", "controller", "Proposal")
 		os.Exit(1)
+	}
+
+	if crdExists(mgr, "managedclusters.cluster.open-cluster-management.io") {
+		onboarding := &proposal.ClusterOnboardingReconciler{
+			Client:    mgr.GetClient(),
+			Log:       ctrl.Log.WithName("controllers").WithName("ClusterOnboarding"),
+			Namespace: namespace,
+		}
+		if err := onboarding.SetupWithManager(mgr); err != nil {
+			log.Error(err, "unable to create controller", "controller", "ClusterOnboarding")
+			os.Exit(1)
+		}
+		log.Info("cluster onboarding controller enabled (ManagedCluster CRD detected)")
+	} else {
+		log.Info("cluster onboarding controller disabled (ManagedCluster CRD not found)")
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

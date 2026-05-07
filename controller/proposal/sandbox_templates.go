@@ -95,6 +95,7 @@ func EnsureAgentTemplate(
 	agent *agenticv1alpha1.Agent,
 	llm *agenticv1alpha1.LLMProvider,
 	tools *agenticv1alpha1.ToolsSpec,
+	targetCluster string,
 ) (string, error) {
 	log := logf.FromContext(ctx).WithName("sandbox-templates")
 
@@ -186,6 +187,12 @@ func EnsureAgentTemplate(
 	if len(requiredSecrets) > 0 {
 		if err := patchRequiredSecrets(derived, requiredSecrets); err != nil {
 			return "", fmt.Errorf("patch required secrets: %w", err)
+		}
+	}
+
+	if targetCluster != "" {
+		if err := patchSpokeKubeconfig(ctx, c, derived, targetCluster, namespace); err != nil {
+			return "", fmt.Errorf("patch spoke kubeconfig: %w", err)
 		}
 	}
 
@@ -664,4 +671,38 @@ func patchMCPServers(tmpl *unstructured.Unstructured, servers []agenticv1alpha1.
 		return fmt.Errorf("marshal MCP server config: %w", err)
 	}
 	return setEnvVar(tmpl, mcpServersEnvVar, string(data))
+}
+
+const (
+	mergedKubeconfigVolume   = "merged-kubeconfig"
+	mergedKubeconfigMountDir = "/var/run/secrets/kubeconfig"
+)
+
+// patchSpokeKubeconfig mounts the merged kubeconfig (hub + spoke contexts,
+// built during cluster onboarding) into the sandbox pod and sets KUBECONFIG
+// so kubectl/oc use it by default. The default context is the spoke cluster;
+// the agent can use `kubectl --context=hub` for hub access (e.g., Thanos).
+func patchSpokeKubeconfig(
+	_ context.Context,
+	_ client.Client,
+	tmpl *unstructured.Unstructured,
+	targetCluster string,
+	_ string,
+) error {
+	secretName := spokeKubeconfigSecretName(targetCluster)
+
+	if err := addSecretVolume(tmpl, mergedKubeconfigVolume, secretName); err != nil {
+		return fmt.Errorf("add kubeconfig volume: %w", err)
+	}
+	if err := addVolumeMount(tmpl, mergedKubeconfigVolume, mergedKubeconfigMountDir, true); err != nil {
+		return fmt.Errorf("add kubeconfig mount: %w", err)
+	}
+	if err := setEnvVar(tmpl, "KUBECONFIG", mergedKubeconfigMountDir+"/kubeconfig"); err != nil {
+		return fmt.Errorf("set KUBECONFIG env: %w", err)
+	}
+	if err := setEnvVar(tmpl, "LIGHTSPEED_TARGET_CLUSTER", targetCluster); err != nil {
+		return fmt.Errorf("set TARGET_CLUSTER env: %w", err)
+	}
+
+	return nil
 }

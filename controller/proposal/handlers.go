@@ -3,6 +3,7 @@ package proposal
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -220,6 +221,17 @@ func (r *ProposalReconciler) handleExecution(
 			return ctrl.Result{}, fmt.Errorf("persist RBAC annotation: %w", err)
 		}
 		base = proposal.DeepCopy()
+
+		if proposal.Spec.TargetCluster != "" {
+			applied, err := isExecutionRBACAppliedOnSpoke(ctx, r.Client, proposal, proposal.Spec.TargetCluster)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("check execution RBAC applied: %w", err)
+			}
+			if !applied {
+				log.Info("waiting for execution RBAC ManifestWork to be applied on spoke", "cluster", proposal.Spec.TargetCluster)
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			}
+		}
 	}
 
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
