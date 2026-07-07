@@ -4,63 +4,137 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/yaml"
 )
 
-// TestAnalysisSchemaCoversCRDRequiredFields guards against the schema/CRD
-// contract drift described in lightspeed-agentic-operator#162: the JSON
-// schema sent to the LLM for structured output must mark as required every
-// field the AnalysisResult CRD requires. When the two disagree, a valid LLM
-// response can be rejected by CRD validation at status-patch time, which
-// fails the analysis and orphans the sandbox pod.
-//
-// The generated CRD (which encodes the +required markers) is the source of
-// truth. For every object node the two schemas share, the CRD's required set
-// must be a subset of the LLM schema's required set. This would have caught
-// both the original estimatedImpact incident and the latent verification gap.
-func TestAnalysisSchemaCoversCRDRequiredFields(t *testing.T) {
-	crdPath := filepath.Join("..", "..", "config", "crd", "bases", "agentic.openshift.io_analysisresults.yaml")
-	raw, err := os.ReadFile(crdPath)
-	if err != nil {
-		t.Fatalf("read CRD: %v", err)
-	}
-
-	var crd apiextensionsv1.CustomResourceDefinition
-	if err := yaml.Unmarshal(raw, &crd); err != nil {
-		t.Fatalf("unmarshal CRD: %v", err)
-	}
-	if len(crd.Spec.Versions) == 0 {
-		t.Fatal("CRD declares no versions")
-	}
-
-	// The LLM analysis schema describes a single option; its per-option shape
-	// lives at properties.options.items.
-	var llm map[string]any
-	if err := json.Unmarshal(AnalysisOutputSchema, &llm); err != nil {
-		t.Fatalf("unmarshal AnalysisOutputSchema: %v", err)
-	}
-	llmOption, ok := digObject(llm, "properties", "options", "items")
+// crdBasesDir resolves config/crd/bases relative to this source file rather
+// than the test's working directory, so the lookup survives changes to how or
+// from where the tests are invoked.
+func crdBasesDir(t *testing.T) string {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
-		t.Fatal("AnalysisOutputSchema is missing properties.options.items")
+		t.Fatal("cannot resolve test source path via runtime.Caller")
+	}
+	return filepath.Join(filepath.Dir(thisFile), "..", "..", "config", "crd", "bases")
+}
+
+// TestSchemasCoverCRDRequiredFields guards against the schema/CRD contract
+// drift described in lightspeed-agentic-operator#162: the JSON schema sent to
+// the LLM for structured output must mark as required every field the result
+// CRD requires. When the two disagree, a valid LLM response can be rejected by
+// CRD validation at status-patch time, which fails the step and orphans the
+// sandbox pod.
+//
+// The generated CRDs (which encode the +required markers) are the source of
+// truth. For every object node a schema pair shares, the CRD's required set
+// must be a subset of the LLM schema's required set. This covers all four LLM
+// output schemas, catching the original estimatedImpact incident as well as
+// the latent verification (checks source/value) and execution (verification
+// conditionOutcome/summary) gaps.
+func TestSchemasCoverCRDRequiredFields(t *testing.T) {
+	cases := []struct {
+		name      string
+		crdFile   string
+		llmSchema json.RawMessage
+		// crdNode selects the CRD schema node to start the comparison from,
+		// given the decoded status schema for a CRD version.
+		crdNode func(status *apiextensionsv1.JSONSchemaProps) (*apiextensionsv1.JSONSchemaProps, bool)
+		// llmNode selects the matching LLM schema node, given the decoded root.
+		llmNode func(root map[string]any) (map[string]any, bool)
+		// path labels the comparison root in failure messages.
+		path string
+	}{
+		{
+			// Analysis emits an array of options; the per-option shape that
+			// maps onto the CRD lives at properties.options.items.
+			name:      "analysis",
+			crdFile:   "agentic.openshift.io_analysisresults.yaml",
+			llmSchema: AnalysisOutputSchema,
+			crdNode: func(status *apiextensionsv1.JSONSchemaProps) (*apiextensionsv1.JSONSchemaProps, bool) {
+				options, ok := status.Properties["options"]
+				if !ok || options.Items == nil || options.Items.Schema == nil {
+					return nil, false
+				}
+				return options.Items.Schema, true
+			},
+			llmNode: func(root map[string]any) (map[string]any, bool) {
+				return digObject(root, "properties", "options", "items")
+			},
+			path: "options[]",
+		},
+		{
+			// Execution, verification, and escalation each emit a single
+			// object whose shape maps directly onto the CRD status.
+			name:      "execution",
+			crdFile:   "agentic.openshift.io_executionresults.yaml",
+			llmSchema: ExecutionOutputSchema,
+			crdNode:   func(status *apiextensionsv1.JSONSchemaProps) (*apiextensionsv1.JSONSchemaProps, bool) { return status, true },
+			llmNode:   func(root map[string]any) (map[string]any, bool) { return root, true },
+			path:      "status",
+		},
+		{
+			name:      "verification",
+			crdFile:   "agentic.openshift.io_verificationresults.yaml",
+			llmSchema: VerificationOutputSchema,
+			crdNode:   func(status *apiextensionsv1.JSONSchemaProps) (*apiextensionsv1.JSONSchemaProps, bool) { return status, true },
+			llmNode:   func(root map[string]any) (map[string]any, bool) { return root, true },
+			path:      "status",
+		},
+		{
+			name:      "escalation",
+			crdFile:   "agentic.openshift.io_escalationresults.yaml",
+			llmSchema: EscalationOutputSchema,
+			crdNode:   func(status *apiextensionsv1.JSONSchemaProps) (*apiextensionsv1.JSONSchemaProps, bool) { return status, true },
+			llmNode:   func(root map[string]any) (map[string]any, bool) { return root, true },
+			path:      "status",
+		},
 	}
 
-	for _, v := range crd.Spec.Versions {
-		if v.Schema == nil || v.Schema.OpenAPIV3Schema == nil {
-			continue
-		}
-		// The matching per-option schema in the CRD is at status.options.items.
-		status, ok := v.Schema.OpenAPIV3Schema.Properties["status"]
-		if !ok {
-			continue
-		}
-		options, ok := status.Properties["options"]
-		if !ok || options.Items == nil || options.Items.Schema == nil {
-			t.Fatalf("CRD version %s is missing status.options.items schema", v.Name)
-		}
-		assertRequiredCoverage(t, "options[]", options.Items.Schema, llmOption)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			crdPath := filepath.Join(crdBasesDir(t), tc.crdFile)
+			raw, err := os.ReadFile(crdPath)
+			if err != nil {
+				t.Fatalf("read CRD: %v", err)
+			}
+
+			var crd apiextensionsv1.CustomResourceDefinition
+			if err := yaml.Unmarshal(raw, &crd); err != nil {
+				t.Fatalf("unmarshal CRD: %v", err)
+			}
+			if len(crd.Spec.Versions) == 0 {
+				t.Fatal("CRD declares no versions")
+			}
+
+			var llm map[string]any
+			if err := json.Unmarshal(tc.llmSchema, &llm); err != nil {
+				t.Fatalf("unmarshal LLM schema: %v", err)
+			}
+			llmStart, ok := tc.llmNode(llm)
+			if !ok {
+				t.Fatal("LLM schema is missing the expected comparison node")
+			}
+
+			for _, v := range crd.Spec.Versions {
+				if v.Schema == nil || v.Schema.OpenAPIV3Schema == nil {
+					continue
+				}
+				status, ok := v.Schema.OpenAPIV3Schema.Properties["status"]
+				if !ok {
+					continue
+				}
+				crdStart, ok := tc.crdNode(&status)
+				if !ok {
+					t.Fatalf("CRD version %s is missing the expected status schema node", v.Name)
+				}
+				assertRequiredCoverage(t, tc.path, crdStart, llmStart)
+			}
+		})
 	}
 }
 
