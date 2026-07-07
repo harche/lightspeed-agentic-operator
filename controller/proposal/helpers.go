@@ -40,6 +40,7 @@ const (
 
 	reasonInProgress        = "InProgress"
 	reasonComplete          = "Complete"
+	reasonAdvisoryOnly      = "AdvisoryOnly"
 	reasonFailed            = "Failed"
 	reasonSkipped           = "Skipped"
 	reasonPassed            = "Passed"
@@ -140,6 +141,40 @@ func isTerminal(phase agenticv1alpha1.ProposalPhase) bool {
 		return true
 	}
 	return false
+}
+
+// setAdvisoryCompleted marks execution and verification as complete because
+// the remediation option(s) carry no executable actions — the analysis itself
+// is the deliverable.
+func setAdvisoryCompleted(proposal *agenticv1alpha1.Proposal, message string) {
+	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+		Type:               agenticv1alpha1.ProposalConditionExecuted,
+		Status:             metav1.ConditionTrue,
+		Reason:             reasonAdvisoryOnly,
+		Message:            message,
+		ObservedGeneration: proposal.Generation,
+	})
+	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
+		Type:               agenticv1alpha1.ProposalConditionVerified,
+		Status:             metav1.ConditionTrue,
+		Reason:             reasonAdvisoryOnly,
+		Message:            message,
+		ObservedGeneration: proposal.Generation,
+	})
+}
+
+// allOptionsAdvisory reports whether the analysis produced options and every
+// one of them is advisory-only (no executable actions).
+func allOptionsAdvisory(result *agenticv1alpha1.AnalysisResult) bool {
+	if result == nil || len(result.Status.Options) == 0 {
+		return false
+	}
+	for i := range result.Status.Options {
+		if len(result.Status.Options[i].Proposal.Actions) > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func setVerificationSkipped(proposal *agenticv1alpha1.Proposal) {
@@ -309,21 +344,27 @@ func buildAnalysisQuery(requestText string, proposal *agenticv1alpha1.Proposal) 
 }
 
 type executionQuery struct {
-	OptionJSON string
+	OptionJSON    string
+	RetryFeedback string
 }
 
-func buildExecutionQuery(option *agenticv1alpha1.RemediationOption) string {
-	return renderTemplate("execution_query.tmpl", executionQuery{OptionJSON: prettyJSON(option)})
+func buildExecutionQuery(option *agenticv1alpha1.RemediationOption, retryFeedback string) string {
+	return renderTemplate("execution_query.tmpl", executionQuery{
+		OptionJSON:    prettyJSON(option),
+		RetryFeedback: retryFeedback,
+	})
 }
 
 type verificationQuery struct {
 	OptionJSON    string
 	ExecutionJSON string
+	DiagnosisOnly bool
 }
 
 func buildVerificationQuery(option *agenticv1alpha1.RemediationOption, exec *ExecutionOutput) string {
 	return renderTemplate("verification_query.tmpl", verificationQuery{
 		OptionJSON:    prettyJSON(option),
 		ExecutionJSON: prettyJSON(executionOutputToAgentResult(exec)),
+		DiagnosisOnly: exec == nil,
 	})
 }

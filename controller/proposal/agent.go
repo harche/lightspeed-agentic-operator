@@ -43,7 +43,7 @@ type EscalationOutput struct {
 // endpoint where all workflow context is in the request payload.
 type AgentCaller interface {
 	Analyze(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string, serviceAccount string) (*AnalysisOutput, error)
-	Execute(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption, serviceAccount string) (*ExecutionOutput, error)
+	Execute(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption, retryFeedback string, serviceAccount string) (*ExecutionOutput, error)
 	Verify(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption, exec *ExecutionOutput, serviceAccount string) (*VerificationOutput, error)
 	Escalate(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, requestText string, serviceAccount string) (*EscalationOutput, error)
 	ReleaseSandboxes(ctx context.Context, proposal *agenticv1alpha1.Proposal) error
@@ -73,7 +73,7 @@ func (s *StubAgentCaller) Analyze(_ context.Context, _ *agenticv1alpha1.Proposal
 	}, nil
 }
 
-func (s *StubAgentCaller) Execute(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption, _ string) (*ExecutionOutput, error) {
+func (s *StubAgentCaller) Execute(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption, _ string, _ string) (*ExecutionOutput, error) {
 	return &ExecutionOutput{
 		Success: true,
 		ActionsTaken: []agenticv1alpha1.ExecutionAction{{

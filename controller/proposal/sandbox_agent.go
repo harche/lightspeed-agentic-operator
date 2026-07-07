@@ -93,13 +93,13 @@ func (s *SandboxAgentCaller) Analyze(ctx context.Context, proposal *agenticv1alp
 	}, nil
 }
 
-func (s *SandboxAgentCaller) Execute(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption, serviceAccount string) (*ExecutionOutput, error) {
+func (s *SandboxAgentCaller) Execute(ctx context.Context, proposal *agenticv1alpha1.Proposal, step resolvedStep, option *agenticv1alpha1.RemediationOption, retryFeedback string, serviceAccount string) (*ExecutionOutput, error) {
 	agentCtx := buildAgentContext(proposal)
 	if option != nil {
 		agentCtx.ApprovedOption = option
 	}
 
-	query := buildExecutionQuery(option)
+	query := buildExecutionQuery(option, retryFeedback)
 	raw, err := s.callWithSandbox(ctx, proposal, stepString(agenticv1alpha1.SandboxStepExecution), step, query, agentCtx, serviceAccount)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ErrExecutionAgentCall, err)

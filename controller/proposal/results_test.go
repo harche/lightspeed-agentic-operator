@@ -218,3 +218,27 @@ func TestCreateIdempotent_ExecutionResult(t *testing.T) {
 		t.Errorf("action type = %q, want patch", got.Status.ActionsTaken[0].Type)
 	}
 }
+
+func TestNormalizeOptions_EmptyRBACResetToZero(t *testing.T) {
+	options := []agenticv1alpha1.RemediationOption{
+		{
+			Title: "advisory with empty rbac arrays",
+			RBAC:  agenticv1alpha1.RBACResult{NamespaceScoped: []agenticv1alpha1.RBACRule{}, ClusterScoped: []agenticv1alpha1.RBACRule{}},
+		},
+		{
+			Title: "real rbac untouched",
+			RBAC: agenticv1alpha1.RBACResult{NamespaceScoped: []agenticv1alpha1.RBACRule{
+				{APIGroups: []string{"apps"}, Resources: []string{"deployments"}, Verbs: []string{"patch"}, Justification: "patch deployment"},
+			}},
+		},
+	}
+
+	normalized := normalizeOptions(options)
+
+	if normalized[0].RBAC.NamespaceScoped != nil || normalized[0].RBAC.ClusterScoped != nil {
+		t.Errorf("empty rbac should be reset to zero value, got %+v", normalized[0].RBAC)
+	}
+	if len(normalized[1].RBAC.NamespaceScoped) != 1 {
+		t.Errorf("populated rbac must be preserved, got %+v", normalized[1].RBAC)
+	}
+}

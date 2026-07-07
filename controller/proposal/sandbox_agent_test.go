@@ -132,7 +132,7 @@ func TestSandboxAgentCaller_Execute_HappyPath(t *testing.T) {
 
 	caller := newTestSandboxAgentCaller(sandbox, httpClient)
 	option := &agenticv1alpha1.RemediationOption{Title: "Fix it"}
-	result, err := caller.Execute(context.Background(), testSandboxProposal(), testSandboxStep(), option, defaultSandboxSA)
+	result, err := caller.Execute(context.Background(), testSandboxProposal(), testSandboxStep(), option, "", defaultSandboxSA)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestSandboxAgentCaller_WaitReadyError(t *testing.T) {
 	httpClient := &mockHTTPClient{}
 
 	caller := newTestSandboxAgentCaller(sandbox, httpClient)
-	_, err := caller.Execute(context.Background(), testSandboxProposal(), testSandboxStep(), nil, defaultSandboxSA)
+	_, err := caller.Execute(context.Background(), testSandboxProposal(), testSandboxStep(), nil, "", defaultSandboxSA)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -395,7 +395,7 @@ func TestSandboxAgentCaller_ExecutePassesApprovedOption(t *testing.T) {
 
 	caller := newTestSandboxAgentCaller(sandbox, httpClient)
 	option := &agenticv1alpha1.RemediationOption{Title: "Scale up replicas"}
-	_, _ = caller.Execute(context.Background(), testSandboxProposal(), testSandboxStep(), option, defaultSandboxSA)
+	_, _ = caller.Execute(context.Background(), testSandboxProposal(), testSandboxStep(), option, "", defaultSandboxSA)
 
 	if httpClient.lastCtx == nil || httpClient.lastCtx.ApprovedOption == nil {
 		t.Fatal("expected approved option in context")
@@ -444,7 +444,7 @@ func TestSandboxAgentCaller_ExecutionQueryFraming(t *testing.T) {
 	}
 	proposal := testSandboxProposal()
 	proposal.Spec.Request = "Pod crashing with OOMKilled"
-	_, _ = caller.Execute(context.Background(), proposal, testSandboxStep(), option, defaultSandboxSA)
+	_, _ = caller.Execute(context.Background(), proposal, testSandboxStep(), option, "", defaultSandboxSA)
 
 	if !strings.Contains(httpClient.lastQuery, "execution agent") {
 		t.Error("execution query should contain role framing")
@@ -496,7 +496,7 @@ func TestSandboxAgentCaller_ExecutionQueryNilOption(t *testing.T) {
 	}
 
 	caller := newTestSandboxAgentCaller(sandbox, httpClient)
-	_, _ = caller.Execute(context.Background(), testSandboxProposal(), testSandboxStep(), nil, defaultSandboxSA)
+	_, _ = caller.Execute(context.Background(), testSandboxProposal(), testSandboxStep(), nil, "", defaultSandboxSA)
 
 	if !strings.Contains(httpClient.lastQuery, "execution agent") {
 		t.Error("execution query should still contain role framing with nil option")
@@ -548,7 +548,7 @@ func TestSandboxAgentCaller_Execute_PatchesSandboxInfo(t *testing.T) {
 	proposal := testSandboxProposal()
 	caller := newTestSandboxAgentCallerWithProposal(sandbox, httpClient, proposal)
 
-	_, err := caller.Execute(context.Background(), proposal, testSandboxStep(), nil, defaultSandboxSA)
+	_, err := caller.Execute(context.Background(), proposal, testSandboxStep(), nil, "", defaultSandboxSA)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

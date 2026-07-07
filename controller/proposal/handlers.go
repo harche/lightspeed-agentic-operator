@@ -218,6 +218,22 @@ func (r *ProposalReconciler) handleExecution(
 		return ctrl.Result{}, nil
 	}
 
+	// Advisory-only short-circuit: when every proposed option carries no
+	// executable actions there is nothing to approve or execute.
+	latestResult, resultErr := r.getLatestAnalysisResult(ctx, proposal)
+	if resultErr != nil {
+		return ctrl.Result{}, resultErr
+	}
+	if allOptionsAdvisory(latestResult) {
+		base := proposal.DeepCopy()
+		setAdvisoryCompleted(proposal, "All proposed options are advisory-only; nothing to execute")
+		if err := r.statusPatch(ctx, proposal, base); err != nil {
+			return ctrl.Result{}, fmt.Errorf("%s: %w", ErrUpdateToCompletedAdvisory, err)
+		}
+		log.Info("all options advisory-only — completed")
+		return ctrl.Result{}, nil
+	}
+
 	if isStageDenied(approval, agenticv1alpha1.SandboxStepExecution) {
 		return r.denyProposal(ctx, proposal, "Execution denied by user")
 	}
@@ -244,6 +260,18 @@ func (r *ProposalReconciler) handleExecution(
 		return r.failStep(ctx, proposal, agenticv1alpha1.ProposalConditionExecuted, trimErr)
 	}
 
+	// The user picked an advisory-only option among executable ones: the
+	// analysis is the deliverable, so complete without an execution stage.
+	if selectedOption != nil && len(selectedOption.Proposal.Actions) == 0 {
+		base := proposal.DeepCopy()
+		setAdvisoryCompleted(proposal, "Selected option is advisory-only; nothing to execute")
+		if err := r.statusPatch(ctx, proposal, base); err != nil {
+			return ctrl.Result{}, fmt.Errorf("%s: %w", ErrUpdateToCompletedAdvisory, err)
+		}
+		log.Info("selected option advisory-only — completed")
+		return ctrl.Result{}, nil
+	}
+
 	// Determine which SA the execution pod should run as.
 	execSA := defaultSandboxSA
 	base := proposal.DeepCopy()
@@ -258,6 +286,14 @@ func (r *ProposalReconciler) handleExecution(
 		execSA = executionSAName(proposal)
 	}
 
+	// On a verification-failure retry, carry the failure summary into the
+	// execution query so the agent can adjust implementation details instead
+	// of blindly repeating the previous attempt.
+	var retryFeedback string
+	if c := meta.FindStatusCondition(proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified); c != nil && c.Reason == reasonRetryingExecution {
+		retryFeedback = c.Message
+	}
+
 	meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
 	meta.SetStatusCondition(&proposal.Status.Conditions, metav1.Condition{
 		Type:               agenticv1alpha1.ProposalConditionExecuted,
@@ -270,7 +306,7 @@ func (r *ProposalReconciler) handleExecution(
 		return ctrl.Result{}, fmt.Errorf("%s: %w", ErrUpdateToExecuting, err)
 	}
 
-	execResult, err := r.Agent.Execute(ctx, proposal, *resolved.Execution, selectedOption, execSA)
+	execResult, err := r.Agent.Execute(ctx, proposal, *resolved.Execution, selectedOption, retryFeedback, execSA)
 	if err != nil {
 		return r.failStep(ctx, proposal, agenticv1alpha1.ProposalConditionExecuted, err)
 	}
@@ -416,9 +452,20 @@ func (r *ProposalReconciler) handleVerification(
 		}
 		maxRetries := maxAttempts(approval, policy)
 
-		if int(retryCount) < maxRetries-1 {
+		// Re-executing can only change the outcome when the workflow has an
+		// execution step. Without one, a retry re-affirms Executed=Skipped
+		// but never clears Verified=RetryingExecution, so the proposal
+		// live-locks in Executing — escalate instead.
+		if resolved.Execution != nil && int(retryCount) < maxRetries-1 {
 			next := retryCount + 1
 			log.Info("verification failed, retrying execution", "attempt", next+1, "maxAttempts", maxRetries, LogKeySummary, verifyResult.Summary)
+			// Release the step sandbox pods before resetting their claims.
+			// The retry recreates the per-proposal execution SA, which
+			// invalidates tokens projected into a reused pod — a fresh pod
+			// gets a token for the recreated SA.
+			if relErr := r.Agent.ReleaseSandboxes(ctx, proposal); relErr != nil {
+				log.Error(relErr, "releasing sandboxes before execution retry")
+			}
 			proposal.Status.Steps.Execution.RetryCount = &next
 			resetExecutionAndVerification(&proposal.Status.Steps)
 			meta.RemoveStatusCondition(&proposal.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)

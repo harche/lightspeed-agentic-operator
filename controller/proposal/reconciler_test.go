@@ -37,7 +37,7 @@ type testAgentCaller struct {
 func newTestAgentCaller() *testAgentCaller {
 	stub := &StubAgentCaller{}
 	a, _ := stub.Analyze(context.Background(), nil, resolvedStep{}, "", "")
-	e, _ := stub.Execute(context.Background(), nil, resolvedStep{}, nil, "")
+	e, _ := stub.Execute(context.Background(), nil, resolvedStep{}, nil, "", "")
 	v, _ := stub.Verify(context.Background(), nil, resolvedStep{}, nil, nil, "")
 	esc, _ := stub.Escalate(context.Background(), nil, resolvedStep{}, "", "")
 	return &testAgentCaller{analyzeResult: a, executeResult: e, verifyResult: v, escalateResult: esc}
@@ -49,7 +49,7 @@ func (ta *testAgentCaller) Analyze(_ context.Context, _ *agenticv1alpha1.Proposa
 	}
 	return ta.analyzeResult, nil
 }
-func (ta *testAgentCaller) Execute(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption, _ string) (*ExecutionOutput, error) {
+func (ta *testAgentCaller) Execute(_ context.Context, _ *agenticv1alpha1.Proposal, _ resolvedStep, _ *agenticv1alpha1.RemediationOption, _ string, _ string) (*ExecutionOutput, error) {
 	if ta.executeErr != nil {
 		return nil, ta.executeErr
 	}

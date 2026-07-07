@@ -122,8 +122,11 @@ type ProposalResult struct {
 	// +kubebuilder:validation:MaxLength=8192
 	Description string `json:"description,omitempty"`
 	// actions is the ordered list of discrete actions the agent proposes.
-	// Maximum 50 items.
-	// +required
+	// Omitted for advisory-only options: analysis found nothing that needs
+	// to be executed, so selecting such an option completes the proposal
+	// without an execution stage. When present, at least one action is
+	// required. Maximum 50 items.
+	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=50

@@ -110,10 +110,25 @@ func (r *ProposalReconciler) createAnalysisResult(
 	}
 
 	if result != nil {
-		cr.Status.Options = result.Options
+		cr.Status.Options = normalizeOptions(result.Options)
 	}
 
 	return crName, createIdempotent(ctx, r.Client, cr, "AnalysisResult")
+}
+
+// normalizeOptions resets agent-emitted empty container fields to their true
+// zero values so optional-but-validated CRD fields are omitted instead of
+// serialized as empty objects. An RBACResult whose rule lists are non-nil but
+// empty is not the zero value (omitzero keeps it) yet round-trips as
+// "rbac": {}, which the CRD rejects with minProperties=1.
+func normalizeOptions(options []agenticv1alpha1.RemediationOption) []agenticv1alpha1.RemediationOption {
+	for i := range options {
+		rbac := &options[i].RBAC
+		if len(rbac.NamespaceScoped) == 0 && len(rbac.ClusterScoped) == 0 {
+			*rbac = agenticv1alpha1.RBACResult{}
+		}
+	}
+	return options
 }
 
 func (r *ProposalReconciler) createExecutionResult(

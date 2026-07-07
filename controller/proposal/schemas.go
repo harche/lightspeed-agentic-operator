@@ -38,7 +38,7 @@ var AnalysisOutputSchema = json.RawMessage(`{
               "description": { "type": "string", "description": "Markdown-formatted summary of the overall remediation approach" },
               "actions": {
                 "type": "array",
-                "description": "Ordered list of discrete actions to perform",
+                "description": "Ordered list of discrete actions to perform. Omit (or leave empty) when the analysis found nothing that needs remediation — such an advisory-only option completes the proposal without an execution stage",
                 "items": {
                   "type": "object",
                   "properties": {
@@ -60,7 +60,7 @@ var AnalysisOutputSchema = json.RawMessage(`{
                 "required": ["description", "command"]
               }
             },
-            "required": ["description", "actions", "risk", "reversible"]
+            "required": ["description", "risk", "reversible"]
           },
           "verification": {
             "type": "object",
@@ -176,7 +176,8 @@ var ExecutionOutputSchema = json.RawMessage(`{
       "properties": {
         "conditionOutcome": { "type": "string", "enum": ["Improved", "Unchanged", "Degraded"], "description": "Whether the target condition improved after remediation" },
         "summary": { "type": "string", "description": "Brief inline verification summary of what you observed after applying the fix" }
-      }
+      },
+      "required": ["conditionOutcome", "summary"]
     }
   },
   "required": ["success", "actionsTaken"]
@@ -197,7 +198,7 @@ var VerificationOutputSchema = json.RawMessage(`{
           "value": { "type": "string", "description": "Actual observed value (e.g., 'Running', '3 replicas')" },
           "result": { "type": "string", "enum": ["Passed", "Failed"], "description": "Whether the observed value matches expectations" }
         },
-        "required": ["name", "result"]
+        "required": ["name", "result", "source", "value"]
       }
     },
     "summary": { "type": "string", "description": "Overall verification summary in Markdown" }

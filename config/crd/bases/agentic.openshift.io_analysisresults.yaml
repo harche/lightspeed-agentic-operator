@@ -205,7 +205,10 @@ spec:
                         actions:
                           description: |-
                             actions is the ordered list of discrete actions the agent proposes.
-                            Maximum 50 items.
+                            Omitted for advisory-only options: analysis found nothing that needs
+                            to be executed, so selecting such an option completes the proposal
+                            without an execution stage. When present, at least one action is
+                            required. Maximum 50 items.
                           items:
                             description: |-
                               ProposedAction describes a single discrete action the analysis agent
@@ -287,7 +290,6 @@ spec:
                           - description
                           type: object
                       required:
-                      - actions
                       - description
                       - risk
                       type: object

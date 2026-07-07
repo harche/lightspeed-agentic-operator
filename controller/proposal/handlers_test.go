@@ -1084,9 +1084,9 @@ func TestReconcile_ExecutionSelectsOption(t *testing.T) {
 	agent.analyzeResult = &AnalysisOutput{
 		Success: true,
 		Options: []agenticv1alpha1.RemediationOption{
-			{Title: "Option A", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-A"}},
-			{Title: "Option B", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-B"}},
-			{Title: "Option C", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-C"}},
+			{Title: "Option A", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-A"}, Proposal: agenticv1alpha1.ProposalResult{Actions: []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "fix-A"}}}},
+			{Title: "Option B", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-B"}, Proposal: agenticv1alpha1.ProposalResult{Actions: []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "fix-B"}}}},
+			{Title: "Option C", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-C"}, Proposal: agenticv1alpha1.ProposalResult{Actions: []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "fix-C"}}}},
 		},
 	}
 	r := &ProposalReconciler{Client: fc, Agent: agent, Namespace: "default"}
@@ -1122,6 +1122,71 @@ func TestReconcile_ExecutionSelectsOption(t *testing.T) {
 	if ar.Status.Options[0].Title != "Option B" {
 		t.Errorf("expected trimmed option %q, got %q", "Option B", ar.Status.Options[0].Title)
 	}
+}
+
+func TestReconcile_AdvisoryOnlyOptions(t *testing.T) {
+	assertAdvisoryCompleted := func(t *testing.T, r *ProposalReconciler, name string) {
+		t.Helper()
+		p, _ := getProposal(r, name)
+		if got := agenticv1alpha1.DerivePhase(p.Status.Conditions); got != agenticv1alpha1.ProposalPhaseCompleted {
+			t.Fatalf("expected Completed, got %s", got)
+		}
+		executed := meta.FindStatusCondition(p.Status.Conditions, agenticv1alpha1.ProposalConditionExecuted)
+		if executed == nil || executed.Reason != reasonAdvisoryOnly {
+			t.Fatalf("expected Executed reason %q, got %+v", reasonAdvisoryOnly, executed)
+		}
+		if len(p.Status.Steps.Execution.Results) != 0 {
+			t.Fatalf("expected no execution results, got %d", len(p.Status.Steps.Execution.Results))
+		}
+	}
+
+	t.Run("all_options_advisory_completes_without_approval", func(t *testing.T) {
+		scheme := testScheme()
+		proposal := testProposal()
+
+		objs := append([]client.Object{proposal}, defaultObjects()...)
+		fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+			WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
+
+		agent := newTestAgentCaller()
+		agent.analyzeResult = &AnalysisOutput{
+			Success: true,
+			Options: []agenticv1alpha1.RemediationOption{
+				{Title: "Everything healthy", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "no issues found"}},
+			},
+		}
+		r := &ProposalReconciler{Client: fc, Agent: agent, Namespace: "default"}
+
+		reconcileOnce(r, "fix-crash") // analysis
+		reconcileOnce(r, "fix-crash") // execution — advisory short-circuit, no approval given
+
+		assertAdvisoryCompleted(t, r, "fix-crash")
+	})
+
+	t.Run("selected_advisory_option_completes_without_execution", func(t *testing.T) {
+		scheme := testScheme()
+		proposal := testProposal()
+
+		objs := append([]client.Object{proposal}, defaultObjects()...)
+		fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+			WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
+
+		agent := newTestAgentCaller()
+		agent.analyzeResult = &AnalysisOutput{
+			Success: true,
+			Options: []agenticv1alpha1.RemediationOption{
+				{Title: "Restart workload", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag"}, Proposal: agenticv1alpha1.ProposalResult{Actions: []agenticv1alpha1.ProposedAction{{Type: "restart", Description: "restart it"}}}},
+				{Title: "No action needed", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "benign"}},
+			},
+		}
+		r := &ProposalReconciler{Client: fc, Agent: agent, Namespace: "default"}
+
+		reconcileOnce(r, "fix-crash") // analysis
+		approveProposalWithOption(t, fc, "fix-crash", 1)
+		reconcileOnce(r, "fix-crash") // execution — selected option is advisory
+
+		assertAdvisoryCompleted(t, r, "fix-crash")
+	})
 }
 
 func TestReconcile_ExecutionSingleOption(t *testing.T) {
@@ -1161,9 +1226,9 @@ func TestReconcile_TrimOptionsOnExecution(t *testing.T) {
 	agent.analyzeResult = &AnalysisOutput{
 		Success: true,
 		Options: []agenticv1alpha1.RemediationOption{
-			{Title: "Option A", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-A"}},
-			{Title: "Option B", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-B"}},
-			{Title: "Option C", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-C"}},
+			{Title: "Option A", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-A"}, Proposal: agenticv1alpha1.ProposalResult{Actions: []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "fix-A"}}}},
+			{Title: "Option B", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-B"}, Proposal: agenticv1alpha1.ProposalResult{Actions: []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "fix-B"}}}},
+			{Title: "Option C", Diagnosis: agenticv1alpha1.DiagnosisResult{Summary: "diag-C"}, Proposal: agenticv1alpha1.ProposalResult{Actions: []agenticv1alpha1.ProposedAction{{Type: "patch", Description: "fix-C"}}}},
 		},
 	}
 	agent.verifyResult = &VerificationOutput{
@@ -1306,5 +1371,51 @@ func TestConditionTime(t *testing.T) {
 	got = conditionTime(conditions, "Missing")
 	if got != nil {
 		t.Errorf("expected nil for missing condition, got %v", *got)
+	}
+}
+
+func TestReconcile_VerifyFailWithoutExecution_Escalates(t *testing.T) {
+	// Verification failure on a workflow with no execution step must not
+	// schedule RetryingExecution — there is nothing to re-execute and the
+	// proposal would live-lock in the Executing phase.
+	scheme := testScheme()
+	proposal := &agenticv1alpha1.Proposal{
+		ObjectMeta: metav1.ObjectMeta{Name: "fix-crash", Namespace: "default"},
+		Spec: agenticv1alpha1.ProposalSpec{
+			Request:          "Verify diagnosis only",
+			Tools:            testTools(),
+			TargetNamespaces: []string{"production"},
+			Analysis:         agenticv1alpha1.ProposalStep{Agent: "default"},
+			Verification:     agenticv1alpha1.ProposalStep{Agent: "default"},
+		},
+	}
+
+	objs := append([]client.Object{proposal}, defaultObjects()...)
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(proposal, &agenticv1alpha1.AnalysisResult{}, &agenticv1alpha1.ExecutionResult{}, &agenticv1alpha1.VerificationResult{}, &agenticv1alpha1.EscalationResult{}).Build()
+
+	agent := newTestAgentCaller()
+	agent.verifyResult = &VerificationOutput{
+		Success: false,
+		Checks:  []agenticv1alpha1.VerifyCheck{{Name: "diagnosis", Result: agenticv1alpha1.CheckResultFailed}},
+		Summary: "remediation not applied",
+	}
+	r := &ProposalReconciler{Client: fc, Agent: agent, Namespace: "default"}
+
+	reconcileOnce(r, "fix-crash") // analysis
+	approveProposal(t, fc, "fix-crash")
+	reconcileOnce(r, "fix-crash") // execution skipped → verifying
+	reconcileOnce(r, "fix-crash") // verification fails
+
+	p, _ := getProposal(r, "fix-crash")
+	verified := meta.FindStatusCondition(p.Status.Conditions, agenticv1alpha1.ProposalConditionVerified)
+	if verified == nil {
+		t.Fatal("expected Verified condition")
+	}
+	if verified.Reason == reasonRetryingExecution {
+		t.Fatalf("must not retry execution when no execution step exists, got reason %q", verified.Reason)
+	}
+	if phase := agenticv1alpha1.DerivePhase(p.Status.Conditions); phase == agenticv1alpha1.ProposalPhaseExecuting {
+		t.Fatalf("proposal live-locked in Executing phase")
 	}
 }
